@@ -68,8 +68,12 @@ async def index_page() -> None:
         .section-title { font-size:20px; font-weight:650; letter-spacing:-.01em; }
         .source-row { border-top:1px solid var(--line); min-height:46px; }
         .source-name { font-size:14px; font-weight:650; }
-        .location-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch; }
+        .location-columns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; align-items:stretch; }
         .location-columns > .q-card { height:100%; }
+        .export-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:0; border-top:1px solid var(--line); }
+        .export-item { padding:12px 16px; border-top:1px solid var(--line); }
+        .export-item:first-child { border-top:0; }
+        .export-item-title { color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
         .path { font-family:ui-monospace,"SFMono-Regular",Menlo,monospace; font-size:12px; }
         .stat { border-left:1px solid var(--line); padding:10px 14px; min-width:96px; }
         .stat:first-child { border-left:0; }
@@ -85,7 +89,9 @@ async def index_page() -> None:
         .video-placeholder { width:188px; height:136px; display:flex; align-items:center; justify-content:center; background:#e8e8e4; border-bottom:1px solid var(--line); font-weight:700; font-size:11px; letter-spacing:.08em; cursor:pointer; }
         .q-btn { border-radius:2px; box-shadow:none !important; }
         .q-tree__node-header { min-height:28px; }
-        @media (max-width:1000px) { .location-columns { grid-template-columns:minmax(0,1fr); } }
+        @media (max-width:1000px) {
+            .location-columns { grid-template-columns:minmax(0,1fr); }
+        }
         """
     )
 
@@ -139,6 +145,34 @@ async def index_page() -> None:
                     "RAID не считается отдельной копией."
                 ).classes("muted text-sm")
                 storages_container = ui.column().classes("w-full gap-0 mt-3")
+
+            with ui.card().classes("panel w-full p-0"):
+                with ui.row().classes("w-full items-start justify-between p-5 pb-4"):
+                    with ui.column().classes("gap-1 min-w-0"):
+                        ui.label("03 / ЭКСПОРТ").classes("section-index")
+                        ui.label("Экспорт").classes("section-title")
+                        ui.label(
+                            "Подготовка отдельных наборов файлов для личных, рабочих и "
+                            "других задач. Пока раздел только описывает будущие профили — "
+                            "операции с файлами не выполняются."
+                        ).classes("muted text-sm")
+                    ui.label("ЗАПЛАНИРОВАНО").classes("readonly")
+                with ui.element("div").classes("export-grid w-full"):
+                    with ui.column().classes("export-item gap-1"):
+                        ui.label("Назначения").classes("export-item-title")
+                        ui.label("Личное · Работа · Сайты · Другие профили").classes(
+                            "text-sm"
+                        )
+                    with ui.column().classes("export-item gap-1"):
+                        ui.label("Обработка").classes("export-item-title")
+                        ui.label(
+                            "Разбор скриншотов в текст · уменьшение · преобразование"
+                        ).classes("text-sm")
+                    with ui.column().classes("export-item gap-1"):
+                        ui.label("Контроль").classes("export-item-title")
+                        ui.label(
+                            "Предпросмотр плана · подтверждение · проверка · откат"
+                        ).classes("text-sm")
 
         with ui.card().classes("panel w-full"):
             summary_container = ui.row().classes("w-full items-stretch no-wrap")
