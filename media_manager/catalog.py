@@ -46,7 +46,24 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS thumbnail_jobs (
+    media_id INTEGER PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+    media_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'running', 'done', 'error')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    queued_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS thumbnail_jobs_status_priority
+ON thumbnail_jobs(status, priority DESC, queued_at);
+
 INSERT OR IGNORE INTO metadata(key, value) VALUES ('catalog_revision', '0');
+INSERT OR IGNORE INTO metadata(key, value) VALUES ('thumbnail_queue_paused', '0');
 """
 
 
@@ -191,9 +208,15 @@ class Catalog:
     def list_sources(self) -> list[dict[str, object]]:
         query = """
             SELECT sources.*, COUNT(media_files.id) AS media_count,
-                   COALESCE(SUM(media_files.size), 0) AS total_size
+                   COALESCE(SUM(media_files.size), 0) AS total_size,
+                   COALESCE(SUM(media_files.kind = 'photo'), 0) AS thumbnail_total,
+                   COALESCE(SUM(thumbnail_jobs.status = 'done'), 0) AS thumbnail_done,
+                   COALESCE(SUM(thumbnail_jobs.status = 'pending'), 0) AS thumbnail_pending,
+                   COALESCE(SUM(thumbnail_jobs.status = 'running'), 0) AS thumbnail_running,
+                   COALESCE(SUM(thumbnail_jobs.status = 'error'), 0) AS thumbnail_error
             FROM sources
             LEFT JOIN media_files ON media_files.source_id = sources.id
+            LEFT JOIN thumbnail_jobs ON thumbnail_jobs.media_id = media_files.id
             GROUP BY sources.id
             ORDER BY sources.role, sources.path COLLATE NOCASE
         """
@@ -248,15 +271,18 @@ class Catalog:
                 "DELETE FROM media_files WHERE source_id = ? AND seen_token != ?",
                 (source_id, token),
             )
-            error_text = "\n".join(error.message for error in report.errors[:20]) or None
-            status = "warning" if report.errors else "idle"
             connection.execute(
                 """
                 UPDATE sources
-                SET last_scan_at = ?, status = ?, error = ?
+                SET last_scan_at = ?,
+                    status = CASE
+                        WHEN status = 'scanning' THEN 'scanning'
+                        ELSE 'idle'
+                    END,
+                    error = NULL
                 WHERE id = ?
                 """,
-                (now, status, error_text, source_id),
+                (now, source_id),
             )
             connection.execute(
                 """
@@ -318,7 +344,12 @@ class Catalog:
             connection.execute(
                 """
                 UPDATE sources
-                SET last_scan_at = ?, status = 'idle', error = NULL
+                SET last_scan_at = ?,
+                    status = CASE
+                        WHEN status = 'scanning' THEN 'scanning'
+                        ELSE 'idle'
+                    END,
+                    error = NULL
                 WHERE id = ?
                 """,
                 (now, source_id),
@@ -330,6 +361,226 @@ class Catalog:
                 WHERE key = 'catalog_revision'
                 """
             )
+
+    def enqueue_source_thumbnails(self, source_id: int, priority: int = 0) -> int:
+        now = datetime.now().astimezone().isoformat()
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO thumbnail_jobs(
+                    media_id, media_version, status, priority, attempts,
+                    error, queued_at, started_at, finished_at
+                )
+                SELECT id, CAST(size AS TEXT) || ':' || modified_at,
+                       'pending', ?, 0, NULL, ?, NULL, NULL
+                FROM media_files
+                WHERE source_id = ? AND kind = 'photo'
+                ON CONFLICT(media_id) DO UPDATE SET
+                    media_version = excluded.media_version,
+                    status = CASE
+                        WHEN thumbnail_jobs.media_version != excluded.media_version
+                            THEN 'pending'
+                        WHEN thumbnail_jobs.status = 'error' THEN 'pending'
+                        ELSE thumbnail_jobs.status
+                    END,
+                    priority = MAX(thumbnail_jobs.priority, excluded.priority),
+                    error = CASE
+                        WHEN thumbnail_jobs.status = 'error' THEN NULL
+                        ELSE thumbnail_jobs.error
+                    END,
+                    queued_at = CASE
+                        WHEN thumbnail_jobs.media_version != excluded.media_version
+                             OR thumbnail_jobs.status = 'error'
+                            THEN excluded.queued_at
+                        ELSE thumbnail_jobs.queued_at
+                    END
+                """,
+                (priority, now, source_id),
+            )
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM thumbnail_jobs
+                JOIN media_files ON media_files.id = thumbnail_jobs.media_id
+                WHERE media_files.source_id = ?
+                  AND thumbnail_jobs.status IN ('pending', 'running')
+                """,
+                (source_id,),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
+    def enqueue_all_thumbnails(self) -> None:
+        for source in self.list_sources():
+            self.enqueue_source_thumbnails(int(source["id"]))
+
+    def prioritize_folder_thumbnails(
+        self, source_id: int, folder: str, priority: int = 100
+    ) -> None:
+        now = datetime.now().astimezone().isoformat()
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO thumbnail_jobs(
+                    media_id, media_version, status, priority, attempts,
+                    error, queued_at, started_at, finished_at
+                )
+                SELECT id, CAST(size AS TEXT) || ':' || modified_at,
+                       'pending', ?, 0, NULL, ?, NULL, NULL
+                FROM media_files
+                WHERE source_id = ? AND parent_path = ? AND kind = 'photo'
+                ON CONFLICT(media_id) DO UPDATE SET
+                    priority = CASE
+                        WHEN thumbnail_jobs.status = 'pending'
+                            THEN MAX(thumbnail_jobs.priority, excluded.priority)
+                        ELSE thumbnail_jobs.priority
+                    END
+                """,
+                (priority, now, source_id, folder),
+            )
+
+    def enqueue_media_thumbnail(self, media_id: int, priority: int = 200) -> None:
+        media = self.get_media(media_id)
+        if media is None or media.get("kind") != "photo":
+            return
+        now = datetime.now().astimezone().isoformat()
+        version = f"{media['size']}:{media['modified_at']}"
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO thumbnail_jobs(
+                    media_id, media_version, status, priority, attempts,
+                    error, queued_at, started_at, finished_at
+                ) VALUES (?, ?, 'pending', ?, 0, NULL, ?, NULL, NULL)
+                ON CONFLICT(media_id) DO UPDATE SET
+                    status = CASE
+                        WHEN thumbnail_jobs.status = 'running' THEN 'running'
+                        ELSE 'pending'
+                    END,
+                    priority = MAX(thumbnail_jobs.priority, excluded.priority),
+                    error = NULL,
+                    queued_at = CASE
+                        WHEN thumbnail_jobs.status = 'running'
+                            THEN thumbnail_jobs.queued_at
+                        ELSE excluded.queued_at
+                    END
+                """,
+                (media_id, version, priority, now),
+            )
+
+    def reset_stale_source_scans(self) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE sources SET status = 'idle', error = NULL
+                WHERE status = 'scanning'
+                """
+            )
+
+    def reset_running_thumbnail_jobs(self) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE thumbnail_jobs
+                SET status = 'pending', started_at = NULL
+                WHERE status = 'running'
+                """
+            )
+
+    def claim_thumbnail_job(self, source_kind: str) -> int | None:
+        now = datetime.now().astimezone().isoformat()
+        with self._write_lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT thumbnail_jobs.media_id
+                FROM thumbnail_jobs
+                JOIN media_files ON media_files.id = thumbnail_jobs.media_id
+                JOIN sources ON sources.id = media_files.source_id
+                WHERE thumbnail_jobs.status = 'pending'
+                  AND sources.kind = ?
+                  AND sources.status != 'scanning'
+                ORDER BY thumbnail_jobs.priority DESC,
+                         thumbnail_jobs.queued_at,
+                         thumbnail_jobs.media_id
+                LIMIT 1
+                """,
+                (source_kind,),
+            ).fetchone()
+            if row is None:
+                return None
+            media_id = int(row["media_id"])
+            connection.execute(
+                """
+                UPDATE thumbnail_jobs
+                SET status = 'running', attempts = attempts + 1,
+                    started_at = ?, error = NULL
+                WHERE media_id = ?
+                """,
+                (now, media_id),
+            )
+        return media_id
+
+    def finish_thumbnail_job(
+        self, media_id: int, *, error: str | None = None
+    ) -> None:
+        now = datetime.now().astimezone().isoformat()
+        status = "error" if error else "done"
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE thumbnail_jobs
+                SET status = ?, error = ?, finished_at = ?, priority = 0
+                WHERE media_id = ?
+                """,
+                (status, error, now, media_id),
+            )
+
+    def release_thumbnail_job(self, media_id: int) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE thumbnail_jobs
+                SET status = 'pending', started_at = NULL
+                WHERE media_id = ?
+                """,
+                (media_id,),
+            )
+
+    def thumbnail_queue_summary(self) -> dict[str, int | bool]:
+        with self.connect() as connection:
+            counts = {
+                str(row["status"]): int(row["count"])
+                for row in connection.execute(
+                    "SELECT status, COUNT(*) AS count FROM thumbnail_jobs GROUP BY status"
+                ).fetchall()
+            }
+            paused_row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'thumbnail_queue_paused'"
+            ).fetchone()
+        return {
+            "total": sum(counts.values()),
+            "pending": counts.get("pending", 0),
+            "running": counts.get("running", 0),
+            "done": counts.get("done", 0),
+            "error": counts.get("error", 0),
+            "paused": bool(int(paused_row["value"])) if paused_row else False,
+        }
+
+    def set_thumbnail_queue_paused(self, paused: bool) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE metadata SET value = ? WHERE key = 'thumbnail_queue_paused'
+                """,
+                ("1" if paused else "0",),
+            )
+
+    def thumbnail_queue_paused(self) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'thumbnail_queue_paused'"
+            ).fetchone()
+        return bool(int(row["value"])) if row else False
 
     def revision(self) -> int:
         with self.connect() as connection:

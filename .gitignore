@@ -10,6 +10,7 @@ __pycache__/
 
 # Local data and settings
 .env
+config.local.json
 launcher.json
 *.db
 *.sqlite

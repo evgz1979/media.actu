@@ -10,7 +10,7 @@ from PIL import Image
 
 from media_manager.catalog import Catalog
 from media_manager.scanner import scan_sources
-from media_manager.thumbnails import ThumbnailService
+from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
 
 
 def digest(path: Path) -> str:
@@ -18,6 +18,24 @@ def digest(path: Path) -> str:
 
 
 class ThumbnailTests(unittest.TestCase):
+    def test_missing_external_cache_does_not_fall_back_to_system_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            Image.new("RGB", (20, 20), "navy").save(source / "photo.jpg")
+            catalog = Catalog(root / "catalog.sqlite3")
+            source_id = int(catalog.add_source(source)["id"])
+            catalog.replace_source_scan(source_id, scan_sources([source]))
+            media_id = int(catalog.list_files(source_id)[0]["id"])
+            service = ThumbnailService(
+                catalog,
+                "/Volumes/media-actu-test-volume-does-not-exist/thumbnails",
+            )
+
+            with self.assertRaises(ThumbnailCacheUnavailable):
+                service.get_or_create(media_id)
+
     def test_thumbnail_is_written_only_to_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -34,12 +52,15 @@ class ThumbnailTests(unittest.TestCase):
             media_id = int(catalog.list_files(source_id)[0]["id"])
             service = ThumbnailService(catalog, root / "cache")
 
+            self.assertIsNone(service.get_cached(media_id))
             thumbnail = service.get_or_create(media_id)
 
             self.assertIsNotNone(thumbnail)
             assert thumbnail is not None
             self.assertTrue(thumbnail.is_file())
             self.assertTrue(thumbnail.is_relative_to(root / "cache"))
+            self.assertEqual(len(thumbnail.relative_to(root / "cache").parts), 3)
+            self.assertEqual(service.get_cached(media_id), thumbnail)
             self.assertEqual(digest(original), original_digest)
             self.assertEqual(original.stat().st_size, original_stat.st_size)
             self.assertEqual(original.stat().st_mtime_ns, original_stat.st_mtime_ns)

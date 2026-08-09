@@ -31,11 +31,15 @@ class SystemPhotosAdapter:
         self.app_directory = build_directory / "media-actu-photos.app"
         self.executable = self.app_directory / "Contents" / "MacOS" / "media-actu-photos"
         self._build_lock = threading.Lock()
+        self._operation_lock = threading.RLock()
         self._backend: str | None = None
 
     @property
     def supported(self) -> bool:
         return os.uname().sysname == "Darwin" and shutil.which("clang") is not None
+
+    def reuse_indexed_backend(self) -> None:
+        self._backend = "applescript"
 
     def ensure_built(self) -> None:
         if not self.supported:
@@ -139,34 +143,36 @@ class SystemPhotosAdapter:
         return {**fallback, "backend": self._backend}
 
     def scan(self) -> list[dict[str, Any]]:
-        if self._backend is None:
-            self.status()
-        if self._backend == "applescript":
-            return self._applescript_scan()
-        payload = self._run("scan", timeout=600)
-        return list(payload.get("assets", []))
+        with self._operation_lock:
+            if self._backend is None:
+                self.status()
+            if self._backend == "applescript":
+                return self._applescript_scan()
+            payload = self._run("scan", timeout=600)
+            return list(payload.get("assets", []))
 
     def create_thumbnail(
         self, asset_identifier: str, target: Path, width: int = 640, height: int = 480
     ) -> Path:
-        if self._backend is None:
-            self.status()
-        if self._backend == "applescript":
-            return self._applescript_thumbnail(
-                asset_identifier, target, width, height
+        with self._operation_lock:
+            if self._backend is None:
+                self.status()
+            if self._backend == "applescript":
+                return self._applescript_thumbnail(
+                    asset_identifier, target, width, height
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._run(
+                "thumbnail",
+                asset_identifier,
+                str(target),
+                str(width),
+                str(height),
+                timeout=600,
             )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._run(
-            "thumbnail",
-            asset_identifier,
-            str(target),
-            str(width),
-            str(height),
-            timeout=600,
-        )
-        if not target.is_file():
-            raise PhotosAdapterError("PhotoKit не создал превью")
-        return target
+            if not target.is_file():
+                raise PhotosAdapterError("PhotoKit не создал превью")
+            return target
 
     def open_asset(self, asset_identifier: str) -> None:
         result = subprocess.run(

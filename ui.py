@@ -33,6 +33,14 @@ def format_date(value: str | None) -> str:
     return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M")
 
 
+def format_percent(done: int, total: int) -> str:
+    if not total:
+        return "0.0%"
+    percent = done / total * 100
+    precision = 2 if 0 < percent < 0.1 else 1
+    return f"{percent:.{precision}f}%"
+
+
 async def core_request(
     method: str, path: str, *, timeout: float = 20, **kwargs: Any
 ) -> dict[str, Any]:
@@ -63,10 +71,13 @@ async def index_page() -> None:
         .location-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch; }
         .location-columns > .q-card { height:100%; }
         .path { font-family:ui-monospace,"SFMono-Regular",Menlo,monospace; font-size:12px; }
-        .stat { border-left:1px solid var(--line); padding:10px 18px; min-width:120px; }
+        .stat { border-left:1px solid var(--line); padding:10px 14px; min-width:96px; }
         .stat:first-child { border-left:0; }
         .stat-value { font-size:20px; font-weight:650; }
         .stat-label { color:var(--muted); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+        .stat-wide { min-width:176px; }
+        .stat-worker { min-width:210px; }
+        .stat-action { min-width:88px; }
         .tree-pane { width:290px; min-width:290px; border-right:1px solid var(--line); }
         .content-pane { min-width:0; flex:1; }
         .media-card { width:190px; border:1px solid var(--line); background:var(--white); }
@@ -83,7 +94,9 @@ async def index_page() -> None:
     selected_folders: dict[int, str] = {}
     expanded_folders: dict[int, set[str]] = {}
     source_kinds: dict[int, str] = {}
+    source_thumbnail_done: dict[int, int] = {}
     last_revision = -1
+    thumbnails_paused = False
 
     with ui.row().classes("utility-header w-full items-center justify-between no-wrap"):
         with ui.row().classes("items-center gap-4"):
@@ -128,7 +141,7 @@ async def index_page() -> None:
                 storages_container = ui.column().classes("w-full gap-0 mt-3")
 
         with ui.card().classes("panel w-full"):
-            summary_container = ui.row().classes("w-full no-wrap")
+            summary_container = ui.row().classes("w-full items-stretch no-wrap")
 
         with ui.card().classes("panel w-full min-h-[520px]"):
             with ui.row().classes("w-full no-wrap items-stretch"):
@@ -198,6 +211,12 @@ async def index_page() -> None:
                                     f"{format_bytes(int(source['total_size']))} · "
                                     f"{source['status']} · {format_date(source['last_scan_at'])}"
                                 ).classes("muted text-xs")
+                                thumbnail_total = int(source.get("thumbnail_total") or 0)
+                                thumbnail_done = int(source.get("thumbnail_done") or 0)
+                                ui.label(
+                                    f"Превью: {thumbnail_done} / {thumbnail_total} · "
+                                    f"{format_percent(thumbnail_done, thumbnail_total)}"
+                                ).classes("muted text-xs")
                             if source.get("kind") != "photos":
                                 ui.button(
                                     "Изменить",
@@ -241,9 +260,40 @@ async def index_page() -> None:
             connection_label.classes(add="text-negative", remove="muted text-positive")
             await report_error(error)
 
-    async def refresh_summary() -> None:
+    async def refresh_summary() -> tuple[bool, bool]:
+        nonlocal thumbnails_paused
         try:
-            summary = await core_request("GET", "/api/catalog/summary")
+            summary, thumbnails_status = await asyncio.gather(
+                core_request("GET", "/api/catalog/summary"),
+                core_request("GET", "/api/thumbnails/status"),
+            )
+            thumbnails_paused = bool(thumbnails_status["paused"])
+            previous_selected_done = (
+                source_thumbnail_done.get(selected_source_id)
+                if selected_source_id is not None
+                else None
+            )
+            previous_source_done = dict(source_thumbnail_done)
+            source_thumbnail_done.clear()
+            source_thumbnail_done.update(
+                {
+                    int(source["source_id"]): int(source["done"])
+                    for source in thumbnails_status.get("sources", [])
+                }
+            )
+            total_previews = int(thumbnails_status["total"])
+            done_previews = int(thumbnails_status["done"])
+            progress = (
+                f"{done_previews / total_previews * 100:.1f}%"
+                if total_previews
+                else "0%"
+            )
+            scanning_kinds = set(thumbnails_status.get("scanning_kinds") or [])
+            if thumbnails_paused:
+                worker_label = "Пауза"
+            else:
+                waiting_workers = int(thumbnails_status["workers_waiting"])
+                worker_label = f"Работает · {waiting_workers} ожидают"
             summary_container.clear()
             with summary_container:
                 for label, value in [
@@ -251,11 +301,49 @@ async def index_page() -> None:
                     ("Фото", str(summary["photos"])),
                     ("Видео", str(summary["videos"])),
                     ("Размер", format_bytes(int(summary["bytes"]))),
-                    ("Ревизия", str(summary["revision"])),
+                    (
+                        f"Превью всех расположений · {progress}",
+                        f"{done_previews} / {total_previews}",
+                    ),
+                    ("Очередь", str(thumbnails_status["pending"])),
+                    (
+                        worker_label,
+                        f"{thumbnails_status['workers_working']} / "
+                        f"{thumbnails_status['workers_total']}",
+                    ),
                 ]:
-                    with ui.column().classes("stat gap-1"):
+                    extra_class = ""
+                    if label.startswith("Превью"):
+                        extra_class = " stat-wide"
+                    elif label.startswith("Работает") or label == "Пауза":
+                        extra_class = " stat-worker"
+                    with ui.column().classes(f"stat gap-1{extra_class}"):
                         ui.label(value).classes("stat-value")
                         ui.label(label).classes("stat-label")
+                with ui.column().classes("stat stat-action gap-1 justify-center"):
+                    ui.button(
+                        "Продолжить" if thumbnails_paused else "Пауза",
+                        on_click=lambda: toggle_thumbnail_queue(),
+                    ).props("outline color=dark no-caps dense")
+            selected_changed = (
+                selected_source_id is not None
+                and previous_selected_done is not None
+                and source_thumbnail_done.get(selected_source_id)
+                != previous_selected_done
+            )
+            all_sources_changed = bool(previous_source_done) and (
+                source_thumbnail_done != previous_source_done
+            )
+            return selected_changed, all_sources_changed
+        except Exception as error:
+            await report_error(error)
+            return False, False
+
+    async def toggle_thumbnail_queue() -> None:
+        action = "resume" if thumbnails_paused else "pause"
+        try:
+            await core_request("POST", f"/api/thumbnails/{action}")
+            await refresh_summary()
         except Exception as error:
             await report_error(error)
 
@@ -495,9 +583,18 @@ async def index_page() -> None:
             revision = int(payload["revision"])
             if revision != last_revision:
                 last_revision = revision
-                await asyncio.gather(refresh_sources(), refresh_summary())
+                await refresh_sources()
                 if selected_source_id is not None:
                     await load_tree()
+            selected_previews_changed, source_progress_changed = await refresh_summary()
+            if source_progress_changed:
+                await refresh_sources()
+            if (
+                selected_previews_changed
+                and selected_source_id is not None
+                and source_kinds.get(selected_source_id) == "photos"
+            ):
+                await load_files()
         except Exception:
             connection_label.text = "CORE: недоступен · :8765"
             connection_label.classes(add="text-negative", remove="text-positive muted")

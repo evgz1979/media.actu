@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -19,15 +20,28 @@ from media_manager.photos_adapter import (
     SystemPhotosAdapter,
 )
 from media_manager.scanner import scan_sources
-from media_manager.thumbnails import ThumbnailService
+from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
+from media_manager.thumbnail_workers import ThumbnailWorkerPool
 from media_manager.watcher import SourceWatcher
 
 
 ROOT = Path(__file__).parent
 DATA_DIR = ROOT / "data"
+
+
+def local_thumbnail_cache_directory() -> Path:
+    config_path = ROOT / "config.local.json"
+    if not config_path.is_file():
+        return DATA_DIR / "thumbnails"
+    settings = json.loads(config_path.read_text(encoding="utf-8"))
+    configured = settings.get("thumbnail_cache_directory")
+    return Path(str(configured)).expanduser() if configured else DATA_DIR / "thumbnails"
+
+
 catalog = Catalog(DATA_DIR / "catalog.sqlite3")
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
-thumbnails = ThumbnailService(catalog, DATA_DIR / "thumbnails", photos_adapter)
+thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
+thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-scan")
 scan_locks: dict[int, threading.Lock] = {}
 
@@ -44,9 +58,19 @@ def scan_source(source_id: int) -> dict[str, object]:
         if source.get("kind") == "photos":
             assets = photos_adapter.scan()
             catalog.replace_photos_scan(source_id, assets)
+            catalog.enqueue_source_thumbnails(source_id)
+            catalog.set_source_status(source_id, "idle")
+            thumbnail_workers.wake()
             return {"source_id": source_id, "total": len(assets)}
         report = scan_sources([str(source["path"])])
         catalog.replace_source_scan(source_id, report)
+        catalog.enqueue_source_thumbnails(source_id)
+        catalog.set_source_status(
+            source_id,
+            "warning" if report.errors else "idle",
+            "\n".join(error.message for error in report.errors[:20]) or None,
+        )
+        thumbnail_workers.wake()
         return {"source_id": source_id, **report.to_dict()["summary"]}
     except Exception as error:
         catalog.set_source_status(source_id, "error", str(error))
@@ -56,6 +80,7 @@ def scan_source(source_id: int) -> dict[str, object]:
 
 
 def schedule_scan(source_id: int) -> None:
+    catalog.set_source_status(source_id, "scanning")
     executor.submit(scan_source, source_id)
 
 
@@ -65,33 +90,52 @@ watcher = SourceWatcher(schedule_scan)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     watcher.start()
+    catalog.reset_stale_source_scans()
     photos_ready = False
     if photos_adapter.supported:
         photos_source = catalog.add_system_photos_source()
-        try:
-            await asyncio.to_thread(
-                photos_adapter.status, request_authorization=True
-            )
+        indexed_photos = next(
+            (
+                source
+                for source in catalog.list_sources()
+                if source.get("kind") == "photos"
+            ),
+            None,
+        )
+        if indexed_photos and int(indexed_photos.get("media_count") or 0) > 0:
+            photos_adapter.reuse_indexed_backend()
+            catalog.set_source_status(int(photos_source["id"]), "idle")
             photos_ready = True
-        except PhotosAccessDenied:
-            catalog.set_source_status(
-                int(photos_source["id"]), "no_access", "Нет доступа к Photos"
-            )
-        except PhotosAdapterError as error:
-            catalog.set_source_status(
-                int(photos_source["id"]), "error", str(error)
-            )
+        else:
+            try:
+                await asyncio.to_thread(
+                    photos_adapter.status, request_authorization=True
+                )
+                photos_ready = True
+            except PhotosAccessDenied:
+                catalog.set_source_status(
+                    int(photos_source["id"]), "no_access", "Нет доступа к Photos"
+                )
+            except PhotosAdapterError as error:
+                catalog.set_source_status(
+                    int(photos_source["id"]), "error", str(error)
+                )
     for source in catalog.list_sources():
         if source.get("kind") == "photos":
-            if photos_ready:
+            if photos_ready and (
+                int(source.get("media_count") or 0) == 0
+                or not source.get("last_scan_at")
+            ):
                 schedule_scan(int(source["id"]))
             continue
         source_path = Path(str(source["path"]))
         if source_path.is_dir():
             watcher.watch(int(source["id"]), source_path)
             schedule_scan(int(source["id"]))
+    thumbnail_workers.start()
     yield
     watcher.stop()
+    thumbnail_workers.stop()
     executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -304,11 +348,31 @@ async def source_files(
 ) -> dict[str, object]:
     if catalog.get_source(source_id) is None:
         raise HTTPException(status_code=404, detail="Источник не найден")
+    catalog.prioritize_folder_thumbnails(source_id, folder)
+    thumbnail_workers.wake()
     return {
         "files": catalog.list_files(source_id, folder=folder, limit=limit),
         "folder": folder,
         "revision": catalog.revision(),
     }
+
+
+@app.get("/api/thumbnails/status")
+async def thumbnail_status() -> dict[str, object]:
+    return thumbnail_workers.status()
+
+
+@app.post("/api/thumbnails/pause")
+async def pause_thumbnails() -> dict[str, object]:
+    catalog.set_thumbnail_queue_paused(True)
+    return thumbnail_workers.status()
+
+
+@app.post("/api/thumbnails/resume")
+async def resume_thumbnails() -> dict[str, object]:
+    catalog.set_thumbnail_queue_paused(False)
+    thumbnail_workers.wake()
+    return thumbnail_workers.status()
 
 
 @app.post("/api/sources/{source_id}/open-in-finder")
@@ -341,11 +405,13 @@ async def open_source_folder_in_finder(
 @app.get("/api/media/{media_id}/thumbnail")
 async def media_thumbnail(media_id: int) -> FileResponse:
     try:
-        thumbnail = await asyncio.to_thread(thumbnails.get_or_create, media_id)
+        thumbnail = await asyncio.to_thread(thumbnails.get_cached, media_id)
+    except ThumbnailCacheUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except (FileNotFoundError, PermissionError, OSError, PhotosAdapterError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     if thumbnail is None:
-        raise HTTPException(status_code=404, detail="Превью недоступно")
+        raise HTTPException(status_code=404, detail="Превью готовится")
     return FileResponse(
         thumbnail,
         media_type="image/jpeg",

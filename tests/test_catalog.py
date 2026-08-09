@@ -141,3 +141,36 @@ class CatalogTests(unittest.TestCase):
             )
             with self.assertRaises(PermissionError):
                 catalog.resolve_source_folder(source_id)
+
+    def test_thumbnail_queue_is_persistent_and_tracks_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "photo.jpg").write_bytes(b"photo")
+            catalog = Catalog(root / "catalog.sqlite3")
+            source_id = int(catalog.add_source(source)["id"])
+            catalog.replace_source_scan(source_id, scan_sources([source]))
+
+            catalog.enqueue_source_thumbnails(source_id)
+            pending = catalog.thumbnail_queue_summary()
+            self.assertEqual(pending["total"], 1)
+            self.assertEqual(pending["pending"], 1)
+
+            media_id = catalog.claim_thumbnail_job("folder")
+            self.assertIsNotNone(media_id)
+            self.assertEqual(catalog.thumbnail_queue_summary()["running"], 1)
+
+            catalog.finish_thumbnail_job(int(media_id))
+            self.assertEqual(catalog.thumbnail_queue_summary()["done"], 1)
+            source_progress = catalog.list_sources()[0]
+            self.assertEqual(source_progress["thumbnail_total"], 1)
+            self.assertEqual(source_progress["thumbnail_done"], 1)
+
+            catalog.enqueue_source_thumbnails(source_id)
+            catalog.reset_running_thumbnail_jobs()
+
+            catalog.set_thumbnail_queue_paused(True)
+            self.assertTrue(catalog.thumbnail_queue_paused())
+            reopened = Catalog(root / "catalog.sqlite3")
+            self.assertTrue(reopened.thumbnail_queue_summary()["paused"])
