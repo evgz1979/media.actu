@@ -80,6 +80,8 @@ async def index_page() -> None:
 
     selected_source_id: int | None = None
     selected_folder = ""
+    selected_folders: dict[int, str] = {}
+    expanded_folders: dict[int, set[str]] = {}
     last_revision = -1
 
     with ui.row().classes("utility-header w-full items-center justify-between no-wrap"):
@@ -335,13 +337,26 @@ async def index_page() -> None:
     async def select_source(value: Any) -> None:
         nonlocal selected_source_id, selected_folder
         selected_source_id = int(value) if value is not None else None
-        selected_folder = ""
+        selected_folder = (
+            selected_folders.get(selected_source_id, "")
+            if selected_source_id is not None
+            else ""
+        )
         await load_tree()
 
     async def select_folder(value: Any) -> None:
         nonlocal selected_folder
         selected_folder = "" if value == "__root__" else str(value or "")
+        if selected_source_id is not None:
+            selected_folders[selected_source_id] = selected_folder
         await load_files()
+
+    def remember_expanded_folders(value: Any) -> None:
+        if selected_source_id is None:
+            return
+        expanded_folders[selected_source_id] = {
+            str(folder) for folder in (value or [])
+        }
 
     async def open_in_finder() -> None:
         if selected_source_id is None:
@@ -379,9 +394,12 @@ async def index_page() -> None:
                     node_key="id",
                     label_key="label",
                     on_select=lambda e: select_folder(e.value),
+                    on_expand=lambda e: remember_expanded_folders(e.value),
                 ).classes("w-full")
-                tree.select("__root__")
-                tree.expand(["__root__"])
+                tree.select(selected_folder or "__root__")
+                tree.expand(
+                    list(expanded_folders.setdefault(selected_source_id, {"__root__"}))
+                )
             await load_files()
         except Exception as error:
             await report_error(error)
