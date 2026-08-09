@@ -41,6 +41,25 @@ class ScannerTests(unittest.TestCase):
 
             self.assertEqual(report.files, [])
 
+    def test_ignores_macos_metadata_files_and_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            macosx = source / "__MACOSX"
+            macosx.mkdir()
+            trash = source / ".Trashes"
+            trash.mkdir()
+            (source / "._IMG_1000.jpeg").write_bytes(b"appledouble")
+            (source / ".DS_Store").write_bytes(b"metadata")
+            (macosx / "IMG_1001.jpg").write_bytes(b"metadata")
+            (trash / "IMG_1002.jpg").write_bytes(b"deleted")
+            (source / "IMG_1000.jpeg").write_bytes(b"photo")
+
+            report = scan_sources([source])
+
+            self.assertEqual(
+                [item.relative_path for item in report.files], ["IMG_1000.jpeg"]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,16 @@ VIDEO_EXTENSIONS = {
     ".webm",
 }
 
+IGNORED_DIRECTORY_NAMES = {
+    "__MACOSX",
+    ".DocumentRevisions-V100",
+    ".Spotlight-V100",
+    ".TemporaryItems",
+    ".Trashes",
+    ".fseventsd",
+}
+IGNORED_FILE_NAMES = {".DS_Store"}
+
 
 @dataclass(frozen=True, slots=True)
 class MediaFile:
@@ -122,10 +132,15 @@ def scan_sources(sources: Iterable[str | Path]) -> ScanReport:
         ):
             current_path = Path(current)
             directory_names[:] = [
-                name for name in directory_names if not (current_path / name).is_symlink()
+                name
+                for name in directory_names
+                if name not in IGNORED_DIRECTORY_NAMES
+                and not (current_path / name).is_symlink()
             ]
 
             for file_name in file_names:
+                if file_name in IGNORED_FILE_NAMES or file_name.startswith("._"):
+                    continue
                 path = current_path / file_name
                 kind = media_kind(path)
                 if kind is None or path.is_symlink():
