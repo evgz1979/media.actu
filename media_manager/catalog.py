@@ -15,6 +15,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'folder',
     role TEXT NOT NULL DEFAULT 'source',
     label TEXT,
     comment TEXT,
@@ -78,6 +79,10 @@ class Catalog:
                 connection.execute("ALTER TABLE sources ADD COLUMN label TEXT")
             if "comment" not in columns:
                 connection.execute("ALTER TABLE sources ADD COLUMN comment TEXT")
+            if "kind" not in columns:
+                connection.execute(
+                    "ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'folder'"
+                )
 
     def add_source(
         self,
@@ -101,6 +106,36 @@ class Catalog:
             )
             row = connection.execute(
                 "SELECT * FROM sources WHERE path = ?", (str(source),)
+            ).fetchone()
+        assert row is not None
+        return dict(row)
+
+    def add_system_photos_source(self) -> dict[str, object]:
+        now = datetime.now().astimezone().isoformat()
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO sources(
+                    path, kind, role, label, comment, created_at
+                ) VALUES ('photos://system', 'photos', 'source', ?, ?, ?)
+                """,
+                (
+                    "Системная медиатека Photos",
+                    "Системный адаптер Photos · только чтение",
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE sources
+                SET kind = 'photos',
+                    label = 'Системная медиатека Photos',
+                    comment = 'Системный адаптер Photos · только чтение'
+                WHERE path = 'photos://system'
+                """
+            )
+            row = connection.execute(
+                "SELECT * FROM sources WHERE path = 'photos://system'"
             ).fetchone()
         assert row is not None
         return dict(row)
@@ -138,6 +173,8 @@ class Catalog:
         source = self.get_source(source_id)
         if source is None:
             raise KeyError(source_id)
+        if source.get("kind") != "folder":
+            raise PermissionError("Виртуальный источник нельзя открыть в Finder")
 
         source_path = Path(str(source["path"])).resolve()
         relative = PurePath(folder)
@@ -229,6 +266,71 @@ class Catalog:
                 """
             )
 
+    def replace_photos_scan(
+        self, source_id: int, assets: list[dict[str, object]]
+    ) -> None:
+        token = uuid.uuid4().hex
+        now = datetime.now().astimezone().isoformat()
+        rows = []
+        for asset in assets:
+            created_at = str(asset.get("created_at") or "")
+            if created_at:
+                created = datetime.fromisoformat(created_at)
+                parent = f"{created.year:04d}/{created.year:04d}-{created.month:02d}"
+                modified_at = created.astimezone().isoformat()
+            else:
+                parent = "Без даты"
+                modified_at = now
+            rows.append(
+                (
+                    source_id,
+                    str(asset["id"]),
+                    parent,
+                    str(asset.get("name") or asset["id"]),
+                    str(asset["kind"]),
+                    int(asset.get("size") or 0),
+                    modified_at,
+                    token,
+                )
+            )
+
+        with self._write_lock, self.connect() as connection:
+            connection.executemany(
+                """
+                INSERT INTO media_files(
+                    source_id, relative_path, parent_path, name, kind,
+                    size, modified_at, seen_token
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id, relative_path) DO UPDATE SET
+                    parent_path = excluded.parent_path,
+                    name = excluded.name,
+                    kind = excluded.kind,
+                    size = excluded.size,
+                    modified_at = excluded.modified_at,
+                    seen_token = excluded.seen_token
+                """,
+                rows,
+            )
+            connection.execute(
+                "DELETE FROM media_files WHERE source_id = ? AND seen_token != ?",
+                (source_id, token),
+            )
+            connection.execute(
+                """
+                UPDATE sources
+                SET last_scan_at = ?, status = 'idle', error = NULL
+                WHERE id = ?
+                """,
+                (now, source_id),
+            )
+            connection.execute(
+                """
+                UPDATE metadata
+                SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+                WHERE key = 'catalog_revision'
+                """
+            )
+
     def revision(self) -> int:
         with self.connect() as connection:
             row = connection.execute(
@@ -311,7 +413,8 @@ class Catalog:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT media_files.*, sources.path AS source_path
+                SELECT media_files.*, sources.path AS source_path,
+                       sources.kind AS source_kind
                 FROM media_files
                 JOIN sources ON sources.id = media_files.source_id
                 WHERE media_files.id = ?
@@ -324,6 +427,8 @@ class Catalog:
         media = self.get_media(media_id)
         if media is None:
             raise KeyError(media_id)
+        if media.get("source_kind") != "folder":
+            raise PermissionError("У виртуального источника нет прямого пути к оригиналу")
 
         source = Path(str(media["source_path"])).resolve(strict=True)
         candidate = source / str(media["relative_path"])

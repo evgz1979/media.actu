@@ -13,6 +13,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from media_manager.catalog import Catalog
+from media_manager.photos_adapter import (
+    PhotosAccessDenied,
+    PhotosAdapterError,
+    SystemPhotosAdapter,
+)
 from media_manager.scanner import scan_sources
 from media_manager.thumbnails import ThumbnailService
 from media_manager.watcher import SourceWatcher
@@ -21,7 +26,8 @@ from media_manager.watcher import SourceWatcher
 ROOT = Path(__file__).parent
 DATA_DIR = ROOT / "data"
 catalog = Catalog(DATA_DIR / "catalog.sqlite3")
-thumbnails = ThumbnailService(catalog, DATA_DIR / "thumbnails")
+photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
+thumbnails = ThumbnailService(catalog, DATA_DIR / "thumbnails", photos_adapter)
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-scan")
 scan_locks: dict[int, threading.Lock] = {}
 
@@ -35,6 +41,10 @@ def scan_source(source_id: int) -> dict[str, object]:
         return {"source_id": source_id, "status": "already_scanning"}
     try:
         catalog.set_source_status(source_id, "scanning")
+        if source.get("kind") == "photos":
+            assets = photos_adapter.scan()
+            catalog.replace_photos_scan(source_id, assets)
+            return {"source_id": source_id, "total": len(assets)}
         report = scan_sources([str(source["path"])])
         catalog.replace_source_scan(source_id, report)
         return {"source_id": source_id, **report.to_dict()["summary"]}
@@ -55,7 +65,27 @@ watcher = SourceWatcher(schedule_scan)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     watcher.start()
+    photos_ready = False
+    if photos_adapter.supported:
+        photos_source = catalog.add_system_photos_source()
+        try:
+            await asyncio.to_thread(
+                photos_adapter.status, request_authorization=True
+            )
+            photos_ready = True
+        except PhotosAccessDenied:
+            catalog.set_source_status(
+                int(photos_source["id"]), "no_access", "Нет доступа к Photos"
+            )
+        except PhotosAdapterError as error:
+            catalog.set_source_status(
+                int(photos_source["id"]), "error", str(error)
+            )
     for source in catalog.list_sources():
+        if source.get("kind") == "photos":
+            if photos_ready:
+                schedule_scan(int(source["id"]))
+            continue
         source_path = Path(str(source["path"]))
         if source_path.is_dir():
             watcher.watch(int(source["id"]), source_path)
@@ -187,8 +217,14 @@ async def update_source(
 
 @app.delete("/api/sources/{source_id}")
 async def delete_source(source_id: int) -> dict[str, object]:
-    if catalog.get_source(source_id) is None:
+    source = catalog.get_source(source_id)
+    if source is None:
         raise HTTPException(status_code=404, detail="Источник не найден")
+    if source.get("kind") == "photos":
+        raise HTTPException(
+            status_code=400,
+            detail="Предустановленный источник Photos нельзя удалить",
+        )
     watcher.unwatch(source_id)
     catalog.remove_source(source_id)
     return {"sources": catalog.list_sources()}
@@ -209,8 +245,43 @@ async def scan_all_sources() -> dict[str, object]:
         raise HTTPException(status_code=400, detail="Сначала добавь хотя бы один источник")
     results = []
     for source in sources:
+        if source.get("kind") == "photos" and source.get("status") == "no_access":
+            results.append(
+                {"source_id": int(source["id"]), "status": "no_access"}
+            )
+            continue
         results.append(await asyncio.to_thread(scan_source, int(source["id"])))
     return {"results": results, "summary": catalog.summary()}
+
+
+@app.post("/api/photos/authorize")
+async def authorize_system_photos() -> dict[str, object]:
+    source = next(
+        (
+            source
+            for source in catalog.list_sources()
+            if source.get("kind") == "photos"
+        ),
+        None,
+    )
+    if source is None:
+        raise HTTPException(status_code=404, detail="Источник Photos недоступен")
+    try:
+        status = await asyncio.to_thread(
+            photos_adapter.status, request_authorization=True
+        )
+        result = await asyncio.to_thread(scan_source, int(source["id"]))
+    except PhotosAccessDenied as error:
+        catalog.set_source_status(
+            int(source["id"]), "no_access", "Нет доступа к Photos"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Разреши доступ в настройках macOS: Конфиденциальность → Фото",
+        ) from error
+    except PhotosAdapterError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return {"status": status, "scan": result}
 
 
 @app.get("/api/catalog/summary")
@@ -271,7 +342,7 @@ async def open_source_folder_in_finder(
 async def media_thumbnail(media_id: int) -> FileResponse:
     try:
         thumbnail = await asyncio.to_thread(thumbnails.get_or_create, media_id)
-    except (FileNotFoundError, PermissionError, OSError) as error:
+    except (FileNotFoundError, PermissionError, OSError, PhotosAdapterError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     if thumbnail is None:
         raise HTTPException(status_code=404, detail="Превью недоступно")
@@ -285,7 +356,16 @@ async def media_thumbnail(media_id: int) -> FileResponse:
 @app.post("/api/media/{media_id}/open")
 async def open_media_in_default_app(media_id: int) -> dict[str, str]:
     try:
-        original = catalog.resolve_media_file(media_id)
+        media = catalog.get_media(media_id)
+        if media is None:
+            raise KeyError(media_id)
+        if media.get("source_kind") == "photos":
+            await asyncio.to_thread(
+                photos_adapter.open_asset, str(media["relative_path"])
+            )
+            return {"path": f"photos://system/{media['relative_path']}"}
+        else:
+            original = catalog.resolve_media_file(media_id)
         await asyncio.to_thread(
             subprocess.run,
             ["open", str(original)],
@@ -299,6 +379,8 @@ async def open_media_in_default_app(media_id: int) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Оригинал файла не найден") from error
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    except PhotosAdapterError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
     except subprocess.CalledProcessError as error:
         raise HTTPException(
             status_code=500,

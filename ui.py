@@ -82,6 +82,7 @@ async def index_page() -> None:
     selected_folder = ""
     selected_folders: dict[int, str] = {}
     expanded_folders: dict[int, set[str]] = {}
+    source_kinds: dict[int, str] = {}
     last_revision = -1
 
     with ui.row().classes("utility-header w-full items-center justify-between no-wrap"):
@@ -160,6 +161,13 @@ async def index_page() -> None:
             connection_label.text = "CORE: подключён · :8765"
             connection_label.classes(add="text-positive", remove="muted")
             scan_button.set_enabled(bool(sources))
+            source_kinds.clear()
+            source_kinds.update(
+                {
+                    int(source["id"]): str(source.get("kind") or "folder")
+                    for source in sources
+                }
+            )
             source_select.options = {
                 int(source["id"]): (
                     f"{source.get('label') or source['path']} — {source['path']}"
@@ -183,23 +191,36 @@ async def index_page() -> None:
                                 ui.label(str(source["path"])).classes("path truncate w-full")
                                 if source.get("comment"):
                                     ui.label(str(source["comment"])).classes("muted text-xs")
+                                if source.get("error"):
+                                    ui.label(str(source["error"])).classes("text-negative text-xs")
                                 ui.label(
                                     f"{source['media_count']} файлов · "
                                     f"{format_bytes(int(source['total_size']))} · "
                                     f"{source['status']} · {format_date(source['last_scan_at'])}"
                                 ).classes("muted text-xs")
-                            ui.button(
-                                "Изменить",
-                                on_click=lambda source=dict(source): edit_source(source),
-                            ).props("flat dense no-caps color=dark")
-                            ui.button(
-                                "Сканировать",
-                                on_click=lambda source_id=int(source["id"]): scan_one(source_id),
-                            ).props("flat dense no-caps color=dark")
-                            ui.button(
-                                "Убрать",
-                                on_click=lambda source_id=int(source["id"]): remove_source(source_id),
-                            ).props("flat dense no-caps color=negative")
+                            if source.get("kind") != "photos":
+                                ui.button(
+                                    "Изменить",
+                                    on_click=lambda source=dict(source): edit_source(source),
+                                ).props("flat dense no-caps color=dark")
+                            if (
+                                source.get("kind") == "photos"
+                                and source.get("status") == "no_access"
+                            ):
+                                ui.button(
+                                    "Разрешить доступ",
+                                    on_click=lambda: authorize_photos(),
+                                ).props("flat dense no-caps color=dark")
+                            else:
+                                ui.button(
+                                    "Сканировать",
+                                    on_click=lambda source_id=int(source["id"]): scan_one(source_id),
+                                ).props("flat dense no-caps color=dark")
+                            if source.get("kind") != "photos":
+                                ui.button(
+                                    "Убрать",
+                                    on_click=lambda source_id=int(source["id"]): remove_source(source_id),
+                                ).props("flat dense no-caps color=negative")
 
             render_group(
                 sources_container,
@@ -304,6 +325,16 @@ async def index_page() -> None:
         except Exception as error:
             await report_error(error)
 
+    async def authorize_photos() -> None:
+        status_label.text = "Ожидание разрешения macOS для Photos…"
+        try:
+            await core_request("POST", "/api/photos/authorize", timeout=700)
+            await asyncio.gather(refresh_sources(), refresh_summary())
+            if selected_source_id is not None:
+                await load_tree()
+        except Exception as error:
+            await report_error(error)
+
     async def remove_source(source_id: int) -> None:
         try:
             await core_request("DELETE", f"/api/sources/{source_id}")
@@ -383,7 +414,7 @@ async def index_page() -> None:
             folder_label.text = "Выбери источник"
             finder_button.disable()
             return
-        finder_button.enable()
+        finder_button.set_enabled(source_kinds.get(selected_source_id) == "folder")
         try:
             payload = await core_request(
                 "GET", f"/api/sources/{selected_source_id}/tree"

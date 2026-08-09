@@ -116,3 +116,28 @@ class CatalogTests(unittest.TestCase):
             )
             self.assertEqual(updated["label"], "NAS — MediaCopy01")
             self.assertEqual(updated["comment"], "Стойка 1")
+
+    def test_system_photos_source_is_virtual_and_groups_assets_by_month(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = Catalog(Path(directory) / "catalog.sqlite3")
+            source = catalog.add_system_photos_source()
+            source_id = int(source["id"])
+            catalog.replace_photos_scan(
+                source_id,
+                [
+                    {
+                        "id": "asset-id/L0/001",
+                        "name": "IMG_0001.HEIC",
+                        "kind": "photo",
+                        "created_at": "2026-08-09T12:30:00+03:00",
+                    }
+                ],
+            )
+
+            self.assertEqual(source["kind"], "photos")
+            self.assertEqual(
+                catalog.list_files(source_id, "2026/2026-08")[0]["name"],
+                "IMG_0001.HEIC",
+            )
+            with self.assertRaises(PermissionError):
+                catalog.resolve_source_folder(source_id)

@@ -7,21 +7,43 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 
 from media_manager.catalog import Catalog
+from media_manager.photos_adapter import SystemPhotosAdapter
 
 
 register_heif_opener()
 
 
 class ThumbnailService:
-    def __init__(self, catalog: Catalog, cache_directory: str | Path) -> None:
+    def __init__(
+        self,
+        catalog: Catalog,
+        cache_directory: str | Path,
+        photos_adapter: SystemPhotosAdapter | None = None,
+    ) -> None:
         self.catalog = catalog
         self.cache_directory = Path(cache_directory)
         self.cache_directory.mkdir(parents=True, exist_ok=True)
+        self.photos_adapter = photos_adapter
 
     def get_or_create(self, media_id: int) -> Path | None:
         media = self.catalog.get_media(media_id)
         if not media or media["kind"] != "photo":
             return None
+
+        if media.get("source_kind") == "photos":
+            if self.photos_adapter is None:
+                return None
+            fingerprint = hashlib.sha256(
+                f"{media['relative_path']}\0{media['modified_at']}".encode()
+            ).hexdigest()[:20]
+            target = self.cache_directory / f"{media_id}-{fingerprint}.jpg"
+            if target.exists():
+                return target
+            for stale in self.cache_directory.glob(f"{media_id}-*.jpg"):
+                stale.unlink(missing_ok=True)
+            return self.photos_adapter.create_thumbnail(
+                str(media["relative_path"]), target
+            )
 
         source = Path(str(media["source_path"])).resolve(strict=True)
         candidate = source / str(media["relative_path"])
