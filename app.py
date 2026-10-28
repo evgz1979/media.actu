@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from media_manager.catalog import Catalog
 from media_manager.photos_adapter import (
@@ -23,6 +23,7 @@ from media_manager.scanner import scan_sources
 from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
 from media_manager.thumbnail_workers import ThumbnailWorkerPool
 from media_manager.watcher import SourceWatcher
+from media_manager.storage import StorageCatalog
 
 
 ROOT = Path(__file__).parent
@@ -39,6 +40,7 @@ def local_thumbnail_cache_directory() -> Path:
 
 
 catalog = Catalog(DATA_DIR / "catalog.sqlite3")
+storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -197,6 +199,41 @@ return output
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {"status": "ok", "revision": catalog.revision()}
+
+
+class StorageMetadataRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = ""
+    purpose: Literal["", "media", "documents", "projects", "mixed"] | None = None
+    role: Literal["", "primary", "copy", "archive", "temporary"] | None = None
+    no_duplicate: bool | None = None
+    planned_move: bool | None = None
+    comment: str = Field(default="", max_length=4000)
+
+
+@app.get("/api/storage/volumes")
+async def storage_volumes(refresh: bool = False) -> dict:
+    return await asyncio.to_thread(storage.refresh, refresh)
+
+
+@app.get("/api/storage/volumes/{volume_id}/directory")
+async def storage_directory(volume_id: str, path: str = "", refresh: bool = True) -> dict:
+    try:
+        return await asyncio.to_thread(storage.directory, volume_id, path, refresh)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Том не найден") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch("/api/storage/volumes/{volume_id}/metadata")
+async def storage_metadata(volume_id: str, request: StorageMetadataRequest) -> dict:
+    try:
+        return await asyncio.to_thread(storage.annotate, volume_id, request.path, request.model_dump(exclude={"path"}))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Том не найден") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/sources")
@@ -458,4 +495,4 @@ async def open_media_in_default_app(media_id: int) -> dict[str, str]:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    uvicorn.run(app, host="127.0.0.1", port=18765)

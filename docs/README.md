@@ -6,11 +6,13 @@
 ## Содержание
 
 - [Архитектура](architecture.md)
+- [Развёртывание на M4 и порты](deployment.md)
 - [Безопасность данных и будущий откат](safety-and-recovery.md)
 - [План реализации](roadmap.md)
 - [Журнал документации](CHANGELOG.md)
 - [ADR: два независимых процесса](adr/0001-two-process-architecture.md)
 - [ADR: режим только чтения](adr/0002-read-only-first-version.md)
+- [ADR: M4 и отдельный порт Core](adr/0003-m4-runtime-and-ports.md)
 
 ## Правила версионирования
 

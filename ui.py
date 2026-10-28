@@ -10,7 +10,7 @@ import httpx
 from nicegui import ui
 
 
-CORE_URL = "http://127.0.0.1:8765"
+CORE_URL = "http://127.0.0.1:18765"
 
 
 def format_bytes(value: int) -> str:
@@ -50,7 +50,7 @@ async def core_request(
         return response.json()
 
 
-@ui.page("/")
+@ui.page("/media")
 async def index_page() -> None:
     ui.add_head_html('<meta name="color-scheme" content="light">')
     ui.add_css(
@@ -107,6 +107,8 @@ async def index_page() -> None:
     with ui.row().classes("utility-header w-full items-center justify-between no-wrap"):
         with ui.row().classes("items-center gap-4"):
             ui.label("MEDIA.ACTU").classes("brand")
+            ui.link("Хранилища", "/").classes("text-sm text-green-900 no-underline")
+            ui.label("Медиа").classes("text-sm font-semibold")
             connection_label = ui.label("CORE: проверка…").classes("muted text-xs")
         ui.label("ОРИГИНАЛЫ: ТОЛЬКО ЧТЕНИЕ").classes("readonly")
 
@@ -205,7 +207,7 @@ async def index_page() -> None:
         try:
             payload = await core_request("GET", "/api/sources")
             sources = payload["sources"]
-            connection_label.text = "CORE: подключён · :8765"
+            connection_label.text = f"CORE: подключён · {CORE_URL.rsplit(':', 1)[-1]}"
             connection_label.classes(add="text-positive", remove="muted")
             scan_button.set_enabled(bool(sources))
             source_kinds.clear()
@@ -290,7 +292,7 @@ async def index_page() -> None:
                 source_select.value = selected_source_id
                 source_select.update()
         except Exception as error:
-            connection_label.text = "CORE: недоступен · :8765"
+            connection_label.text = f"CORE: недоступен · {CORE_URL.rsplit(':', 1)[-1]}"
             connection_label.classes(add="text-negative", remove="muted text-positive")
             await report_error(error)
 
@@ -630,7 +632,7 @@ async def index_page() -> None:
             ):
                 await load_files()
         except Exception:
-            connection_label.text = "CORE: недоступен · :8765"
+            connection_label.text = f"CORE: недоступен · {CORE_URL.rsplit(':', 1)[-1]}"
             connection_label.classes(add="text-negative", remove="text-positive muted")
 
     await refresh_sources()
@@ -638,6 +640,11 @@ async def index_page() -> None:
     if selected_source_id is not None:
         await load_tree()
     ui.timer(3.0, poll_revision)
+
+
+from storage_ui import register_storage_page
+
+register_storage_page(core_request, format_bytes, format_date)
 
 
 if __name__ in {"__main__", "__mp_main__"}:
