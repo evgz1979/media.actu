@@ -3,11 +3,27 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import PurePosixPath
+from itertools import count
 
 from nicegui import ui
 
 from media_manager.storage import FLAGS, PURPOSES, ROLES
 from network_ui import show_network_dialog
+
+
+FOLDER_ICON_IDS = count()
+
+
+def folder_icon(size=16):
+    gradient = f'folder-blue-{next(FOLDER_ICON_IDS)}'
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 16" width="100%" height="100%" aria-hidden="true" focusable="false">
+        <defs><linearGradient id="{gradient}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#91daf2"/><stop offset="1" stop-color="#4eb7dc"/></linearGradient></defs>
+        <path d="M1.25 5V3.25A1.25 1.25 0 0 1 2.5 2h4.1l1.6 1.8h7.3a1.25 1.25 0 0 1 1.25 1.25V13a1 1 0 0 1-1 1H2.25a1 1 0 0 1-1-1Z" fill="#b4e2f1" stroke="#5ba5bf" stroke-width=".65"/>
+        <rect x="1.25" y="5" width="15.5" height="9" rx="1" fill="url(#{gradient})" stroke="#4c9fbd" stroke-width=".65"/>
+        <path d="M2 5.8h14" stroke="#d7f2fa" stroke-width=".6"/>
+        </svg>"""
+    return ui.html(svg, sanitize=False).classes('s-folder-icon').style(f'width:{size}px;height:{size}px')
 
 
 CSS = """
@@ -23,19 +39,42 @@ body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,
 .s-layout { display:grid; grid-template-columns:240px minmax(340px,1fr) 280px; gap:16px; padding:0 26px 26px; width:100%; align-items:start; }
 .s-panel { background:white; border:1px solid var(--s-line); border-radius:12px; overflow:hidden; min-width:0; }
 .s-panel-head { padding:17px 18px; border-bottom:1px solid var(--s-line); }
-.s-volume { border:1px solid transparent; border-radius:8px; padding:12px; cursor:pointer; width:100%; gap:7px; }
-.s-volume:hover { background:#f8f9f6; } .s-volume.chosen { border-color:#b7c8b0; background:#f0f5eb; }
-.s-volume.offline { background:#f7f7f5; }
+.s-volumes { max-height:calc(100vh - 330px); overflow-y:auto; }
+.s-volume-group { padding:6px 8px 3px; font-size:11px; font-weight:650; color:#687466; gap:7px; }
+.s-volume-row { width:100%; min-height:24px; height:24px; padding:0 9px; border:1px solid transparent; border-radius:6px; }
+.s-volume-row .q-btn__content { width:100%; flex-wrap:nowrap; justify-content:flex-start; gap:8px; }
+.s-volume-row:hover { background:#f6f8f2; } .s-volume-row.chosen { border-color:#b7c8b0; background:#edf3e7; }
+.s-volume-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:13px; font-weight:500; line-height:22px; }
+.s-volume-role { flex-shrink:0; max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#4e7149; background:#eef3e9; border-radius:4px; padding:0 4px; font-size:10px; line-height:15px; }
+.s-volume-status { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .s-tag { font-size:11px; padding:3px 7px; border-radius:5px; line-height:1.4; background:#f0f1ed; color:#747b72; white-space:normal; }
 .s-tag.purpose { color:#536a89; background:#edf1f7; } .s-tag.role { color:#3f6744; background:#eaf2e6; }
 .s-tag.flag { color:#9b7435; background:#fbf3df; }
 .s-path { overflow-wrap:anywhere; font-family:ui-monospace,Menlo,monospace; font-size:11px; }
-.s-tree { max-height:calc(100vh - 310px); min-height:340px; overflow:auto; padding:8px 0; }
-.s-entry { min-height:43px; border-bottom:1px solid #f2f3ef; flex-wrap:nowrap; gap:4px; padding-right:12px; }
-.s-entry.selected { background:#f0f5eb; } .s-entry:hover { background:#f6f8f2; }
-.s-entry-name { font-size:13px; font-weight:500; color:#26372a; text-align:left; min-width:0; }
-.s-entry-name .q-btn__content { flex-wrap:nowrap; justify-content:start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.s-size { width:70px; flex-shrink:0; text-align:right; color:var(--s-muted); font-size:11px; }
+.s-tree-toolbar { min-height:28px; padding:2px 10px; gap:8px; }
+.s-tree { max-height:calc(100vh - 285px); min-height:320px; overflow:auto; padding:0; }
+.s-list-grid { display:grid; grid-template-columns:minmax(220px,1fr) 132px 66px 72px; width:100%; min-width:520px; align-items:center; }
+.s-tree-heading { height:25px; min-height:25px; position:sticky; top:0; z-index:2; background:#fff; border-bottom:1px solid #d9dddf; color:#7e8589; font-size:11px; line-height:20px; }
+.s-tree-heading > div { padding:0 8px; border-right:1px solid #e2e5e7; overflow:hidden; white-space:nowrap; }
+.s-tree-heading > div:first-child { padding-left:40px; }
+.s-tree-heading > div:last-child { border-right:0; }
+.s-entry { height:22px; min-height:22px; background:#fff; }
+.s-entry.alt { background:#f3f4f5; }
+.s-entry:hover { background:#edf2f6; }
+.s-entry.selected, .s-entry.selected:hover { background:#dce9f8; }
+.s-name-cell { min-width:0; height:22px; flex-wrap:nowrap; align-items:center; gap:3px; padding-right:6px; }
+.s-folder-icon { flex:0 0 auto; display:flex; align-items:center; justify-content:center; line-height:0; }
+.s-tree-toggle.q-btn { width:16px; min-width:16px; height:20px; min-height:20px; padding:0; border-radius:2px; flex-shrink:0; }
+.s-tree-toggle .q-icon { font-size:14px; }
+.s-tree-spacer { width:16px; flex-shrink:0; }
+.s-entry-name.q-btn { flex:1; min-width:0; min-height:20px; height:20px; padding:0 2px; border-radius:2px; font-size:12px; line-height:18px; font-weight:400; color:#263129; text-align:left; }
+.s-entry-name .q-btn__content { width:100%; min-width:0; flex-wrap:nowrap; justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.s-entry-name .block { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.s-entry-name .q-focus-helper { display:none; }
+.s-entry-name:focus-visible { outline:1px solid #9cb8d5; outline-offset:-1px; }
+.s-tree-role { flex-shrink:0; max-width:48px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#597456; background:#e9eee5; border-radius:3px; padding:0 4px; font-size:10px; line-height:14px; }
+.s-entry-cell { min-width:0; padding:0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#85898d; font-size:11px; line-height:20px; }
+.s-entry-size { text-align:right; }
 .s-note { background:#f6f7f3; border-radius:8px; padding:11px 12px; font-size:12px; color:#6b776a; line-height:1.5; }
 .s-error { background:#fff5e9; color:#9b6725; border-radius:8px; padding:10px 12px; font-size:12px; }
 .q-btn { box-shadow:none !important; border-radius:7px; } .s-divider { width:100%; height:1px; background:var(--s-line); margin:4px 0; }
@@ -106,7 +145,7 @@ def register_storage_page(request, format_bytes, format_date):
                 with ui.row().classes('s-panel-head w-full items-center justify-between'):
                     ui.label('ТОМА').classes('s-caption')
                     volume_count = ui.label('—').classes('s-muted text-xs')
-                volume_list = ui.column().classes('s-volumes w-full p-2 gap-1')
+                volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
                 with ui.column().classes('px-4 pb-4 pt-2 gap-1'):
                     ui.label('Отключённые остаются в списке.').classes('s-muted text-xs')
                     ui.link('Системная медиатека Photos →', '/media').classes('text-xs text-green-900 no-underline')
@@ -118,7 +157,7 @@ def register_storage_page(request, format_bytes, format_date):
                     with ui.row().classes('items-center gap-1'):
                         ui.button(icon='vertical_align_top', on_click=lambda: select_root()).props('flat round dense color=dark').tooltip('Свойства тома')
                         ui.button(icon='refresh', on_click=lambda: refresh_folder()).props('flat round dense color=dark').tooltip('Перечитать выбранную папку')
-                with ui.column().classes('w-full px-4 pt-3 gap-1'):
+                with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap'):
                     snapshot_label = ui.label('Просмотренные папки сохраняются для работы без подключения.').classes('s-muted text-xs')
                     show_hidden = ui.checkbox('Скрытые файлы', value=False, on_change=lambda: render_tree()).props('dense size=xs').classes('text-xs s-muted')
                 tree_list = ui.column().classes('s-tree w-full gap-0')
@@ -132,19 +171,30 @@ def register_storage_page(request, format_bytes, format_date):
             with volume_list:
                 if not volumes:
                     ui.label('Пока нет сохранённых томов.').classes('s-muted text-sm p-3')
+                groups = {}
                 for volume in volumes:
-                    available = volume['availability']
-                    style = ' chosen' if volume['id'] == selected_volume else ''
-                    style += ' offline' if available == 'offline' else ''
-                    with ui.column().classes('s-volume' + style).on('click', lambda v=volume: choose_volume(v['id'])):
-                        with ui.row().classes('w-full items-center gap-2 no-wrap'):
-                            ui.icon('dns' if volume['kind'] == 'network' else 'storage', size='20px').classes('text-green-900' if available == 'online' else 's-muted')
-                            ui.label(volume['name']).classes('font-semibold text-sm break-all')
-                        with ui.row().classes('gap-1 items-center'):
-                            ui.icon('circle', size='6px').classes('text-green-700' if available == 'online' else 's-muted')
-                            ui.label({'online': 'Подключён', 'offline': 'Отключён' if volume['mount_path'] else 'Не подключён', 'unknown': 'Доступность неизвестна'}[available]).classes('s-muted text-xs')
-                        with ui.row().classes('gap-1'):
-                            tags(volume['metadata'])
+                    group = volume.get('group') or {'id': 'm4' if volume['kind'] != 'network' else 'network-unknown', 'name': 'M4' if volume['kind'] != 'network' else 'Сетевые тома', 'kind': 'local' if volume['kind'] != 'network' else 'network'}
+                    groups.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append(volume)
+                for group in sorted(groups.values(), key=lambda g: (g['details']['kind'] == 'local', g['details']['name'].casefold())):
+                    details = group['details']
+                    with ui.row().classes('s-volume-group w-full items-center no-wrap'):
+                        ui.icon('dns' if details['kind'] == 'network' else 'computer', size='15px')
+                        ui.label(details['name']).classes('grow truncate')
+                        ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
+                    for volume in group['volumes']:
+                        available = volume['availability']
+                        status = {'online': 'Подключён', 'offline': 'Отключён' if volume['mount_path'] else 'Не подключён', 'unknown': 'Доступность неизвестна'}[available]
+                        values = volume['metadata']['effective']
+                        role = values.get('role') or ''
+                        description = f"{volume['name']} · {status} · {ROLES[role]}"
+                        if values.get('purpose'):
+                            description += ' · ' + PURPOSES[values['purpose']]
+                        with ui.button(on_click=lambda v=volume: choose_volume(v['id'])).props('flat no-caps color=dark').classes('s-volume-row' + (' chosen' if volume['id'] == selected_volume else '')).tooltip(description):
+                            ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[available])
+                            ui.label(volume['name']).classes('s-volume-name')
+                            if role:
+                                ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-volume-role')
+                            ui.label(status).classes('s-volume-status')
 
         async def load_folder(path, refresh=True):
             volume_id = selected_volume
@@ -200,6 +250,7 @@ def register_storage_page(request, format_bytes, format_date):
             render_tree()
 
         def render_tree():
+            visible_rows = count()
             volume = current_volume()
             if not volume:
                 return
@@ -228,23 +279,41 @@ def register_storage_page(request, format_bytes, format_date):
                 limit = limits.get(path, 150)
                 for entry in entries[:limit]:
                     is_directory = entry['kind'] == 'directory'
-                    with ui.row().classes('s-entry w-full' + (' selected' if entry['path'] == selected_path else '')).style(f'padding-left:{12 + depth * 18}px'):
-                        if is_directory:
-                            ui.button(icon='expand_more' if entry['path'] in expanded else 'chevron_right', on_click=lambda e=entry: select_entry(e, True)).props('flat round dense size=sm color=grey-7').tooltip('Свернуть' if entry['path'] in expanded else 'Раскрыть папку')
-                        else:
-                            ui.element('span').style('width:28px;flex-shrink:0')
-                        ui.icon({'directory': 'folder', 'file': 'insert_drive_file', 'symlink': 'link', 'mount': 'storage'}[entry['kind']], size='18px').classes('text-amber-700' if is_directory else 's-muted')
-                        with ui.column().classes('gap-1 grow min-w-0 py-1'):
-                            ui.button(entry['name'], on_click=lambda e=entry: select_entry(e)).props('flat dense no-caps color=dark').classes('s-entry-name w-full').tooltip(entry['name'])
+                    stripe = ' alt' if next(visible_rows) % 2 else ''
+                    with ui.element('div').classes('s-entry s-list-grid' + stripe + (' selected' if entry['path'] == selected_path else '')):
+                        with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if is_directory:
-                                with ui.row().classes('gap-1 pl-1'):
-                                    tags(entry['metadata'], False)
-                        ui.label(format_bytes(entry['size']) if entry.get('size') is not None else '—').classes('s-size')
+                                ui.button(icon='expand_more' if entry['path'] in expanded else 'chevron_right', on_click=lambda e=entry: select_entry(e, True)).props('flat dense color=grey-7').classes('s-tree-toggle').tooltip('Свернуть' if entry['path'] in expanded else 'Раскрыть папку')
+                            else:
+                                ui.element('span').classes('s-tree-spacer')
+                            if is_directory:
+                                folder_icon()
+                            else:
+                                ui.icon({'file': 'insert_drive_file', 'symlink': 'link', 'mount': 'storage'}[entry['kind']], size='14px').classes('s-muted shrink-0')
+                            ui.button(entry['name'], on_click=lambda e=entry: select_entry(e)).props('flat dense no-caps color=dark').classes('s-entry-name').tooltip(entry['name'])
+                            if is_directory:
+                                values = entry['metadata']['effective']
+                                role = values.get('role') or ''
+                                if role:
+                                    ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-tree-role').tooltip(ROLES[role])
+                                for flag, icon in [('no_duplicate', 'block'), ('planned_move', 'drive_file_move')]:
+                                    if values.get(flag):
+                                        ui.icon(icon, size='12px').classes('s-muted shrink-0').tooltip(FLAGS[flag])
+                        ui.label(format_date(entry.get('modified_at'))).classes('s-entry-cell')
+                        ui.label(format_bytes(entry['size']) if entry.get('size') is not None else '—').classes('s-entry-cell s-entry-size')
+                        kind = {'directory': 'Папка', 'symlink': 'Ссылка', 'mount': 'Том'}.get(entry['kind'])
+                        if kind is None:
+                            kind = PurePosixPath(entry['name']).suffix[1:].upper() or 'Файл'
+                        ui.label(kind).classes('s-entry-cell').tooltip(kind)
                     if is_directory and entry['path'] in expanded:
                         branch(entry['path'], depth + 1)
                 if len(entries) > limit:
                     ui.button(f'Ещё {len(entries) - limit} элементов', on_click=lambda p=path: show_more(p)).props('flat no-caps color=dark').classes('ml-8')
             with tree_list:
+                with ui.element('div').classes('s-tree-heading s-list-grid'):
+                    for title in ['Имя', 'Дата изменения', 'Размер', 'Тип']:
+                        with ui.element('div'):
+                            ui.label(title)
                 branch('', 0)
 
         def render_properties():
@@ -261,7 +330,10 @@ def register_storage_page(request, format_bytes, format_date):
             with properties:
                 ui.label('СВОЙСТВА').classes('s-caption')
                 with ui.column().classes('gap-2 w-full'):
-                    ui.icon('storage' if not selected_path else 'folder' if selected_kind == 'directory' else 'insert_drive_file', size='30px').classes('text-green-900')
+                    if selected_path and selected_kind == 'directory':
+                        folder_icon(28)
+                    else:
+                        ui.icon('storage' if not selected_path else 'insert_drive_file', size='30px').classes('text-green-900')
                     ui.label(PurePosixPath(selected_path).name if selected_path else volume['name']).classes('text-lg font-semibold break-all')
                     ui.label(str(PurePosixPath(volume['mount_path']) / selected_path) if volume['mount_path'] else volume.get('network_url') or 'Не подключён').classes('s-path s-muted')
                 with ui.row().classes('gap-1 w-full'):

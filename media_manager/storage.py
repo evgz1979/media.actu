@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import plistlib
 import re
@@ -14,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 
 PURPOSES = {"": "Не назначено", "media": "Медиа", "documents": "Документы", "projects": "Проекты", "mixed": "Разные данные"}
@@ -55,9 +56,11 @@ def discover_volumes() -> list[dict[str, Any]]:
         filesystem = parts[0]
         network = filesystem in {"smbfs", "nfs", "afpfs", "webdav"}
         name = Path(mount_path).name
+        server_host = None
         if network:
             # Do not retain credentials or account names from mount output.
             endpoint = device.removeprefix("//").split("@", 1)[-1]
+            server_host = endpoint.split("/", 1)[0].rstrip(":")
             identity = f"{filesystem}:{endpoint.casefold()}"
             kind = "network"
         else:
@@ -73,7 +76,7 @@ def discover_volumes() -> list[dict[str, Any]]:
             identity = f"volume:{identifier}"
             name = info.get("VolumeName") or name
             kind = "internal" if info.get("Internal") else "external"
-        volumes.append({"id": volume_key(identity), "name": name, "mount_path": mount_path, "kind": kind, "device": os.stat(mount_path, follow_symlinks=False).st_dev})
+        volumes.append({"id": volume_key(identity), "name": name, "mount_path": mount_path, "kind": kind, "server_host": server_host, "device": os.stat(mount_path, follow_symlinks=False).st_dev})
     return volumes
 
 
@@ -104,6 +107,7 @@ class StorageCatalog:
             """)
             db.execute('CREATE TABLE IF NOT EXISTS network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS volume_origins (volume_id TEXT PRIMARY KEY, host TEXT NOT NULL)')
 
     @contextmanager
     def connect(self):
@@ -131,6 +135,8 @@ class StorageCatalog:
                                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,
                                   mount_path=excluded.mount_path, kind=excluded.kind, last_seen=excluded.last_seen
                             """, (volume["id"], volume["name"], volume["mount_path"], volume["kind"], timestamp, timestamp))
+                            if volume.get('server_host'):
+                                db.execute('INSERT OR REPLACE INTO volume_origins VALUES (?,?)', (volume['id'], volume['server_host']))
                     self._mounted = {v["id"]: v for v in discovered}
                     self._discovery_error = None
                 except (OSError, ValueError, subprocess.SubprocessError) as error:
@@ -139,11 +145,44 @@ class StorageCatalog:
                 self._checked = time.monotonic()
             with self.connect() as db:
                 rows = [dict(row) for row in db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id ORDER BY v.name COLLATE NOCASE")]
+                origins = {r['volume_id']: r['host'] for r in db.execute('SELECT * FROM volume_origins')}
+                servers = []
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='network_servers'").fetchone():
+                    servers = [dict(r) for r in db.execute('SELECT id,name,host,aliases FROM network_servers')]
             for row in rows:
+                row['group'] = self.volume_group(row, origins.get(row['id']), servers)
                 row["availability"] = "unknown" if self._discovery_error else ("online" if row["id"] in self._mounted else "offline")
                 row["device"] = self._mounted.get(row["id"], {}).get("device")
                 row["metadata"] = self.metadata(row["id"], "")
             return {"volumes": rows, "error": self._discovery_error, "checked_at": now(), "purposes": PURPOSES, "roles": ROLES}
+
+    @staticmethod
+    def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict:
+        if volume['kind'] != 'network':
+            return {'id': 'm4', 'name': 'M4', 'kind': 'local'}
+        host = urlsplit(volume.get('network_url') or '').hostname or origin
+        if not host:
+            # Old offline entries have no mount origin. Match only by identity,
+            # never by a share name which might exist on several NAS devices.
+            for server in servers:
+                if volume['id'] in StorageCatalog.network_keys(json.loads(server['aliases']), volume['name']):
+                    host = server['host']
+                    break
+        if not host:
+            return {'id': 'network-unknown', 'name': 'Сетевые тома', 'kind': 'network'}
+        normalized = host.rstrip('.').casefold()
+        for server in servers:
+            aliases = {a.rstrip('.').casefold() for a in json.loads(server['aliases'])}
+            if normalized in aliases or normalized == server['host'].rstrip('.').casefold():
+                return {'id': 'nas:' + server['host'].rstrip('.').casefold(), 'name': server['name'], 'kind': 'network'}
+        name = host.rstrip('.')
+        suffix = '._smb._tcp.local'
+        if normalized.endswith(suffix):
+            name = name[:-len(suffix)]
+            normalized = name.casefold() + '.local'
+        elif normalized.endswith('.local'):
+            name = name[:-len('.local')]
+        return {'id': 'nas:' + normalized, 'name': name, 'kind': 'network'}
 
     @staticmethod
     def network_keys(hosts: list[str], share: str) -> list[str]:

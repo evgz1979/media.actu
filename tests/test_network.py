@@ -148,6 +148,42 @@ class NetworkCatalogTests(unittest.TestCase):
             self.network.open_in_finder(volume['id'])
         self.assertEqual(command.call_args.args[0], ['/usr/bin/open', 'smb://tnas-z.local/%D0%9C%D0%BE%D0%B8%20%D1%84%D0%BE%D1%82%D0%BE'])
 
+    def test_nas_and_m4_groups_survive_disconnection_and_restart(self):
+        network_id = volume_key('smbfs:tnas-z._smb._tcp.local/media-copy01')
+        self.mounted.extend([
+            {'id': network_id, 'name': 'Media-copy01', 'kind': 'network', 'mount_path': str(self.root), 'server_host': 'TNAS-Z._smb._tcp.local'},
+            {'id': 'nvme', 'name': 'nvme2Tb', 'kind': 'external', 'mount_path': str(self.root)},
+            {'id': 'system', 'name': 'Data', 'kind': 'internal', 'mount_path': str(self.root)},
+        ])
+        connected = {v['id']: v for v in self.storage.refresh(True)['volumes']}
+        self.assertEqual(connected[network_id]['group']['name'], 'TNAS-Z')
+        self.assertEqual(connected['nvme']['group']['id'], 'm4')
+        self.assertEqual(connected['system']['group']['id'], 'm4')
+        self.mounted.clear()
+        reopened = StorageCatalog(self.storage.database, lambda: [])
+        disconnected = {v['id']: v for v in reopened.refresh(True)['volumes']}
+        self.assertEqual(disconnected[network_id]['group'], connected[network_id]['group'])
+        self.assertEqual(disconnected['nvme']['group'], connected['nvme']['group'])
+        self.assertEqual(disconnected[network_id]['availability'], 'offline')
+
+    def test_same_share_names_on_different_servers_stay_in_separate_groups(self):
+        self.mounted.extend([
+            {'id': 'nas-one-share', 'name': 'Media', 'kind': 'network', 'mount_path': str(self.root), 'server_host': 'TNAS-Z.local'},
+            {'id': 'nas-two-share', 'name': 'Media', 'kind': 'network', 'mount_path': str(self.root), 'server_host': 'Other-NAS.local'},
+        ])
+        volumes = {v['id']: v for v in self.storage.refresh(True)['volumes']}
+        self.assertNotEqual(volumes['nas-one-share']['group']['id'], volumes['nas-two-share']['group']['id'])
+        self.assertEqual(volumes['nas-two-share']['group']['name'], 'Other-NAS')
+
+    def test_legacy_offline_group_is_matched_by_identity_not_share_name(self):
+        known = volume_key('smbfs:tnas-z._smb._tcp.local/media-copy01')
+        with self.storage.connect() as db:
+            for identity in [known, 'unknown-server']:
+                db.execute('INSERT INTO volumes VALUES (?,?,?,?,?,?)', (identity, 'Media-copy01', '/Volumes/Media-copy01', 'network', 'now', 'now'))
+        volumes = {v['id']: v for v in self.storage.refresh(True)['volumes']}
+        self.assertEqual(volumes[known]['group']['name'], 'TNAS-Z')
+        self.assertEqual(volumes['unknown-server']['group']['id'], 'network-unknown')
+
     def test_legacy_volume_table_is_not_altered(self):
         with self.storage.connect() as db:
             names = [r['name'] for r in db.execute('PRAGMA table_info(volumes)')]
