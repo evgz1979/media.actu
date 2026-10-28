@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -24,10 +25,11 @@ from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
 from media_manager.thumbnail_workers import ThumbnailWorkerPool
 from media_manager.watcher import SourceWatcher
 from media_manager.storage import StorageCatalog
+from media_manager.network import NetworkCatalog, NetworkError
 
 
 ROOT = Path(__file__).parent
-DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ.get("MEDIA_ACTU_DATA_DIR", str(ROOT / "data"))).expanduser()
 
 
 def local_thumbnail_cache_directory() -> Path:
@@ -41,6 +43,7 @@ def local_thumbnail_cache_directory() -> Path:
 
 catalog = Catalog(DATA_DIR / "catalog.sqlite3")
 storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
+network = NetworkCatalog(storage)
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -214,6 +217,49 @@ class StorageMetadataRequest(BaseModel):
 @app.get("/api/storage/volumes")
 async def storage_volumes(refresh: bool = False) -> dict:
     return await asyncio.to_thread(storage.refresh, refresh)
+
+
+class NetworkShareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    share: str = Field(min_length=1, max_length=255)
+
+
+@app.get("/api/storage/nas")
+async def remembered_nas() -> dict:
+    return await asyncio.to_thread(network.servers)
+
+
+@app.post("/api/storage/nas/discover")
+async def discover_nas() -> dict:
+    return await asyncio.to_thread(network.scan)
+
+
+@app.get("/api/storage/nas/{server_id}/shares")
+async def nas_shares(server_id: str, refresh: bool = False) -> dict:
+    try:
+        return await asyncio.to_thread(network.shares, server_id, refresh)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="NAS не найден") from error
+
+
+@app.post("/api/storage/nas/{server_id}/remember")
+async def remember_nas_share(server_id: str, request: NetworkShareRequest) -> dict:
+    try:
+        return await asyncio.to_thread(network.remember, server_id, request.share)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except NetworkError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/storage/volumes/{volume_id}/connect")
+async def connect_network_volume(volume_id: str) -> dict:
+    try:
+        return await asyncio.to_thread(network.open_in_finder, volume_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Том не найден") from error
+    except NetworkError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/storage/volumes/{volume_id}/directory")

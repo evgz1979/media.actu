@@ -6,6 +6,7 @@
 ## Содержание
 
 - [Архитектура](architecture.md)
+- [Хранилища и поиск NAS](storage.md)
 - [Развёртывание на M4 и порты](deployment.md)
 - [Безопасность данных и будущий откат](safety-and-recovery.md)
 - [План реализации](roadmap.md)

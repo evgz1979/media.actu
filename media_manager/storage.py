@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
+from urllib.parse import quote
 
 
 PURPOSES = {"": "Не назначено", "media": "Медиа", "documents": "Документы", "projects": "Проекты", "mixed": "Разные данные"}
@@ -101,6 +102,8 @@ class StorageCatalog:
                     PRIMARY KEY(volume_id, path)
                 );
             """)
+            db.execute('CREATE TABLE IF NOT EXISTS network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL)')
 
     @contextmanager
     def connect(self):
@@ -120,8 +123,11 @@ class StorageCatalog:
                     timestamp = now()
                     with self.connect() as db:
                         for volume in discovered:
+                            alias = db.execute('SELECT volume_id FROM volume_aliases WHERE alias_id=?', (volume['id'],)).fetchone()
+                            if alias:
+                                volume['id'] = alias['volume_id']
                             db.execute("""
-                                INSERT INTO volumes VALUES (?, ?, ?, ?, ?, ?)
+                                INSERT INTO volumes (id,name,mount_path,kind,first_seen,last_seen) VALUES (?, ?, ?, ?, ?, ?)
                                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,
                                   mount_path=excluded.mount_path, kind=excluded.kind, last_seen=excluded.last_seen
                             """, (volume["id"], volume["name"], volume["mount_path"], volume["kind"], timestamp, timestamp))
@@ -132,16 +138,51 @@ class StorageCatalog:
                     self._discovery_error = str(error)
                 self._checked = time.monotonic()
             with self.connect() as db:
-                rows = [dict(row) for row in db.execute("SELECT * FROM volumes ORDER BY name COLLATE NOCASE")]
+                rows = [dict(row) for row in db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id ORDER BY v.name COLLATE NOCASE")]
             for row in rows:
                 row["availability"] = "unknown" if self._discovery_error else ("online" if row["id"] in self._mounted else "offline")
                 row["device"] = self._mounted.get(row["id"], {}).get("device")
                 row["metadata"] = self.metadata(row["id"], "")
             return {"volumes": rows, "error": self._discovery_error, "checked_at": now(), "purposes": PURPOSES, "roles": ROLES}
 
+    @staticmethod
+    def network_keys(hosts: list[str], share: str) -> list[str]:
+        return list(dict.fromkeys(volume_key(f"smbfs:{host.rstrip('.').casefold()}/{name.casefold()}")
+                                  for host in hosts for name in (share, quote(share, safe=''))))
+
+    def find_network_volume(self, hosts: list[str], share: str) -> dict | None:
+        with self.connect() as db:
+            for candidate in self.network_keys(hosts, share):
+                alias = db.execute('SELECT volume_id FROM volume_aliases WHERE alias_id=?', (candidate,)).fetchone()
+                row = db.execute('SELECT * FROM volumes WHERE id=?', (alias['volume_id'] if alias else candidate,)).fetchone()
+                if row:
+                    return dict(row)
+        return None
+
+    def remember_network_volume(self, host: str, aliases: list[str], share: str) -> dict:
+        with self._lock:
+            hosts = list(dict.fromkeys([host, *aliases]))
+            existing = self.find_network_volume(hosts, share)
+            keys = self.network_keys(hosts, share)
+            volume_id = existing['id'] if existing else keys[0]
+            url = f"smb://{host}/{quote(share, safe='')}"
+            timestamp = now()
+            with self.connect() as db:
+                db.execute("""
+                    INSERT INTO volumes (id,name,mount_path,kind,first_seen,last_seen)
+                    VALUES (?,?,'','network',?,?) ON CONFLICT(id) DO NOTHING
+                """, (volume_id, share, timestamp, timestamp))
+                db.execute('INSERT OR REPLACE INTO network_volume_links VALUES (?,?)', (volume_id, url))
+                for key in keys:
+                    # Existing independent records are not merged or overwritten.
+                    collision = db.execute('SELECT id FROM volumes WHERE id=? AND id!=?', (key, volume_id)).fetchone()
+                    if not collision:
+                        db.execute('INSERT OR IGNORE INTO volume_aliases VALUES (?,?)', (key, volume_id))
+            return self.get_volume(volume_id)
+
     def get_volume(self, volume_id: str) -> dict:
         with self.connect() as db:
-            row = db.execute("SELECT * FROM volumes WHERE id=?", (volume_id,)).fetchone()
+            row = db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id WHERE v.id=?", (volume_id,)).fetchone()
         if row is None:
             raise KeyError("Том не найден")
         return dict(row)

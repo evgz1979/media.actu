@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 from nicegui import ui
 
 from media_manager.storage import FLAGS, PURPOSES, ROLES
+from network_ui import show_network_dialog
 
 
 CSS = """
@@ -97,7 +98,9 @@ def register_storage_page(request, format_bytes, format_date):
             with ui.column().classes('gap-1'):
                 ui.label('Хранилища').classes('s-title')
                 overview = ui.label('Загрузка томов M4…').classes('s-muted text-sm')
-            refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: refresh_volumes(True)).props('outline no-caps color=dark')
+            with ui.row().classes('gap-2'):
+                ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, refresh_volumes)).props('unelevated no-caps color=green-9')
+                refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: refresh_volumes(True)).props('outline no-caps color=dark')
         with ui.element('div').classes('s-layout'):
             with ui.column().classes('s-panel w-full gap-0'):
                 with ui.row().classes('s-panel-head w-full items-center justify-between'):
@@ -139,7 +142,7 @@ def register_storage_page(request, format_bytes, format_date):
                             ui.label(volume['name']).classes('font-semibold text-sm break-all')
                         with ui.row().classes('gap-1 items-center'):
                             ui.icon('circle', size='6px').classes('text-green-700' if available == 'online' else 's-muted')
-                            ui.label({'online': 'Подключён', 'offline': 'Отключён', 'unknown': 'Доступность неизвестна'}[available]).classes('s-muted text-xs')
+                            ui.label({'online': 'Подключён', 'offline': 'Отключён' if volume['mount_path'] else 'Не подключён', 'unknown': 'Доступность неизвестна'}[available]).classes('s-muted text-xs')
                         with ui.row().classes('gap-1'):
                             tags(volume['metadata'])
 
@@ -201,7 +204,7 @@ def register_storage_page(request, format_bytes, format_date):
             if not volume:
                 return
             tree_title.text = volume['name']
-            tree_path.text = volume['mount_path']
+            tree_path.text = volume['mount_path'] or volume.get('network_url') or 'Не подключён'
             tree_list.clear()
             selected_snapshot = folders.get(selected_path, folders.get('', {}))
             if selected_snapshot.get('scanned_at'):
@@ -260,7 +263,7 @@ def register_storage_page(request, format_bytes, format_date):
                 with ui.column().classes('gap-2 w-full'):
                     ui.icon('storage' if not selected_path else 'folder' if selected_kind == 'directory' else 'insert_drive_file', size='30px').classes('text-green-900')
                     ui.label(PurePosixPath(selected_path).name if selected_path else volume['name']).classes('text-lg font-semibold break-all')
-                    ui.label(str(PurePosixPath(volume['mount_path']) / selected_path)).classes('s-path s-muted')
+                    ui.label(str(PurePosixPath(volume['mount_path']) / selected_path) if volume['mount_path'] else volume.get('network_url') or 'Не подключён').classes('s-path s-muted')
                 with ui.row().classes('gap-1 w-full'):
                     tags(metadata)
                 for field, mapping, title in [('purpose', PURPOSES, 'Назначение'), ('role', ROLES, 'Хранение')]:
@@ -271,6 +274,8 @@ def register_storage_page(request, format_bytes, format_date):
                         origin = metadata['inherited_from'].get(field)
                         if origin is not None:
                             ui.label('От тома' if not origin else f'От папки: {origin}').classes('s-muted text-xs')
+                if volume.get('network_url') and volume['availability'] != 'online':
+                    ui.button('Подключить на M4', icon='lan', on_click=lambda v=volume: connect_volume(v['id'])).props('outline no-caps color=dark').classes('w-full')
                 if selected_kind == 'directory':
                     ui.button('Изменить роли', icon='edit_note', on_click=lambda: edit_metadata(metadata)).props('outline no-caps color=dark').classes('w-full')
                 if metadata['effective'].get('role') == 'copy':
@@ -326,6 +331,13 @@ def register_storage_page(request, format_bytes, format_date):
                 render_tree()
                 render_properties()
                 ui.notify('Отметки сохранены', type='positive')
+            except Exception as error:
+                await error_notice(error)
+
+        async def connect_volume(volume_id):
+            try:
+                await request('POST', f'/api/storage/volumes/{volume_id}/connect')
+                ui.notify('Заверши подключение в Finder на M4', type='info')
             except Exception as error:
                 await error_notice(error)
 
