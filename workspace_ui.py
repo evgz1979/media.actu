@@ -8,8 +8,9 @@ from pathlib import PurePosixPath
 from nicegui import ui
 
 from comparison_tree_ui import ComparisonTree
+from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
-from media_manager.storage import FLAGS, PURPOSES, ROLES, relative_path
+from media_manager.storage import FLAGS, PURPOSES, relative_path
 from network_ui import show_network_dialog
 from storage_ui import CSS, folder_icon
 
@@ -69,6 +70,27 @@ WORKSPACE_CSS = """
 .commander-sidebar .s-volume-row { padding-left:6px; padding-right:6px; }
 .commander-sidebar .s-volume-capacity { font-size:10px; }
 .workspace-operations { max-height:calc(100vh - 180px); overflow-y:auto; }
+.copy-section { border-bottom:1px solid var(--s-line); }
+.copy-section > .q-expansion-item__container > .q-item { min-height:48px; padding:10px 14px; font-size:11px; color:#687466; font-weight:650; }
+.copy-section .q-item__section--avatar { min-width:24px; padding-right:7px; }
+.copy-section .q-item__section--avatar .q-icon { font-size:17px; }
+.copy-group-list { max-height:calc(100vh - 300px); overflow:auto; padding:4px; }
+.copy-bookmark-group { padding:3px 0 7px; border-bottom:1px solid var(--s-line); }
+.copy-bookmark { padding:6px; border:1px solid transparent; border-radius:6px; }
+.copy-bookmark .q-btn__content { width:100%; align-items:flex-start; flex-direction:column; gap:2px; }
+.copy-bookmark.chosen { background:#edf3e7; border-color:#b7c8b0; }
+.copy-bookmark-name { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; font-size:12px; }
+.copy-place { width:100%; text-align:left; font-size:10px; color:var(--s-muted); overflow-wrap:anywhere; line-height:1.4; font-weight:400; }
+.copy-link { display:flex; flex-wrap:nowrap; align-items:center; gap:6px; margin-left:12px; padding:2px 4px; width:calc(100% - 12px); min-height:24px; color:#637b91; text-decoration:none; }
+.copy-link.chosen { color:#365f43; font-weight:600; }
+.copy-link .copy-label { padding:0; background:transparent; color:inherit; }
+.copy-link-name { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:11px; line-height:20px; }
+.copy-link:hover .copy-link-name { text-decoration:underline; }
+.copy-link:focus-visible { outline:1px solid #9cb8d5; outline-offset:-1px; }
+.copy-label { flex-shrink:0; font-size:10px; line-height:16px; padding:0 4px; border-radius:3px; background:#edf1f7; color:#536a89; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; }
+.copy-label.main { color:#3f6744; background:#eaf2e6; }
+.s-tree-role.copy-label { max-width:none; }
+.commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 56px 56px; min-width:444px; }
 @media(max-width:1450px) {
  .commander-layout { grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 240px; gap:10px; padding:0 16px 20px; }
  .commander-trees { gap:10px; }
@@ -343,6 +365,9 @@ class BrowserPane:
         self.render()
 
     def render(self):
+        labels = any(entry['kind'] == 'directory' and self.workspace.copies.membership(self.volume_id, entry['path'])
+                     for data in self.folders.values() for entry in data.get('entries', []))
+        self.container.classes(add='folder-labels' if labels else '', remove='' if labels else 'folder-labels')
         self.update_header()
         self.tree.clear()
         self.rows.clear()
@@ -387,7 +412,8 @@ class BrowserPane:
                     with ui.element('div').classes(classes) as row:
                         self.rows[entry['path']] = row
                         row.on('contextmenu', lambda e=entry: self.select(e, render=False))
-                        self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e))
+                        self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
+                                                     extra=self.workspace.copies.context_actions(self.volume_id, entry))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
                                 ui.button(icon='expand_more' if entry['path'] in self.expanded else 'chevron_right',
@@ -397,9 +423,9 @@ class BrowserPane:
                                 ui.element('span').classes('s-tree-spacer')
                                 ui.icon({'symlink': 'link', 'mount': 'storage'}.get(entry['kind'], 'insert_drive_file'), size='14px').classes('s-muted shrink-0')
                             ui.button(entry['name'], on_click=lambda e=entry: self.select(e, e['kind'] == 'directory')).props('flat dense no-caps color=dark').classes('s-entry-name')
-                            role = entry.get('metadata', {}).get('effective', {}).get('role')
-                            if role:
-                                ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-tree-role')
+                            membership = self.workspace.copies.membership(self.volume_id, entry['path']) if directory else None
+                            if membership:
+                                ui.label(membership['label']).classes('s-tree-role copy-label' + (' main' if membership['number'] == 0 else ''))
                             status = entry.get('status')
                             if status:
                                 ui.icon(STATUS_ICONS.get(status, 'help_outline'), size='13px').classes('shrink-0').style('color:' + STATUS_COLORS.get(status, '#747b72')).props(f'aria-label="{LABELS[status]}"')
@@ -439,6 +465,7 @@ class StorageWorkspace:
         self.current_matches = []
         self.browse_state = None
         self.browse_active = 0
+        self.copies = CopyGroupsUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
         ui.add_css(CSS + WORKSPACE_CSS)
         with ui.row().classes('s-header w-full items-center justify-between no-wrap'):
@@ -459,15 +486,13 @@ class StorageWorkspace:
                 self.refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props('outline no-caps color=dark')
         with ui.element('div').classes('commander-layout') as self.layout:
             with ui.column().classes('s-panel commander-sidebar w-full gap-0'):
-                with ui.column().classes('s-panel-head w-full gap-2'):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        ui.label('ТОМА').classes('s-caption')
-                        self.volume_count = ui.label('—').classes('s-muted text-xs')
-                self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
-                with ui.expansion('Архив', icon='archive', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
-                    self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
+                with ui.expansion('Тома', icon='storage', value=True).props('dense').classes('copy-section w-full') as self.volumes_section:
+                    self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
+                    with ui.expansion('Архив', icon='archive', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
+                        self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
+                    ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs px-3 py-2')
+                self.copies.build_sidebar()
                 with ui.column().classes('px-3 py-3 gap-1'):
-                    ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs')
                     ui.link('Системная медиатека Photos →', '/media').classes('text-xs text-green-900 no-underline')
             with ui.element('div').classes('commander-trees') as self.trees:
                 self.panes = [BrowserPane(self, index) for index in range(2)]
@@ -483,6 +508,7 @@ class StorageWorkspace:
             with ui.column().classes('s-panel-head w-full'):
                 ui.label('ОПЕРАЦИИ').classes('s-caption')
             with ui.column().classes('workspace-operation-body w-full'):
+                self.copies.build_controls()
                 ui.label('Сверка').classes('workspace-operation-title')
                 self.scopes_label = ui.label('Выбери том и папку в каждой панели.').classes('workspace-scopes w-full').style('white-space:pre-line')
                 self.start_button = ui.button('Сверить левую → правую', icon='compare_arrows', on_click=self.start_comparison).props('unelevated no-caps color=green-9').classes('workspace-start w-full text-xs')
@@ -530,17 +556,21 @@ class StorageWorkspace:
         if changed:
             self.render_volumes()
 
-    def property_menu(self, label, callback):
+    def property_menu(self, label, callback, *, extra=()):
         client = ui.context.client
 
-        async def invoke():
-            with client:
-                await callback()
+        def action(callback):
+            async def invoke():
+                with client:
+                    await callback()
+            return invoke
 
         with ui.context_menu() as menu:
             menu.on('before-show', lambda: setattr(self, 'context_menu_open', True))
             menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
-            ui.menu_item(label, on_click=invoke)
+            ui.menu_item(label, on_click=action(callback))
+            for text, handler in extra:
+                ui.menu_item(text, on_click=action(handler))
 
     async def open_volume(self, volume_id, index=None):
         with self.client:
@@ -556,7 +586,7 @@ class StorageWorkspace:
         offline = [v for v in self.volumes if archived(v)]
         online = sum(v['availability'] == 'online' for v in self.volumes)
         self.overview.text = f'Томов: {len(self.volumes)} · подключено: {online} · в архиве: {len(offline)}'
-        self.volume_count.text = str(len(active))
+        self.volumes_section.text = f'Тома · {len(active)}'
         self.archive.text = f'Архив · {len(offline)}'
         self.archive.set_visibility(bool(offline))
         selected = self.panes[self.active_index].volume_id if getattr(self, 'panes', []) else None
@@ -572,7 +602,6 @@ class StorageWorkspace:
                     ui.label(group['details']['name']).classes('grow truncate')
                     ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
                 for volume in group['volumes']:
-                    role = volume['metadata']['effective'].get('role')
                     channel = bool(volume.get('marker_id') and volume.get('share_name'))
                     classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
                     with ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes(classes):
@@ -583,8 +612,6 @@ class StorageWorkspace:
                                 ui.label(volume_label(volume, False)).classes('s-volume-name')
                                 if volume.get('removable'):
                                     ui.label('Сменный').classes('s-volume-role s-volume-removable')
-                                if role:
-                                    ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-volume-role')
                             if channel:
                                 ui.label(volume['share_name']).classes('s-volume-channel')
                             ui.label(self.capacity_text(volume)).classes('s-volume-capacity')
@@ -603,6 +630,7 @@ class StorageWorkspace:
             data = await self.request('GET', '/api/storage/volumes', params={'refresh': force}, timeout=45)
             self.volumes = data['volumes']
             self.render_volumes()
+            await self.copies.refresh()
             for pane in self.panes:
                 pane.update_header()
                 if pane.volume_id:
@@ -617,6 +645,8 @@ class StorageWorkspace:
             self.refresh_button.enable()
 
     def update_scopes(self):
+        self.copies.render_sidebar()
+        self.copies.render_controls()
         if self.report:
             def scope_label(scan):
                 volume = next((v for v in self.volumes if v['id'] == scan['volume_id']), None)
@@ -648,8 +678,7 @@ class StorageWorkspace:
         if candidates:
             requested = next((v for v in self.volumes if v['id'] == source), None)
             left = requested or next((v for v in candidates if v.get('marker_id') and v.get('mounted')), candidates[0])
-            right = next((v for v in candidates if v['name'] == 'Media-copy01' and v['id'] != left['id']),
-                         next((v for v in candidates if v['id'] != left['id']), left))
+            right = next((v for v in candidates if v['id'] != left['id']), left)
             try:
                 initial_path = relative_path(path) if requested else ''
             except ValueError as error:
@@ -959,9 +988,13 @@ class StorageWorkspace:
                 ui.label('Ресурс NAS: ' + volume['share_name']).classes('text-xs s-muted')
             values = metadata['effective']
             with ui.element('div').classes('workspace-property-grid'):
-                for title, field, labels in [('Назначение', 'purpose', PURPOSES), ('Хранение', 'role', ROLES)]:
-                    ui.label(title).classes('s-muted')
-                    ui.label(labels[values[field]])
+                ui.label('Назначение').classes('s-muted')
+                ui.label(PURPOSES[values['purpose']])
+            membership = self.copies.membership(volume_id, path)
+            if membership:
+                ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
+                if not membership['is_root']:
+                    ui.label('Унаследовано от /' + membership['path']).classes('s-path s-muted')
             for key, label in FLAGS.items():
                 if values.get(key):
                     ui.label(label).classes('s-tag flag')
@@ -971,7 +1004,7 @@ class StorageWorkspace:
                 ui.button('Подключить на M4', icon='lan', on_click=lambda: self.connect(volume['id'])).props('outline no-caps color=dark')
             with ui.row().classes('w-full justify-end gap-2'):
                 if kind == 'directory' and volume.get('identity_status') != 'unverified':
-                    ui.button('Изменить роли', on_click=lambda: dialog.submit('edit')).props('outline no-caps color=green-9')
+                    ui.button('Изменить отметки', on_click=lambda: dialog.submit('edit')).props('outline no-caps color=green-9')
                 ui.button('Закрыть', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
         if await dialog == 'edit':
             await self.edit_metadata(volume, path, metadata)
@@ -982,11 +1015,10 @@ class StorageWorkspace:
         own = metadata['own']
         self.editing = True
         with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-4'):
-            ui.label('Роли и назначение').classes('text-lg font-semibold')
+            ui.label('Назначение и отметки').classes('text-lg font-semibold')
             ui.label(PurePosixPath(path).name if path else volume_label(volume)).classes('text-sm s-muted break-words')
             default = 'От родительской папки / тома' if path else 'Не назначено'
             purpose = ui.select({inherit: default, **PURPOSES}, value=own['purpose'] if own['purpose'] is not None else inherit, label='Что здесь хранится').props('outlined dense').classes('w-full')
-            role = ui.select({inherit: default, **ROLES}, value=own['role'] if own['role'] is not None else inherit, label='Роль хранения').props('outlined dense').classes('w-full')
             flags = {}
             for key, label in FLAGS.items():
                 value = inherit if own[key] is None else 'yes' if own[key] else 'no'
@@ -1000,7 +1032,7 @@ class StorageWorkspace:
             if not await dialog:
                 return
             payload = {'path': path, 'purpose': None if purpose.value == inherit else purpose.value,
-                       'role': None if role.value == inherit else role.value, 'comment': comment.value or ''}
+                       'role': None, 'comment': comment.value or ''}
             payload.update({key: None if control.value == inherit else control.value == 'yes' for key, control in flags.items()})
             await self.request('PATCH', f'/api/storage/volumes/{volume_id}/metadata', json=payload)
             self.editing = False

@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from urllib.parse import quote, unquote, urlsplit
 
+from .copies import COPY_SCHEMA, inherited_location
 from .volume_identity import (
     MARKER_FILES, canonical_host, create_marker, mounted_root, read_capacity,
     read_marker, usb_share, verify_identity,
@@ -175,10 +176,12 @@ class StorageCatalog:
             db.execute('''CREATE TABLE IF NOT EXISTS volume_capacity (
                 volume_id TEXT PRIMARY KEY, total_bytes INTEGER NOT NULL, used_bytes INTEGER NOT NULL,
                 free_bytes INTEGER NOT NULL, available_bytes INTEGER NOT NULL, checked_at TEXT NOT NULL)''')
+            db.executescript(COPY_SCHEMA)
 
     @contextmanager
     def connect(self):
         db = sqlite3.connect(self.database, timeout=30)
+        db.execute('PRAGMA foreign_keys=ON')
         try:
             db.row_factory = sqlite3.Row
             with db:
@@ -376,7 +379,8 @@ class StorageCatalog:
         self.get_volume(volume_id)
         with self.connect() as db:
             annotations = {r["path"]: dict(r) for r in db.execute("SELECT * FROM annotations WHERE volume_id=?", (volume_id,))}
-        return self._metadata(path, annotations)
+            locations = [dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE volume_id=?', (volume_id,))]
+        return {**self._metadata(path, annotations), 'copy': inherited_location(path, locations)}
 
     @staticmethod
     def _metadata(path: str, annotations: dict) -> dict:
@@ -447,8 +451,9 @@ class StorageCatalog:
                 error = f"Не удалось прочитать папку: {failure.strerror or str(failure)}"
         with self.connect() as db:
             annotations = {r["path"]: dict(r) for r in db.execute("SELECT * FROM annotations WHERE volume_id=?", (volume_id,))}
+            locations = [dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE volume_id=?', (volume_id,))]
         for entry in snapshot["entries"]:
-            entry["metadata"] = self._metadata(entry["path"], annotations)
+            entry["metadata"] = {**self._metadata(entry["path"], annotations), 'copy': inherited_location(entry['path'], locations)}
         return {**snapshot, "path": path, "volume": volume, "cached": cached, "error": error, "metadata": self.metadata(volume_id, path)}
 
     @staticmethod

@@ -66,6 +66,9 @@ class ComparisonTree:
                     ui.element('span').classes('s-tree-spacer')
                     ui.icon('insert_drive_file' if entry['kind'] == 'file' else 'link', size='14px').classes('s-muted shrink-0')
                 ui.button(entry['name'], on_click=lambda e=entry, s=scope: self.select(e, s)).props('flat dense no-caps color=dark').classes('s-entry-name')
+                membership = self.workspace.copies.membership(scope['volume_id'], entry['path']) if directory else None
+                if membership:
+                    ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
                 if entry.get('error'):
                     ui.icon('error_outline', size='13px').classes('text-orange-800')
                 if root:

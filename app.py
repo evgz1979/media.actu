@@ -27,6 +27,7 @@ from media_manager.watcher import SourceWatcher
 from media_manager.storage import StorageCatalog
 from media_manager.network import NetworkCatalog, NetworkError
 from media_manager.comparison import ComparisonCatalog
+from media_manager.copies import CopyCatalog, COPY_KINDS
 
 
 ROOT = Path(__file__).parent
@@ -46,6 +47,7 @@ catalog = Catalog(DATA_DIR / "catalog.sqlite3")
 storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
 network = NetworkCatalog(storage)
 comparison = ComparisonCatalog(storage)
+copies = CopyCatalog(storage)
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -302,6 +304,71 @@ class ComparisonScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
     volume_id: str = Field(min_length=1, max_length=128)
     path: str = Field(default="", max_length=4096)
+
+
+class CopyLocationRequest(ComparisonScope):
+    kind: Literal['copy', 'cold', 'cloud'] = 'copy'
+
+
+class CopyKindRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['copy', 'cold', 'cloud']
+
+
+class CopyNumberSnapshot(CopyKindRequest):
+    id: str = Field(min_length=1, max_length=128)
+    number: int = Field(gt=0)
+
+
+class CopyRenumberRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    copies: list[CopyNumberSnapshot]
+
+
+async def copy_catalog_action(action, *args):
+    try:
+        return await asyncio.to_thread(action, *args)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get('/api/storage/copy-groups')
+async def storage_copy_groups() -> dict:
+    return {'groups': await copy_catalog_action(copies.groups), 'kinds': COPY_KINDS}
+
+
+@app.post('/api/storage/copy-groups')
+async def storage_main_folder(request: ComparisonScope) -> dict:
+    return await copy_catalog_action(copies.create_main, request.volume_id, request.path)
+
+
+@app.post('/api/storage/copy-groups/{group_id}/copies')
+async def storage_copy_location(group_id: str, request: CopyLocationRequest) -> dict:
+    return await copy_catalog_action(copies.add_copy, group_id, request.volume_id, request.path, request.kind)
+
+
+@app.patch('/api/storage/copy-locations/{location_id}')
+async def storage_copy_kind(location_id: str, request: CopyKindRequest) -> dict:
+    return await copy_catalog_action(copies.change_kind, location_id, request.kind)
+
+
+@app.post('/api/storage/copy-groups/{group_id}/renumber')
+async def storage_renumber_copies(group_id: str, request: CopyRenumberRequest) -> dict:
+    return await copy_catalog_action(copies.renumber_copies, group_id, [copy.model_dump() for copy in request.copies])
+
+
+@app.delete('/api/storage/copy-locations/{location_id}')
+async def storage_remove_copy(location_id: str) -> dict:
+    await copy_catalog_action(copies.remove_copy, location_id)
+    return {'removed': True}
+
+
+@app.delete('/api/storage/copy-groups/{group_id}')
+async def storage_remove_copy_group(group_id: str) -> dict:
+    await copy_catalog_action(copies.remove_group, group_id)
+    return {'removed': True}
 
 
 class ComparisonRequest(BaseModel):
