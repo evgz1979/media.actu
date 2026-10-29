@@ -1,6 +1,10 @@
 """File differences stay hidden until the user expands their folder."""
 import unittest
+from contextlib import nullcontext
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
+from copy_groups_ui import CopyGroupsUI
 from paired_workspace_ui import PairedWorkspace
 
 
@@ -37,3 +41,63 @@ class PairedWorkspaceTests(unittest.TestCase):
         self.assertEqual(paths(), ['Album/Sub'])
         workspace.root_files_open = True
         self.assertEqual(paths(), ['Album/Sub', 'Album/different'])
+
+
+class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
+    def workspace(self, state='completed'):
+        panes = [SimpleNamespace(tree=SimpleNamespace(classes=Mock()), restore_browse_state=Mock()) for _ in range(2)]
+        ws = SimpleNamespace(client=nullcontext(), panes=panes, set_active=Mock(), update_scopes=Mock(), request=AsyncMock())
+        pair = PairedWorkspace(ws)
+        pair.active = True
+        pair.report = {'id': 'report', 'state': state}
+        pair.saved = [{'path': 'before-left'}, {'path': 'before-right'}]
+        pair.saved_active = 1
+        pair.render_rail = Mock()
+        pair.stop = AsyncMock()
+        return ws, pair
+
+    async def test_panel_unlink_restores_browsing_without_removing_copy_records(self):
+        ws, pair = self.workspace()
+        await pair.unlink()
+        self.assertFalse(pair.active)
+        self.assertIsNone(pair.report)
+        ws.panes[0].restore_browse_state.assert_called_once_with({'path': 'before-left'})
+        ws.panes[1].restore_browse_state.assert_called_once_with({'path': 'before-right'})
+        ws.set_active.assert_called_once_with(1)
+        ws.request.assert_not_awaited()
+
+    async def test_leaving_a_running_comparison_stops_it_before_restoring_the_panels(self):
+        ws, pair = self.workspace('running')
+        await pair.unlink()
+        pair.stop.assert_awaited_once()
+        self.assertFalse(pair.active)
+        ws.request.assert_not_awaited()
+
+
+class CopyRemovalConfirmationTests(unittest.IsolatedAsyncioTestCase):
+    def controls(self, confirmed):
+        pair = SimpleNamespace(active=True, copy_id='copy', unlink=AsyncMock())
+        ws = SimpleNamespace(client=nullcontext(), editing=False, pair=pair, request=AsyncMock(), notice=Mock())
+        controls = CopyGroupsUI(ws)
+        main = dict(id='main', label='00-main', volume_name='NAS 1', path='Original')
+        copy = dict(id='copy', group_id='group', label='01-copy', volume_name='NAS 2', path='Backup')
+        controls.groups = [dict(id='group', main=main, copies=[copy], numbering_changes=[])]
+        controls.refresh = AsyncMock()
+        controls.changed = AsyncMock()
+        controls.confirm_remove = AsyncMock(return_value=confirmed)
+        return ws, controls, main, copy
+
+    async def test_cancel_shows_both_locations_without_deleting_the_link(self):
+        ws, controls, main, copy = self.controls(False)
+        await controls.remove_copy(copy)
+        self.assertEqual(controls.confirm_remove.await_args.kwargs['locations'], (main, copy))
+        ws.request.assert_not_awaited()
+        ws.pair.unlink.assert_not_awaited()
+        self.assertFalse(ws.editing)
+
+    async def test_confirm_removes_only_the_chosen_link_then_closes_its_pair(self):
+        ws, controls, main, copy = self.controls(True)
+        await controls.remove_copy(copy)
+        ws.request.assert_awaited_once_with('DELETE', '/api/storage/copy-locations/copy')
+        ws.pair.unlink.assert_awaited_once()
+        controls.changed.assert_awaited_once()

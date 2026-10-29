@@ -19,6 +19,7 @@ PAIR_CSS = '''
 .pair-rail .q-btn { min-width:0; width:54px; padding:3px 1px; min-height:40px; font-size:10px; line-height:13px; }
 .pair-rail .q-btn__content { display:flex; flex-direction:column; gap:2px; flex-wrap:nowrap; }
 .pair-rail .q-icon { font-size:17px; margin:0; }
+.pair-disconnect .block { white-space:normal; }
 .pair-connection { border:1px solid #b1c7ad; border-radius:50%; padding:4px; color:#397645; background:#edf5e9; }
 .pair-rail-state { font-size:9px; text-align:center; line-height:13px; color:#64725f; overflow-wrap:anywhere; }
 .pair-running-path { max-width:100%; }
@@ -30,7 +31,9 @@ PAIR_CSS = '''
 .pair-row { position:absolute; left:0; width:100%; height:28px; display:flex; align-items:center; gap:4px; padding-right:7px; font-size:12px; cursor:default; border-bottom:1px solid #f0f2ef; }
 .pair-row.alt { background:#f6f8f5; }
 .pair-row.selected { background:#e9f1e4; box-shadow:inset 2px 0 #638c58; }
-.pair-row.ghost { color:#8b939a; background:repeating-linear-gradient(135deg,#fafbfd,#fafbfd 5px,#f3f5f8 5px,#f3f5f8 6px); }
+.pair-row.ghost { color:#c5cbd0; background:repeating-linear-gradient(135deg,#fafbfd,#fafbfd 5px,#f3f5f8 5px,#f3f5f8 6px); }
+.pair-row.ghost .pair-file-icon { color:#d0d9df; }
+.pair-row.ghost .pair-toggle { color:inherit; }
 .pair-row-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pair-toggle { border:0; padding:0; width:17px; height:22px; background:none; color:#758172; flex-shrink:0; cursor:pointer; }
 .pair-toggle .material-icons { font-size:17px; }
@@ -107,7 +110,7 @@ class PairedWorkspace:
             ui.icon('link', size='19px').classes('pair-connection').props('role=img aria-hidden=false aria-label="Панели связаны"')
             if not self.active:
                 ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props('flat no-caps color=green-9')
-                ui.button('Закрыть', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark')
+                ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark aria-label="Разомкнуть панели"').classes('pair-disconnect')
                 return
             running = self.report and self.report['state'] in ('running', 'pausing')
             folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
@@ -142,7 +145,7 @@ class PairedWorkspace:
                             ui.menu_item('Свернуть всё', on_click=lambda: self.collapse_all(True))
                         if self.report['state'] == 'completed':
                             ui.menu_item('Сверить содержимое · SHA-256', on_click=lambda: self.start('files', 'sha256'))
-            ui.button('Отвязать', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разорвать связь панелей"')
+            ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes('pair-disconnect')
 
     async def link(self, group, location):
         with self.ws.client:
@@ -208,7 +211,7 @@ class PairedWorkspace:
                                         if self.structure_at else self.report_title(self.report) + ' · ' + self.ws.format_date(self.report['created_at']))
             row = self.by_path.get(self.selected)
             if row and not row.get(side):
-                pane.footer.text = 'Не проверено' if row['status'] == 'unverified' else 'Нет в ' + scope['label']
+                pane.footer.text = 'Не проверено' if row['status'] == 'unverified' else 'Отсутствует · ' + scope['label']
             else:
                 pane.footer.text = self.report['message'] + ' · ' + scope['label']
         else:

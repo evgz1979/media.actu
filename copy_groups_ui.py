@@ -81,7 +81,7 @@ class CopyGroupsUI:
                         ):
                             ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
                                              extra=[('Изменить тип копии', lambda c=location: self.edit_kind(c)),
-                                                    ('Убрать ссылку на копию', lambda c=location: self.remove_copy(c))])
+                                                    ('Убрать связь с копией…', lambda c=location: self.remove_copy(c))])
                             ui.label(location['label']).classes('copy-label')
                             ui.label(self.location_path(location)).classes('copy-link-name')
                             if location['availability'] != 'online':
@@ -221,13 +221,17 @@ class CopyGroupsUI:
             finally:
                 ws.editing = False
 
-    async def confirm_remove(self, title):
-        with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
+    async def confirm_remove(self, title, *, locations=(), button_label='Убрать из учёта'):
+        with ui.dialog() as dialog, ui.card().classes('w-[520px] max-w-full p-5 gap-3'):
             ui.label(title).classes('text-lg font-semibold')
-            ui.label('Убирается только запись из учёта копий.').classes('text-sm s-muted')
+            for location in locations:
+                with ui.column().classes('w-full gap-0'):
+                    ui.label(location['label']).classes('text-sm font-semibold')
+                    ui.label(self.location_path(location)).classes('text-sm break-all')
+            ui.label('Убирается запись из учёта копий. Папки и файлы на дисках останутся.').classes('text-sm s-muted')
             with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
-                ui.button('Убрать из учёта', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+                ui.button(button_label, on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
         return await dialog
 
     async def renumber(self, group):
@@ -277,10 +281,18 @@ class CopyGroupsUI:
     async def remove_copy(self, location):
         ws = self.workspace
         with ws.client:
+            was_editing = ws.editing
             ws.editing = True
             try:
-                if await self.confirm_remove('Убрать ссылку ' + location['label'] + '?'):
+                await self.refresh()
+                group = next((g for g in self.groups if g['id'] == location['group_id']), None)
+                location = next((c for c in group['copies'] if c['id'] == location['id']), None) if group else None
+                if location is None:
+                    raise ValueError('Эта связь с копией уже убрана из учёта.')
+                if await self.confirm_remove('Убрать связь с копией?', locations=(group['main'], location), button_label='Убрать связь'):
                     await ws.request('DELETE', f"/api/storage/copy-locations/{location['id']}")
+                    if ws.pair.active and ws.pair.copy_id == location['id']:
+                        await ws.pair.unlink()
                     await self.changed()
                     group = next((g for g in self.groups if g['id'] == location['group_id']), None)
                     if group and group['numbering_changes']:
@@ -288,4 +300,4 @@ class CopyGroupsUI:
             except Exception as error:
                 ws.notice(error)
             finally:
-                ws.editing = False
+                ws.editing = was_editing

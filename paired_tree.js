@@ -57,7 +57,7 @@ export default {
     status(row) {
       if (!row[this.side]) {
         if (row.status === 'unverified') return 'Не проверено';
-        return this.side === 'left' ? 'Нет в 00-main' : 'Нет в копии';
+        return 'Отсутствует';
       }
       if (row.kind === 'directory' && row.status === 'both' && row.attention_count) return 'Есть различия';
       return {both:'Есть в обоих',missing_copy:'Нет в копии',extra_copy:'Только в копии',same:'Совпадает',same_size:'Имя и размер совпали',
