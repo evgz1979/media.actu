@@ -39,6 +39,7 @@ def folder_icon(size=16):
 
 CSS = """
 :root { --s-ink:#243129; --s-muted:#7c847e; --s-line:#e2e6df; --s-paper:#f5f6f2; --s-green:#365f43; }
+html, body { overscroll-behavior-y:none; }
 body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif; }
 .q-page { background:var(--s-paper); } .nicegui-content { padding:0; gap:0; }
 .s-header { background:white; border-bottom:1px solid var(--s-line); padding:16px 26px; min-height:72px; }

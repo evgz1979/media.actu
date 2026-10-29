@@ -56,6 +56,7 @@ async def index_page() -> None:
     ui.add_css(
         """
         :root { --ink:#171717; --muted:#70706b; --line:#d4d4cf; --paper:#f3f3f0; --white:#fff; --accent:#214f3b; }
+        html, body { overscroll-behavior-y:none; }
         body { background:var(--paper); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif; }
         .q-layout, .q-page { background:var(--paper); }
         .utility-header { height:64px; border-bottom:1px solid #999; background:var(--white); padding:0 28px; }
