@@ -26,6 +26,7 @@ from media_manager.thumbnail_workers import ThumbnailWorkerPool
 from media_manager.watcher import SourceWatcher
 from media_manager.storage import StorageCatalog
 from media_manager.network import NetworkCatalog, NetworkError
+from media_manager.comparison import ComparisonCatalog
 
 
 ROOT = Path(__file__).parent
@@ -44,6 +45,7 @@ def local_thumbnail_cache_directory() -> Path:
 catalog = Catalog(DATA_DIR / "catalog.sqlite3")
 storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
 network = NetworkCatalog(storage)
+comparison = ComparisonCatalog(storage)
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -139,6 +141,7 @@ async def lifespan(_: FastAPI):
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
     yield
+    comparison.close()
     watcher.stop()
     thumbnail_workers.stop()
     executor.shutdown(wait=False, cancel_futures=True)
@@ -280,6 +283,71 @@ async def storage_metadata(volume_id: str, request: StorageMetadataRequest) -> d
         raise HTTPException(status_code=404, detail="Том не найден") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+class ComparisonScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    volume_id: str = Field(min_length=1, max_length=128)
+    path: str = Field(default="", max_length=4096)
+
+
+class ComparisonRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: ComparisonScope
+    targets: list[ComparisonScope] = Field(min_length=1, max_length=16)
+    reread: bool = False  # accepted for older clients; content is never read
+    reuse_index: bool = True
+
+
+async def comparison_call(function, *args, **kwargs):
+    try:
+        return await asyncio.to_thread(function, *args, **kwargs)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/storage/comparisons")
+async def comparison_jobs() -> dict:
+    return {"jobs": await comparison_call(comparison.jobs)}
+
+
+@app.post("/api/storage/comparisons", status_code=201)
+async def start_comparison(request: ComparisonRequest) -> dict:
+    return await comparison_call(comparison.create, request.source.model_dump(),
+                                 [t.model_dump() for t in request.targets], reuse_index=request.reuse_index)
+
+
+@app.get("/api/storage/comparisons/{job_id}")
+async def comparison_job(job_id: str) -> dict:
+    return await comparison_call(comparison.job, job_id)
+
+
+@app.post("/api/storage/comparisons/{job_id}/pause")
+async def pause_comparison(job_id: str) -> dict:
+    return await comparison_call(comparison.pause, job_id)
+
+
+@app.post("/api/storage/comparisons/{job_id}/resume")
+async def resume_comparison(job_id: str) -> dict:
+    return await comparison_call(comparison.resume, job_id)
+
+
+@app.get("/api/storage/comparisons/{job_id}/tree")
+async def comparison_tree(job_id: str, path: str | None = None, status: str = "",
+                          offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)) -> dict:
+    return await comparison_call(comparison.tree, job_id, path, status, offset, limit)
+
+
+@app.get("/api/storage/comparisons/{job_id}/detail")
+async def comparison_detail(job_id: str, path: str | None = None) -> dict:
+    return await comparison_call(comparison.detail, job_id, path)
+
+
+@app.get("/api/storage/comparisons/{job_id}/events")
+async def comparison_events(job_id: str, before: int | None = Query(None, ge=1)) -> dict:
+    return {"events": await comparison_call(comparison.events, job_id, before)}
 
 
 @app.get("/api/sources")

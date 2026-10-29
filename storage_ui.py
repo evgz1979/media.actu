@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import PurePosixPath
 from itertools import count
+from urllib.parse import urlencode
 
 from nicegui import ui
 
@@ -129,6 +130,7 @@ def register_storage_page(request, format_bytes, format_date):
                 ui.label('media.actu').classes('s-brand')
                 with ui.row().classes('items-center gap-1'):
                     ui.link('Хранилища', '/').classes('s-nav active')
+                    ui.link('Сверка', '/compare').classes('s-nav')
                     ui.link('Медиа', '/media').classes('s-nav')
             with ui.row().classes('items-center gap-2 s-readonly'):
                 ui.icon('lock_outline', size='15px').classes('s-muted')
@@ -349,6 +351,7 @@ def register_storage_page(request, format_bytes, format_date):
                 if volume.get('network_url') and volume['availability'] != 'online':
                     ui.button('Подключить на M4', icon='lan', on_click=lambda v=volume: connect_volume(v['id'])).props('outline no-caps color=dark').classes('w-full')
                 if selected_kind == 'directory':
+                    ui.link('Сверить с NAS →', '/compare?' + urlencode({'source': volume['id'], 'path': selected_path})).classes('text-sm text-green-900 no-underline')
                     ui.button('Изменить роли', icon='edit_note', on_click=lambda: edit_metadata(metadata)).props('outline no-caps color=dark').classes('w-full')
                 if metadata['effective'].get('role') == 'copy':
                     ui.label('Назначена роль копии. Совпадение файлов ещё не проверялось.').classes('s-note')

@@ -108,6 +108,7 @@ async def index_page() -> None:
         with ui.row().classes("items-center gap-4"):
             ui.label("MEDIA.ACTU").classes("brand")
             ui.link("Хранилища", "/").classes("text-sm text-green-900 no-underline")
+            ui.link("Сверка", "/compare").classes("text-sm text-green-900 no-underline")
             ui.label("Медиа").classes("text-sm font-semibold")
             connection_label = ui.label("CORE: проверка…").classes("muted text-xs")
         ui.label("ОРИГИНАЛЫ: ТОЛЬКО ЧТЕНИЕ").classes("readonly")
@@ -645,6 +646,10 @@ async def index_page() -> None:
 from storage_ui import register_storage_page
 
 register_storage_page(core_request, format_bytes, format_date)
+
+from comparison_ui import register_comparison_page
+
+register_comparison_page(core_request, format_bytes, format_date)
 
 
 if __name__ in {"__main__", "__mp_main__"}:
