@@ -38,11 +38,14 @@ class ComparisonTree:
 
     def update_header(self):
         pane = self.pane
-        pane.path_label.text = ''
+        pane.location.set_visibility(bool(self.selected))
         if self.selected:
             scope, entry = self.selected
-            pane.path_label.text = scope['volume_name'] + ' /' + entry['path']
-        pane.path_label.set_visibility(bool(pane.path_label.text))
+            pane.render_path(scope['volume_id'], entry['path'], entry['kind'],
+                             boundary=scope['path'], navigate=self.open_path)
+        else:
+            pane.path_bar.clear()
+            pane.path_signature = None
         pane.toolbar.set_visibility(bool(self.roots))
         timestamp = self.roots[0].get('indexed_at') if self.roots else None
         pane.snapshot_label.text = 'Список сверки: ' + self.workspace.format_date(timestamp) if self.roots else ''
@@ -108,7 +111,18 @@ class ComparisonTree:
             self.folders[key] = {**data, 'entries': previous + data['entries']}
         return True
 
-    async def select(self, entry, scope):
+    async def open_path(self, path):
+        if not self.selected:
+            return
+        scope, _ = self.selected
+        boundary = scope['path']
+        if boundary and path != boundary and not path.startswith(boundary + '/'):
+            return
+        entry = {'scan_id': scope['scan_id'], 'path': path, 'kind': 'directory',
+                 'name': PurePosixPath(path).name or scope['volume_name']}
+        await self.select(entry, scope, expand=True)
+
+    async def select(self, entry, scope, *, expand=False):
         previous_volume = self.pane.volume_id
         already_active = self.workspace.active_index == 1
         key = entry['scan_id'], entry['path']
@@ -120,7 +134,7 @@ class ComparisonTree:
         if already_active and previous_volume != pane.volume_id:
             self.workspace.render_volumes()
         if entry['kind'] == 'directory':
-            if key in self.expanded:
+            if key in self.expanded and not expand:
                 self.expanded.remove(key)
             else:
                 if key not in self.folders and not await self.load(entry):

@@ -43,8 +43,21 @@ WORKSPACE_CSS = """
 .commander-trees.names-comparison .commander-pane:first-child .s-entry-cell,
 .commander-trees.names-comparison .commander-pane:first-child .s-tree-heading > div:not(:first-child) { display:none; }
 .commander-pane .pane-heading { font-size:11px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
-.pane-volume { width:100%; } .pane-volume .q-field__control { min-height:36px; }
-.pane-path { min-height:17px; width:100%; overflow-wrap:anywhere; }
+.pane-location { display:flex; align-items:center; gap:10px; width:100%; min-width:0; }
+.pane-volume { flex:0 0 clamp(148px,28%,180px); width:clamp(148px,28%,180px); min-width:0; font-size:12px; }
+.pane-volume .q-field__control, .pane-volume .q-field__marginal { height:34px; min-height:34px; }
+.pane-volume .q-field__native { padding:0; min-height:34px; }
+.pane-volume .q-field__native > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pane-volume .q-field__append { padding-left:4px; }
+.pane-path { display:flex; flex:1; align-items:center; gap:5px; min-width:0; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; padding:3px 0 5px; scrollbar-width:thin; }
+.pane-path-prefix, .pane-path-slash { flex-shrink:0; white-space:nowrap; color:#526b83; font-size:13px; }
+.pane-crumb { flex-shrink:0; min-height:28px; padding:2px 7px; border:1px solid #c7dced; border-radius:5px; background:#eaf4fc; color:#285b80; font-size:13px; line-height:22px; white-space:nowrap; }
+.pane-crumb .q-btn__content { flex-wrap:nowrap; gap:4px; }
+.pane-crumb .q-icon { font-size:15px; }
+.pane-crumb.current { background:#d8eafa; border-color:#a8c8e2; color:#164b74; font-weight:650; }
+.pane-crumb.context { display:flex; align-items:center; gap:4px; }
+.pane-crumb.q-btn:hover { background:#d7eafb; }
+.pane-crumb:focus-visible { outline:2px solid #6ca4d0; outline-offset:1px; }
 .pane-status { padding:7px 11px; border-top:1px solid var(--s-line); font-size:11px; min-height:31px; color:var(--s-muted); }
 .pane-result { flex-shrink:0; font-size:10px; max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pane-count { font-size:10px; padding:0 3px; background:#edf1e9; border-radius:3px; }
@@ -133,6 +146,7 @@ class BrowserPane:
         self.rows = {}
         self.generation = 0
         self.filter_value = ''
+        self.path_signature = None
         with ui.column().classes('s-panel commander-pane w-full gap-0') as self.container:
             self.container.on('click', lambda: workspace.set_active(index))
             self.container.on('focusin', lambda: workspace.set_active(index))
@@ -144,8 +158,11 @@ class BrowserPane:
                         ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
                         ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
                         ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props(f'aria-label="Обновить {self.title.lower()} панель"')
-                self.volume_select = ui.select({}, label='Том слева' if index == 0 else 'Том справа', on_change=self.volume_changed).props('outlined dense').classes('pane-volume')
-                self.path_label = ui.label('Выбери том').classes('s-path s-muted pane-path')
+                with ui.element('div').classes('pane-location') as self.location:
+                    self.volume_select = ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props(
+                        'aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes('pane-volume')
+                    self.path_bar = ui.element('nav').classes('pane-path').props(
+                        'aria-label="Путь левой панели"' if index == 0 else 'aria-label="Путь правой панели"')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap') as self.toolbar:
                 self.snapshot_label = ui.label('Просмотр папок').classes('s-muted text-xs')
                 self.hidden = ui.checkbox('Скрытые', value=False, on_change=lambda: self.render()).props('dense size=xs').classes('text-xs s-muted')
@@ -205,14 +222,18 @@ class BrowserPane:
             self.result_filter.set_visibility(False)
             self.comparison.update_header()
             return
-        self.path_label.set_visibility(True)
+        self.location.set_visibility(True)
+        self.path_bar.set_visibility(True)
         self.toolbar.set_visibility(True)
         volume = self.volume
         if not volume:
-            self.path_label.text = 'Выбери том'
+            self.path_bar.clear()
+            self.path_signature = None
+            with self.path_bar:
+                ui.label('Выбери том').classes('pane-path-prefix')
             return
-        base = volume['mount_path'] or volume.get('network_url') or ''
-        self.path_label.text = base.rstrip('/') + ('/' + self.path if self.path else '')
+        self.render_path(self.volume_id, self.path, self.kind,
+                         boundary=self.scan['root_path'] if self.scan else '')
         if self.scan:
             timestamp = self.scan.get('finished_at') or self.scan.get('started_at')
             self.snapshot_label.text = 'Список сверки: ' + self.workspace.format_date(timestamp)
@@ -225,6 +246,53 @@ class BrowserPane:
         self.footer.text = location + ' · ' + self.workspace.capacity_text(volume)
         self.result_filter.set_visibility(bool(self.scan and self.workspace.report and self.workspace.report['mode'] == 'names'))
         self.result_filter.set_enabled(bool(self.scan and self.scan['side'] == 'source'))
+
+    def render_path(self, volume_id, path, kind, *, boundary='', navigate=None):
+        volume = next((v for v in self.workspace.volumes if v['id'] == volume_id), None)
+        if not volume:
+            return
+        base = (volume['mount_path'] or volume.get('network_url') or volume_label(volume)).rstrip('/') or '/'
+        signature = volume_id, base, path, kind, boundary, bool(self.workspace.report)
+        if signature == self.path_signature:
+            return
+        self.path_signature = signature
+        self.path_bar.clear()
+        navigate = navigate or self.open_path
+        prefix, _, root_name = base.rpartition('/')
+        crumbs = [(root_name or '/', '', 'directory')]
+        parts = PurePosixPath(path).parts if path else ()
+        crumbs.extend((name, '/'.join(parts[:i + 1]), kind if i == len(parts) - 1 else 'directory')
+                      for i, name in enumerate(parts))
+        with self.path_bar:
+            if prefix:
+                ui.label(prefix + '/').classes('pane-path-prefix')
+            for i, (name, relative, entry_kind) in enumerate(crumbs):
+                if i:
+                    ui.label('/').classes('pane-path-slash').props('aria-hidden=true')
+                permitted = not boundary or relative == boundary or relative.startswith(boundary + '/')
+                current = relative == path
+                classes = 'pane-crumb' + (' current' if current else '')
+                if permitted and entry_kind == 'directory':
+                    crumb = ui.button(name, icon='folder_open' if current else 'folder',
+                                      on_click=lambda p=relative: navigate(p)).props('flat dense no-caps').classes(classes)
+                else:
+                    with ui.element('span').classes(classes + ' context') as crumb:
+                        ui.icon('folder' if entry_kind == 'directory' else 'insert_drive_file', size='15px')
+                        ui.label(name)
+                if current:
+                    crumb.props('aria-current=location')
+        # Keep the selected folder visible without scrolling the tree or the page.
+        ui.run_javascript(f'requestAnimationFrame(() => {{ const bar = getHtmlElement({self.path_bar.id}); if (bar) bar.scrollLeft = bar.scrollWidth; }});')
+
+    async def open_path(self, path):
+        path = relative_path(path)
+        boundary = self.scan['root_path'] if self.scan else ''
+        if boundary and path != boundary and not path.startswith(boundary + '/'):
+            return
+        with self.workspace.client:
+            await self.show_volume(self.volume_id, path, scan=self.scan, job_id=self.job_id)
+            if self.index == 0:
+                await self.workspace.refresh_matches()
 
     async def show_volume(self, volume_id, path='', *, scan=None, job_id=None, activate=True):
         self.generation += 1
