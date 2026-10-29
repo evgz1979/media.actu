@@ -1,0 +1,528 @@
+"""Linked main/copy pairs, compact central controls, aligned virtual trees."""
+import asyncio
+from pathlib import PurePosixPath
+
+from nicegui import ui
+
+from media_manager.paired_comparison import DECISIONS, STATUS_LABELS, absolute_scope_path
+from paired_tree import PairedTree
+
+
+PAIR_CSS = '''
+.commander-trees.pair-linked { grid-template-columns:minmax(0,1fr) 56px minmax(0,1fr); gap:4px; }
+.commander-trees > .commander-pane:first-child { grid-column:1; grid-row:1; }
+.commander-trees.pair-linked > .commander-pane:nth-child(2) { grid-column:3; }
+.commander-trees.pair-linked .commander-pane { border-color:#b0c4a7; }
+.commander-trees.pair-linked .commander-pane.active-pane { border-color:#75986c; }
+.commander-trees.pair-linked .pane-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pair-rail { grid-column:2; grid-row:1; width:56px; display:flex; align-items:center; gap:7px; padding-top:10px; }
+.pair-rail .q-btn { min-width:0; width:54px; padding:3px 1px; min-height:40px; font-size:10px; line-height:13px; }
+.pair-rail .q-btn__content { display:flex; flex-direction:column; gap:2px; flex-wrap:nowrap; }
+.pair-rail .q-icon { font-size:17px; margin:0; }
+.pair-connection { border:1px solid #b1c7ad; border-radius:50%; padding:4px; color:#397645; background:#edf5e9; }
+.pair-rail-state { font-size:9px; text-align:center; line-height:13px; color:#64725f; overflow-wrap:anywhere; }
+.pair-running-path { max-width:100%; }
+.s-tree.pair-host { overflow:hidden; }
+.pair-virtual { position:relative; flex:1; min-height:0; width:100%; overflow:auto; scrollbar-gutter:stable; }
+.pair-row { position:absolute; left:0; width:100%; height:28px; display:flex; align-items:center; gap:4px; padding-right:7px; font-size:12px; cursor:default; border-bottom:1px solid #f0f2ef; }
+.pair-row.alt { background:#f6f8f5; }
+.pair-row.selected { background:#e9f1e4; box-shadow:inset 2px 0 #638c58; }
+.pair-row.ghost { color:#8b939a; background:repeating-linear-gradient(135deg,#fafbfd,#fafbfd 5px,#f3f5f8 5px,#f3f5f8 6px); }
+.pair-row-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pair-toggle { border:0; padding:0; width:17px; height:22px; background:none; color:#758172; flex-shrink:0; cursor:pointer; }
+.pair-toggle .material-icons { font-size:17px; }
+.pair-toggle-spacer { width:17px; flex-shrink:0; }
+.pair-file-icon { color:#5a9ed1; font-size:16px; flex-shrink:0; }
+.pair-row-state { font-size:10px; color:#71816d; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
+.pair-missing_copy .pair-row-state { color:#a96717; }
+.pair-extra_copy .pair-row-state { color:#85518e; }
+.pair-different .pair-row-state, .pair-conflict .pair-row-state { color:#b1443f; }
+.pair-unverified .pair-row-state { color:#a27130; }
+.pair-same .pair-row-state { color:#35804b; }
+.pair-decide { border:0; background:none; padding:0; cursor:pointer; text-decoration:underline; }
+.pair-size { color:#7a8477; font-size:10px; flex-shrink:0; }
+.pair-decision { color:#795688; font-size:9px; max-width:70px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pair-attention { font-size:9px; border:1px solid #d5bd91; color:#9b6f22; padding:0 3px; border-radius:3px; }
+.pair-empty { padding:18px 12px; font-size:12px; color:#78816f; }
+.pair-scopes { font-size:12px; color:#5e7155; overflow-wrap:anywhere; }
+.pair-history-row { width:100%; text-align:left; }
+'''
+
+
+class PairedWorkspace:
+    def __init__(self, workspace):
+        self.ws = workspace
+        self.active = False
+        self.scopes = None
+        self.copy_id = None
+        self.report = None
+        self.rows = []
+        self.by_path = {}
+        self.closed = set()
+        self.root = ''
+        self.selected = ''
+        self.differences_only = False
+        self.show_hidden = False
+        self.structure_at = None
+        self.views = {}
+        self.generation = 0
+        self.saved = None
+        self.saved_active = 0
+        self.rail_signature = None
+
+    def build(self):
+        ui.add_css(PAIR_CSS)
+        self.rail = ui.column().classes('pair-rail')
+        self.render_rail()
+        ui.timer(1.5, self.poll)
+
+    def render_rail(self):
+        if not hasattr(self, 'rail'):
+            return
+        linked = self.active or bool(self.ws.report)
+        self.ws.trees.classes(add='pair-linked' if linked else '', remove='' if linked else 'pair-linked')
+        self.rail.set_visibility(linked)
+        if not linked:
+            return
+        signature = (self.active, (self.report or {}).get('state'), (self.report or {}).get('mode'),
+                     (self.report or {}).get('phase'), bool(self.ws.report), (self.report or {}).get('checked_files'),
+                     (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'))
+        if signature == self.rail_signature:
+            return
+        self.rail_signature = signature
+        self.rail.clear()
+        with self.rail:
+            ui.icon('link', size='19px').classes('pair-connection').props('role=img aria-hidden=false aria-label="Панели связаны"')
+            if not self.active:
+                ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props('flat no-caps color=green-9')
+                ui.button('Закрыть', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark')
+                return
+            running = self.report and self.report['state'] in ('running', 'pausing')
+            folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
+            folders.set_enabled(not running)
+            if self.report and self.report['state'] == 'completed':
+                ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Полная сверка файлов по SHA-256"')
+            if self.report:
+                state = {'running': 'Проверяем', 'pausing': 'Остановка', 'paused': 'Пауза', 'failed': 'Ошибка', 'completed': 'Готово'}[self.report['state']]
+                phase = {'index': 'Список', 'hash': 'SHA-256', 'align': 'Структура', 'done': 'Файлы' if self.report['mode'] == 'files' else 'Папки'}[self.report['phase']]
+                ui.label(phase + '\n' + state).classes('pair-rail-state').style('white-space:pre-line')
+                if running:
+                    total = self.report['total_files']
+                    progress = self.report['checked_files'] / total if total else 0
+                    ui.linear_progress(value=progress).props('color=green-8' + ('' if total else ' indeterminate')).classes('w-full')
+                    if total:
+                        ui.label(f"{self.report['checked_files']}/{total}").classes('pair-rail-state')
+                    elif self.report.get('indexed_directories'):
+                        ui.label(str(self.report['indexed_directories']) + '\nпапок').classes('pair-rail-state').style('white-space:pre-line')
+                    button = ui.button('Стоп', icon='pause', on_click=self.stop).props('flat no-caps color=dark')
+                    button.set_enabled(self.report['state'] == 'running')
+                elif self.report['state'] in ('paused', 'failed'):
+                    ui.button('Далее', icon='play_arrow', on_click=self.resume).props('flat no-caps color=green-9 aria-label="Продолжить сверку"')
+                ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props('flat no-caps color=green-9')
+            ui.button('История', icon='history', on_click=self.history).props('flat no-caps color=dark')
+            if self.rows:
+                with ui.button(icon='more_horiz').props('flat aria-label="Вид деревьев"'):
+                    with ui.menu():
+                        ui.menu_item('Раскрыть всё', on_click=lambda: self.collapse_all(False))
+                        ui.menu_item('Свернуть всё', on_click=lambda: self.collapse_all(True))
+                        ui.menu_item('Показать все строки' if self.differences_only else 'Только различия', on_click=self.toggle_differences)
+            ui.button('Отвязать', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разорвать связь панелей"')
+
+    async def link(self, group, location):
+        with self.ws.client:
+            if self.active and self.report and self.report['state'] in ('running', 'pausing'):
+                await self.stop()
+            if self.ws.report:
+                await self.ws.browse()
+            if self.saved is None:
+                self.saved = [p.save_browse_state() for p in self.ws.panes]
+                self.saved_active = self.ws.active_index
+            self.generation += 1
+            self.active = True
+            self.scopes = {'left': group['main'], 'right': location}
+            self.copy_id = location['id']
+            self.report, self.rows, self.by_path = None, [], {}
+            self.root = self.selected = ''
+            self.closed.clear()
+            self.differences_only = False
+            self.show_hidden = any(p.hidden.value for p in self.ws.panes)
+            self.views.clear()
+            self.rail_signature = None
+            self.render_rail()
+            await asyncio.gather(*(p.show_volume(s['volume_id'], s['path'], activate=False)
+                                   for p, s in zip(self.ws.panes, self.scopes.values())))
+            self.ws.set_active(0)
+            self.ws.update_scopes()
+
+    async def unlink(self):
+        if not self.active:
+            return
+        with self.ws.client:
+            if self.report and self.report['state'] in ('running', 'pausing'):
+                await self.stop()
+            self.generation += 1
+            self.active, self.report = False, None
+            self.rows, self.by_path = [], {}
+            self.views.clear()
+            states, self.saved = self.saved, None
+            for pane, state in zip(self.ws.panes, states or []):
+                pane.tree.classes(remove='pair-host')
+                pane.restore_browse_state(state)
+            self.rail_signature = None
+            self.render_rail()
+            self.ws.set_active(self.saved_active)
+            self.ws.update_scopes()
+
+    def update_header(self, pane):
+        side = 'left' if pane.index == 0 else 'right'
+        scope = self.scopes[side]
+        pane.location.set_visibility(True)
+        pane.volume_select.set_visibility(True)
+        pane.volume_select.set_enabled(not bool(self.report))
+        pane.navigation.set_visibility(True)
+        pane.toolbar.set_visibility(True)
+        pane.result_filter.set_visibility(False)
+        pane.heading.text = scope['label']
+        boundary = scope['path']
+        pane.render_path(scope['volume_id'], pane.path, pane.kind, boundary=boundary)
+        if self.report:
+            pane.snapshot_label.text = ('Проверяем файлы · папки: ' + self.ws.format_date(self.structure_at)
+                                        if self.structure_at else 'Сверка: ' + self.ws.format_date(self.report['created_at']))
+            row = self.by_path.get(self.selected)
+            if row and not row.get(side):
+                pane.footer.text = 'Не проверено' if row['status'] == 'unverified' else 'Нет в ' + scope['label']
+            else:
+                pane.footer.text = self.report['message'] + ' · ' + scope['label']
+        else:
+            pane.snapshot_label.text = 'Связь с ' + self.scopes['right' if side == 'left' else 'left']['label']
+            if pane.volume:
+                pane.footer.text = self.ws.capacity_text(pane.volume)
+
+    def relative(self, index, path):
+        scope = self.scopes['left' if index == 0 else 'right']
+        if path == scope['path']:
+            return ''
+        prefix = scope['path'] + '/'
+        return path[len(prefix):] if path.startswith(prefix) else None
+
+    async def navigate_path(self, index, path):
+        relative = self.relative(index, path)
+        if relative is None:
+            return
+        if self.report:
+            self.navigate(relative)
+        else:
+            with self.ws.client:
+                await asyncio.gather(*(p.show_volume(s['volume_id'], absolute_scope_path(s, relative), activate=False)
+                                       for p, s in zip(self.ws.panes, self.scopes.values())))
+
+    def visible_rows(self):
+        include = None
+        if self.differences_only:
+            include = set()
+            for row in self.rows:
+                if row['status'] not in ('both', 'same', 'skipped'):
+                    path = row['path']
+                    while path:
+                        include.add(path)
+                        parent = str(PurePosixPath(path).parent)
+                        path = '' if parent == '.' else parent
+        result, hidden_under = [], None
+        base_depth = len(PurePosixPath(self.root).parts) if self.root else 0
+        for row in self.rows:
+            path = row['path']
+            if not self.show_hidden and any(part.startswith('.') for part in PurePosixPath(path).parts):
+                continue
+            if self.root and not path.startswith(self.root + '/'):
+                continue
+            if include is not None and path not in include:
+                continue
+            if hidden_under and path.startswith(hidden_under + '/'):
+                continue
+            hidden_under = path if path in self.closed else None
+            result.append(dict(row, level=row['depth'] - base_depth, collapsed=path in self.closed))
+        return result
+
+    def render_tree(self, pane):
+        side = 'left' if pane.index == 0 else 'right'
+        pane.tree.classes(add='pair-host')
+        existing = self.views.get(side)
+        if existing is None:
+            pane.tree.clear()
+            with pane.tree:
+                existing = PairedTree(side, self.on_select, self.on_open, self.on_toggle, self.on_context)
+            self.views[side] = existing
+        existing.props['empty_text'] = ('Идёт сверка…' if self.report['state'] in ('running', 'pausing') else
+                                        self.report['message'] if self.report['state'] == 'failed' else 'Папок нет' if self.report['mode'] == 'folders' else 'Элементов нет')
+        existing.set_rows(self.visible_rows(), self.selected)
+
+    def redraw(self, rows_changed=True):
+        visible = self.visible_rows() if rows_changed else None
+        for side, pane in zip(('left', 'right'), self.ws.panes):
+            if side in self.views:
+                if rows_changed:
+                    self.views[side].set_rows(visible, self.selected)
+                else:
+                    self.views[side].run_method('setSelection', self.selected)
+            else:
+                self.render_tree(pane)
+            pane.update_header()
+        self.ws.update_scopes()
+
+    def choose(self, relative):
+        self.selected = relative
+        row = self.by_path.get(relative)
+        for side, pane in zip(('left', 'right'), self.ws.panes):
+            data = row.get(side) if row else None
+            pane.path = data['path'] if data else absolute_scope_path(self.scopes[side], relative)
+            pane.kind = (data or row or {}).get('kind', 'directory')
+            pane.entry = dict(data or {}, path=pane.path, kind=pane.kind)
+
+    def navigate(self, relative):
+        self.root = relative
+        self.closed.discard(relative)
+        self.choose(relative)
+        self.redraw()
+        for view in self.views.values():
+            view.run_method('resetScroll')
+
+    async def on_select(self, event):
+        with self.ws.client:
+            if event.args['path'] not in self.by_path:
+                return
+            self.ws.set_active(0 if event.args['side'] == 'left' else 1)
+            self.choose(event.args['path'])
+            expanded = event.args['path'] in self.closed
+            self.closed.discard(event.args['path'])
+            self.redraw(rows_changed=expanded)
+
+    async def on_open(self, event):
+        with self.ws.client:
+            row = self.by_path.get(event.args['path'])
+            if row and row['kind'] == 'directory':
+                self.navigate(row['path'])
+
+    async def on_toggle(self, event):
+        with self.ws.client:
+            path = event.args['path']
+            if path in self.closed:
+                self.closed.remove(path)
+            else:
+                self.closed.add(path)
+            self.redraw()
+
+    def collapse_all(self, value):
+        self.closed = {r['path'] for r in self.rows if r['kind'] == 'directory'} if value else set()
+        self.redraw()
+
+    def toggle_differences(self):
+        self.differences_only = not self.differences_only
+        self.root = ''
+        self.choose('')
+        self.rail_signature = None
+        self.render_rail()
+        self.redraw()
+
+    def set_hidden(self, value):
+        changed = self.show_hidden != value
+        self.show_hidden = value
+        for pane in self.ws.panes:
+            if pane.hidden.value != value:
+                pane.hidden.set_value(value)
+        if changed:
+            self.redraw()
+
+    async def start(self, mode):
+        with self.ws.client:
+            generation = self.generation
+            try:
+                data = await self.ws.request('POST', '/api/storage/paired-comparisons',
+                                             json={'copy_id': self.copy_id, 'mode': mode,
+                                                   'base_job_id': self.report['id'] if mode == 'files' and self.report else None}, timeout=45)
+                if generation != self.generation:
+                    return
+                await self.apply(data)
+            except Exception as error:
+                self.ws.notice(error)
+
+    async def apply(self, report):
+        previous = self.report
+        self.report = report
+        self.scopes = report['scopes']
+        for side, pane in zip(('left', 'right'), self.ws.panes):
+            pane.volume_id = self.scopes[side]['volume_id']
+            pane.volume_select.set_value(pane.volume_id)
+        if not previous or report['id'] != previous['id']:
+            self.root = self.selected = ''
+            self.closed.clear()
+            carry = previous and report['mode'] == 'files' and previous['copy_id'] == report['copy_id'] and bool(self.rows)
+            if carry:
+                self.structure_at = self.structure_at or previous['created_at']
+                self.choose('')
+            else:
+                self.structure_at = None
+                self.rows, self.by_path = [], {}
+                self.views.clear()
+                for pane in self.ws.panes:
+                    pane.tree.clear()
+                    pane.folders.clear()
+        self.rail_signature = None
+        self.render_rail()
+        self.set_hidden(self.show_hidden)
+        if report['state'] == 'completed':
+            await self.load_rows(report['id'])
+        else:
+            for side, pane in zip(('left', 'right'), self.ws.panes):
+                pane.path = self.scopes[side]['path']
+                pane.kind = 'directory'
+                pane.render()
+
+    async def load_rows(self, job):
+        generation = self.generation
+        first = await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}/rows', params={'limit': 5000}, timeout=45)
+        rows = first['rows']
+        for offset in range(5000, first['total'], 5000):
+            if generation != self.generation:
+                return
+            rows += (await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}/rows',
+                                           params={'offset': offset, 'limit': 5000}, timeout=45))['rows']
+        if generation != self.generation or not self.report or self.report['id'] != job:
+            return
+        for row in rows:
+            for side in ('left', 'right'):
+                if row.get(side) and row[side].get('size') is not None:
+                    row[side]['size_text'] = self.ws.format_bytes(row[side]['size'])
+        self.rows = rows
+        self.structure_at = None
+        self.by_path = {row['path']: row for row in rows}
+        self.choose(self.selected)
+        self.rail_signature = None
+        self.render_rail()
+        self.redraw()
+
+    async def poll(self):
+        if not self.active or not self.report or self.report['state'] not in ('running', 'pausing'):
+            return
+        generation, job = self.generation, self.report['id']
+        try:
+            report = await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}', timeout=30)
+            if generation != self.generation or not self.report or self.report['id'] != job:
+                return
+            with self.ws.client:
+                await self.apply(report)
+        except Exception as error:
+            self.ws.overview.text = 'Нет связи с Core: ' + self.ws.error_text(error)
+
+    async def stop(self):
+        if self.report:
+            self.report = await self.ws.request('POST', f"/api/storage/paired-comparisons/{self.report['id']}/pause", timeout=30)
+            self.rail_signature = None
+            self.render_rail()
+
+    async def resume(self):
+        with self.ws.client:
+            try:
+                await self.apply(await self.ws.request('POST', f"/api/storage/paired-comparisons/{self.report['id']}/resume", timeout=30))
+            except Exception as error:
+                self.ws.notice(error)
+
+    async def details(self):
+        with self.ws.client:
+            report = self.report
+            with ui.dialog() as dialog, ui.card().classes('w-[580px] max-w-full p-5 gap-3'):
+                ui.label('Итоги · ' + ('Файлы · SHA-256' if report['mode'] == 'files' else 'Папки')).classes('text-lg font-semibold')
+                for side, title in (('left', '00-main'), ('right', self.scopes['right']['label'])):
+                    scope = self.scopes[side]
+                    ui.label(title + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes('pair-scopes')
+                ui.label(self.ws.format_date(report['created_at']) + ' · ' + report['message']).classes('text-sm s-muted')
+                if report.get('indexed_directories'):
+                    ui.label(f"Прочитано каталогов: {report['indexed_directories']}").classes('text-xs s-muted')
+                if report['current_path']:
+                    ui.label(report['current_path']).classes('text-xs break-words')
+                for status, count in report['counts'].items():
+                    with ui.row().classes('w-full justify-between'):
+                        ui.label(STATUS_LABELS[status])
+                        ui.label(str(count))
+                ui.label('Есть в обоих — наличие папок. Совпадает — проверенное содержимое файлов.').classes('text-xs s-muted')
+                if report['errors']:
+                    ui.label(f"Не удалось прочитать элементов: {report['errors']}").classes('text-sm text-amber-9')
+                    for side, error in report.get('root_errors', {}).items():
+                        ui.label(self.scopes[side]['label'] + ': ' + error).classes('text-xs text-amber-9 break-words')
+                    errors = [(row['path'], side, row[side]['error']) for row in self.rows
+                              for side in ('left', 'right') if row.get(side) and row[side].get('error')]
+                    if errors:
+                        with ui.column().classes('w-full max-h-48 overflow-auto gap-1'):
+                            for path, side, error in errors[:100]:
+                                ui.label(self.scopes[side]['label'] + ' /' + path + ': ' + error).classes('text-xs break-words')
+                extras = [r for r in self.rows if r['status'] == 'extra_copy']
+                if extras:
+                    ui.label('Только в копии · выбери решение').classes('font-semibold')
+                    with ui.column().classes('w-full max-h-64 overflow-auto gap-1'):
+                        for row in extras:
+                            ui.button(row['path'] + (' · ' + DECISIONS[row['decision']] if row['decision'] else ''),
+                                      on_click=lambda r=row: self.decide(r)).props('flat dense no-caps color=purple-8').classes('text-xs break-all')
+                ui.button('Закрыть', on_click=dialog.close).props('flat no-caps color=dark')
+            dialog.open()
+
+    async def on_context(self, event):
+        row = self.by_path.get(event.args['path'])
+        if not row:
+            return
+        with self.ws.client:
+            if event.args['side'] == 'right' and row['status'] == 'extra_copy':
+                await self.decide(row)
+            else:
+                side = event.args['side']
+                data = row.get(side)
+                if data:
+                    await self.ws.show_properties(self.scopes[side]['volume_id'], data)
+
+    async def decide(self, row):
+        with self.ws.client:
+            job, generation = self.report['id'], self.generation
+            self.ws.editing = True
+            try:
+                with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-3'):
+                    ui.label('Только в копии').classes('text-lg font-semibold')
+                    ui.label(row['path']).classes('text-sm break-all')
+                    action = ui.select({'': 'Наследовать / снять отдельное решение', **DECISIONS}, value=row.get('own_decision') or '', label='Что сделать').props('outlined dense').classes('w-full')
+                    if row.get('decision_from'):
+                        ui.label('От папки ' + row['decision_from'] + ': ' + DECISIONS[row['decision']]).classes('text-xs s-muted break-all')
+                    ui.label('Сейчас сохраняется решение. Файловые операции будут выполняться отдельно.').classes('text-xs s-muted')
+                    with ui.row().classes('w-full justify-end'):
+                        ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                        ui.button('Сохранить решение', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+                if await dialog:
+                    await self.ws.request('PATCH', f'/api/storage/paired-comparisons/{job}/decision', json={'path': row['path'], 'action': action.value or None})
+                    if generation == self.generation:
+                        await self.load_rows(job)
+            except Exception as error:
+                self.ws.notice(error)
+            finally:
+                self.ws.editing = False
+
+    async def history(self):
+        with self.ws.client:
+            try:
+                jobs = (await self.ws.request('GET', '/api/storage/paired-comparisons', params={'copy_id': self.copy_id}, timeout=30))['jobs']
+                with ui.dialog() as dialog, ui.card().classes('w-[600px] max-w-full p-5 gap-3'):
+                    ui.label('История сверок пары').classes('text-lg font-semibold')
+                    if not jobs:
+                        ui.label('Эта пара ещё не проверялась.').classes('s-muted text-sm')
+                    async def choose(job):
+                        dialog.close()
+                        self.generation += 1
+                        await self.apply(job)
+                    for job in jobs:
+                        label = self.ws.format_date(job['created_at']) + ' · ' + ('Папки' if job['mode'] == 'folders' else 'Файлы · SHA-256')
+                        label += ' · ' + {'completed': 'Готово', 'paused': 'Пауза', 'running': 'Выполняется', 'pausing': 'Остановка', 'failed': 'Ошибка'}[job['state']]
+                        ui.button(label, on_click=lambda j=job: choose(j)).props('flat no-caps color=green-9').classes('pair-history-row')
+                    ui.separator()
+                    def legacy():
+                        dialog.close()
+                        self.ws.legacy_dialog.open()
+                    ui.button('Прежние отчёты по именам', on_click=legacy).props('flat no-caps color=dark')
+                    ui.button('Закрыть', on_click=dialog.close).props('flat no-caps color=dark')
+                dialog.open()
+            except Exception as error:
+                self.ws.notice(error)

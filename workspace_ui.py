@@ -13,6 +13,7 @@ from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.storage import FLAGS, PURPOSES, relative_path
 from network_ui import show_network_dialog
+from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
 
 
@@ -167,7 +168,7 @@ class BrowserPane:
                         'aria-label="Путь левой панели"' if index == 0 else 'aria-label="Путь правой панели"')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap') as self.toolbar:
                 self.snapshot_label = ui.label('Просмотр папок').classes('s-muted text-xs')
-                self.hidden = ui.checkbox('Скрытые', value=False, on_change=lambda: self.render()).props('dense size=xs').classes('text-xs s-muted')
+                self.hidden = ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props('dense size=xs').classes('text-xs s-muted')
             options = {'': 'Все результаты', **{s: LABELS[s] for s in NAME_STATUSES}} if index == 0 else {'': 'Все элементы'}
             self.result_filter = ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа',
                                           on_change=self.change_filter).props('outlined dense').classes('workspace-filter mx-2 my-1')
@@ -195,6 +196,12 @@ class BrowserPane:
         self.workspace.set_active(self.index)
         if self.index == 1 and self.workspace.report and self.comparison.focus:
             self.comparison.show_matches()
+
+    def hidden_changed(self, event):
+        if self.workspace.pair.active and self.workspace.pair.report:
+            self.workspace.pair.set_hidden(event.value)
+        else:
+            self.render()
 
     async def folder_clicked(self, event):
         entry = self.folder_entries.get(event.args['key'])
@@ -237,6 +244,9 @@ class BrowserPane:
             for v in self.workspace.volumes
         }
         self.volume_select.update()
+        if self.workspace.pair.active:
+            self.workspace.pair.update_header(self)
+            return
         report = self.workspace.report
         self.heading.text = ('Источник' if self.index == 0 else 'Совпадения') if report else self.title + ' панель'
         self.volume_select.set_enabled(not bool(report))
@@ -306,10 +316,13 @@ class BrowserPane:
                 if current:
                     crumb.props('aria-current=location')
         # Keep the selected folder visible without scrolling the tree or the page.
-        ui.run_javascript(f'requestAnimationFrame(() => {{ const bar = getHtmlElement({self.path_bar.id}); if (bar) bar.scrollLeft = bar.scrollWidth; }});')
+        self.workspace.client.run_javascript(f'requestAnimationFrame(() => {{ const bar = getHtmlElement({self.path_bar.id}); if (bar) bar.scrollLeft = bar.scrollWidth; }});')
 
     async def open_path(self, path):
         path = relative_path(path)
+        if self.workspace.pair.active:
+            await self.workspace.pair.navigate_path(self.index, path)
+            return
         boundary = self.scan['root_path'] if self.scan else ''
         if boundary and path != boundary and not path.startswith(boundary + '/'):
             return
@@ -396,6 +409,9 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def go_root(self):
+        if self.workspace.pair.active:
+            await self.workspace.pair.navigate_path(self.index, self.workspace.pair.scopes['left' if self.index == 0 else 'right']['path'])
+            return
         self.workspace.set_active(self.index)
         boundary = self.scan['root_path'] if self.scan else ''
         if self.root_path != boundary:
@@ -409,6 +425,14 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def go_parent(self):
+        if self.workspace.pair.active:
+            relative = self.workspace.pair.relative(self.index, self.path)
+            if relative:
+                parent = str(PurePosixPath(relative).parent)
+                scope = self.workspace.pair.scopes['left' if self.index == 0 else 'right']
+                path = scope['path'] + ('/' + parent if parent != '.' else '')
+                await self.workspace.pair.navigate_path(self.index, path)
+            return
         if self.path == self.root_path:
             boundary = self.scan['root_path'] if self.scan else ''
             if self.root_path != boundary:
@@ -429,6 +453,10 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def refresh(self):
+        if self.workspace.pair.active and self.workspace.pair.report:
+            if self.workspace.pair.report['state'] == 'completed':
+                await self.workspace.pair.load_rows(self.workspace.pair.report['id'])
+            return
         if not self.volume_id:
             return
         self.workspace.set_active(self.index)
@@ -457,6 +485,12 @@ class BrowserPane:
         self.render()
 
     def render(self):
+        if self.workspace.pair.active and self.workspace.pair.report:
+            self.update_header()
+            self.folder_entries.clear()
+            self.rows.clear()
+            self.workspace.pair.render_tree(self)
+            return
         labels = any(entry['kind'] == 'directory' and self.workspace.copies.membership(self.volume_id, entry['path'])
                      for data in self.folders.values() for entry in data.get('entries', []))
         self.container.classes(add='folder-labels' if labels else '', remove='' if labels else 'folder-labels')
@@ -563,6 +597,7 @@ class StorageWorkspace:
         self.current_matches = []
         self.browse_state = None
         self.browse_active = 0
+        self.pair = PairedWorkspace(self)
         self.copies = CopyGroupsUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
         ui.add_css(CSS + WORKSPACE_CSS)
@@ -597,6 +632,7 @@ class StorageWorkspace:
                 self.link_badge = ui.element('div').classes('pane-link').props('role="img" aria-label="Панели связаны в режиме сверки"')
                 with self.link_badge:
                     ui.icon('link', size='19px')
+                self.pair.build()
             self.build_operations()
         self.set_active(0)
         self.render_progress()
@@ -607,22 +643,25 @@ class StorageWorkspace:
                 ui.label('ОПЕРАЦИИ').classes('s-caption')
             with ui.column().classes('workspace-operation-body w-full'):
                 self.copies.build_controls()
-                ui.label('Сверка').classes('workspace-operation-title')
-                self.scopes_label = ui.label('Выбери том и папку в каждой панели.').classes('workspace-scopes w-full').style('white-space:pre-line')
-                self.start_button = ui.button('Сверить левую → правую', icon='compare_arrows', on_click=self.start_comparison).props('unelevated no-caps color=green-9').classes('workspace-start w-full text-xs')
-                self.refresh_lists = ui.checkbox('Заново собрать списки с дисков', value=False).props('dense size=xs').classes('text-xs')
-                self.history = ui.select({}, label='История сверок', on_change=self.history_changed).props('outlined dense clearable').classes('workspace-history')
-                with ui.column().classes('w-full gap-2') as self.progress_row:
-                    self.phase_label = ui.label('Готово к сверке имён').classes('text-xs s-muted')
-                    with ui.row().classes('gap-1 items-center'):
-                        self.pause_button = ui.button('Остановить', icon='pause', on_click=lambda: self.control('pause')).props('flat dense no-caps color=dark')
-                        self.resume_button = ui.button('Продолжить', icon='play_arrow', on_click=lambda: self.control('resume')).props('flat dense no-caps color=green-9')
-                self.progress = ui.linear_progress(value=0, show_value=False).props('color=green-8').classes('w-full')
-                self.counts = ui.element('div').classes('workspace-counts')
-                self.summary = ui.label('').classes('workspace-summary')
-                self.results = ui.row().classes('workspace-results w-full')
-                self.journal_button = ui.button('Журнал', icon='receipt_long', on_click=self.show_journal).props('flat dense no-caps color=dark')
-                self.browse_button = ui.button('Закрыть результат сверки', icon='close', on_click=self.browse).props('flat dense no-caps color=dark').classes('text-xs')
+        with ui.dialog() as self.legacy_dialog, ui.card().classes('w-[650px] max-w-full p-5 gap-3'):
+            ui.label('Прежние отчёты по именам').classes('text-lg font-semibold')
+            ui.label('Сверка').classes('workspace-operation-title')
+            self.scopes_label = ui.label('Выбери том и папку в каждой панели.').classes('workspace-scopes w-full').style('white-space:pre-line')
+            self.start_button = ui.button('Сверить левую → правую', icon='compare_arrows', on_click=self.start_comparison).props('unelevated no-caps color=green-9').classes('workspace-start w-full text-xs')
+            self.refresh_lists = ui.checkbox('Заново собрать списки с дисков', value=False).props('dense size=xs').classes('text-xs')
+            self.history = ui.select({}, label='История сверок', on_change=self.history_changed).props('outlined dense clearable').classes('workspace-history')
+            with ui.column().classes('w-full gap-2') as self.progress_row:
+                self.phase_label = ui.label('Готово к сверке имён').classes('text-xs s-muted')
+                with ui.row().classes('gap-1 items-center'):
+                    self.pause_button = ui.button('Остановить', icon='pause', on_click=lambda: self.control('pause')).props('flat dense no-caps color=dark')
+                    self.resume_button = ui.button('Продолжить', icon='play_arrow', on_click=lambda: self.control('resume')).props('flat dense no-caps color=green-9')
+            self.progress = ui.linear_progress(value=0, show_value=False).props('color=green-8').classes('w-full')
+            self.counts = ui.element('div').classes('workspace-counts')
+            self.summary = ui.label('').classes('workspace-summary')
+            self.results = ui.row().classes('workspace-results w-full')
+            self.journal_button = ui.button('Журнал', icon='receipt_long', on_click=self.show_journal).props('flat dense no-caps color=dark')
+            self.browse_button = ui.button('Закрыть результат сверки', icon='close', on_click=self.browse).props('flat dense no-caps color=dark').classes('text-xs')
+            ui.button('Закрыть', on_click=self.legacy_dialog.close).props('flat no-caps color=dark')
 
     @staticmethod
     def error_text(error):
@@ -673,6 +712,8 @@ class StorageWorkspace:
     async def open_volume(self, volume_id, index=None):
         with self.client:
             index = self.active_index if index is None else index
+            if self.pair.active:
+                await self.pair.unlink()
             if self.report:
                 await self.browse()
             await self.panes[index].show_volume(volume_id)
@@ -783,12 +824,13 @@ class StorageWorkspace:
                 self.notice(error)
                 initial_path = ''
             await self.panes[0].show_volume(left['id'], initial_path, activate=False)
-            await self.panes[1].show_volume(right['id'], activate=False)
+            if not self.pair.active:
+                await self.panes[1].show_volume(right['id'], activate=False)
         else:
             for pane in self.panes:
                 pane.render()
         await self.refresh_history()
-        if job:
+        if job and not self.pair.active:
             await self.choose_job(job)
         self.set_active(0)
         ui.timer(30, self.refresh_volumes)
@@ -816,6 +858,9 @@ class StorageWorkspace:
             self.notice(error)
 
     async def apply_report(self, report):
+        if self.pair.active:
+            await self.pair.unlink()
+        self.legacy_dialog.close()
         if not self.report:
             self.browse_state = [pane.save_browse_state() for pane in self.panes]
             self.browse_active = self.active_index
@@ -903,12 +948,14 @@ class StorageWorkspace:
 
     def render_progress(self):
         report = self.report
-        self.link_badge.set_visibility(bool(report))
+        self.link_badge.set_visibility(False)
+        self.pair.render_rail()
         self.trees.classes(add='linked' if report else '', remove='' if report else 'linked')
         names = bool(report and report.get('mode') == 'names')
         self.trees.classes(add='names-comparison' if names else '', remove='' if names else 'names-comparison')
-        self.start_button.set_visibility(not bool(report))
-        self.refresh_lists.set_visibility(not bool(report))
+        self.start_button.set_visibility(False)
+        self.refresh_lists.set_visibility(False)
+        self.scopes_label.set_visibility(bool(report))
         running = bool(report and report['state'] in ('running', 'pausing'))
         self.pause_button.set_visibility(running)
         self.pause_button.set_enabled(bool(report and report['state'] == 'running'))
@@ -923,7 +970,7 @@ class StorageWorkspace:
         self.counts.set_visibility(bool(report and report.get('counts')))
         if not report:
             self.phase_label.text = 'Готово к сверке имён'
-            self.summary.text = 'Сравниваются имена в сохранённых списках. Отсутствующие списки будут собраны.'
+            self.summary.text = 'Выбери прежний отчёт. Новая сверка пары запускается кнопкой «Папки» между деревьями.'
             self.update_scopes()
             return
         phase = {'index': 'Подготовка списков', 'names': 'Сопоставление имён', 'hash': 'Прежний отчёт по содержимому', 'done': 'Сверка завершена'}.get(report['phase'], report['phase'])

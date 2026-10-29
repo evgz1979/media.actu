@@ -191,6 +191,8 @@ class CopyGroupsUI:
     async def open_main(self, group):
         ws = self.workspace
         with ws.client:
+            if ws.pair.active:
+                await ws.pair.unlink()
             if ws.report:
                 await ws.browse()
             await ws.panes[0].show_volume(group['main']['volume_id'], group['main']['path'])
@@ -198,8 +200,7 @@ class CopyGroupsUI:
     async def open_copy(self, group, location):
         ws = self.workspace
         with ws.client:
-            await self.open_main(group)
-            await ws.panes[1].show_volume(location['volume_id'], location['path'])
+            await ws.pair.link(group, location)
 
     async def edit_kind(self, location):
         ws = self.workspace

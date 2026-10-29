@@ -28,6 +28,7 @@ from media_manager.storage import StorageCatalog
 from media_manager.network import NetworkCatalog, NetworkError
 from media_manager.comparison import ComparisonCatalog
 from media_manager.copies import CopyCatalog, COPY_KINDS
+from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 
 
 ROOT = Path(__file__).parent
@@ -48,6 +49,8 @@ storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
 network = NetworkCatalog(storage)
 comparison = ComparisonCatalog(storage)
 copies = CopyCatalog(storage)
+paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
+comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -143,6 +146,7 @@ async def lifespan(_: FastAPI):
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
     yield
+    paired_comparison.close()
     comparison.close()
     watcher.stop()
     thumbnail_workers.stop()
@@ -384,8 +388,64 @@ async def comparison_call(function, *args, **kwargs):
         return await asyncio.to_thread(function, *args, **kwargs)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    except ValueError as error:
+    except (ValueError, OSError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def start_comparison_exclusive(action, *args, **kwargs):
+    with comparison_gate:
+        if paired_comparison.busy():
+            raise ValueError('Сверка пары ещё выполняется. Сначала останови её.')
+        return action(*args, **kwargs)
+
+
+class PairedComparisonRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    copy_id: str = Field(min_length=1, max_length=128)
+    mode: Literal['folders', 'files'] = 'folders'
+    base_job_id: str | None = None
+
+
+class PairedDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    path: str = Field(max_length=4096)
+    action: Literal['keep', 'add_main', 'move', 'remove'] | None
+
+
+@app.get('/api/storage/paired-comparisons')
+async def paired_jobs(copy_id: str | None = None) -> dict:
+    return {'jobs': await comparison_call(paired_comparison.jobs, copy_id), 'decisions': DECISIONS}
+
+
+@app.post('/api/storage/paired-comparisons', status_code=201)
+async def start_paired_comparison(request: PairedComparisonRequest) -> dict:
+    return await comparison_call(start_comparison_exclusive, paired_comparison.create,
+                                 request.copy_id, request.mode, request.base_job_id)
+
+
+@app.get('/api/storage/paired-comparisons/{job_id}')
+async def paired_job(job_id: str) -> dict:
+    return await comparison_call(paired_comparison.job, job_id)
+
+
+@app.get('/api/storage/paired-comparisons/{job_id}/rows')
+async def paired_rows(job_id: str, offset: int = Query(0, ge=0), limit: int = Query(1000, ge=1, le=5000)) -> dict:
+    return await comparison_call(paired_comparison.rows, job_id, offset, limit)
+
+
+@app.post('/api/storage/paired-comparisons/{job_id}/pause')
+async def pause_paired_job(job_id: str) -> dict:
+    return await comparison_call(paired_comparison.pause, job_id)
+
+
+@app.post('/api/storage/paired-comparisons/{job_id}/resume')
+async def resume_paired_job(job_id: str) -> dict:
+    return await comparison_call(start_comparison_exclusive, paired_comparison.resume, job_id)
+
+
+@app.patch('/api/storage/paired-comparisons/{job_id}/decision')
+async def paired_decision(job_id: str, request: PairedDecisionRequest) -> dict:
+    return await comparison_call(paired_comparison.decide, job_id, request.path, request.action)
 
 
 @app.get("/api/storage/comparisons")
@@ -395,7 +455,7 @@ async def comparison_jobs() -> dict:
 
 @app.post("/api/storage/comparisons", status_code=201)
 async def start_comparison(request: ComparisonRequest) -> dict:
-    return await comparison_call(comparison.create, request.source.model_dump(),
+    return await comparison_call(start_comparison_exclusive, comparison.create, request.source.model_dump(),
                                  [t.model_dump() for t in request.targets], reuse_index=request.reuse_index)
 
 
@@ -411,7 +471,7 @@ async def pause_comparison(job_id: str) -> dict:
 
 @app.post("/api/storage/comparisons/{job_id}/resume")
 async def resume_comparison(job_id: str) -> dict:
-    return await comparison_call(comparison.resume, job_id)
+    return await comparison_call(start_comparison_exclusive, comparison.resume, job_id)
 
 
 @app.get("/api/storage/comparisons/{job_id}/tree")
