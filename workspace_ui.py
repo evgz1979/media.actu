@@ -26,13 +26,13 @@ JOB_STATES = {'running': 'Выполняется', 'pausing': 'Останавл�
 WORKSPACE_CSS = """
 .commander-intro { padding:12px 26px 10px; }
 .commander-intro .s-title { font-size:24px; }
-.commander-layout { display:grid; grid-template-columns:240px minmax(0,1fr) minmax(0,1fr); gap:14px; padding:0 26px 26px; width:100%; align-items:start; }
-.commander-pane { border:2px solid var(--s-line); }
+.commander-layout { display:grid; grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 260px; gap:12px; padding:0 26px 26px; width:100%; align-items:start; }
+.commander-pane { border:2px solid var(--s-line); height:calc(100vh - 180px); min-height:440px; }
 .commander-pane.active-pane { border-color:#8ba984; }
 .commander-pane .s-panel-head { padding:8px 10px; gap:5px; }
-.commander-pane .s-tree { height:calc(100vh - 420px); min-height:220px; max-height:none; width:100%; }
-.commander-layout.comparing .s-tree { height:calc(100vh - 550px); min-height:190px; }
-.commander-pane .s-list-grid { grid-template-columns:minmax(170px,1fr) 116px 62px 62px; min-width:440px; }
+.commander-pane .s-panel-head, .commander-pane .s-tree-toolbar, .commander-pane .pane-status, .commander-pane .workspace-filter { flex-shrink:0; }
+.commander-pane .s-tree { flex:1; min-height:180px; max-height:none; width:100%; }
+.commander-pane .s-list-grid { grid-template-columns:minmax(150px,1fr) 112px 56px 56px; min-width:374px; }
 .commander-pane .pane-heading { font-size:11px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
 .pane-volume { width:100%; } .pane-volume .q-field__control { min-height:36px; }
 .pane-path { min-height:17px; width:100%; overflow-wrap:anywhere; }
@@ -40,28 +40,30 @@ WORKSPACE_CSS = """
 .pane-result { flex-shrink:0; font-size:10px; max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pane-count { font-size:10px; padding:0 3px; background:#edf1e9; border-radius:3px; }
 .pane-match { box-shadow:inset 3px 0 #6e9b64; }
-.workspace-operations { margin:0 26px 14px; padding:10px 14px; width:calc(100% - 52px); gap:6px; }
-.workspace-history { min-width:230px; max-width:340px; }
+.workspace-operation-body { padding:12px; gap:12px; }
+.workspace-operation-body .q-btn { max-width:100%; }
+.workspace-start .q-btn__content { flex-wrap:nowrap; }
+.workspace-start .q-icon { font-size:18px; }
+.workspace-history { width:100%; font-size:11px; }
+.workspace-history .q-field__native > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-operation-title { font-size:13px; font-weight:650; }
 .workspace-summary { font-size:11px; color:var(--s-muted); width:100%; }
+.workspace-counts { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 8px; font-size:11px; }
 .workspace-results { gap:6px; flex-wrap:wrap; align-items:center; }
 .workspace-results .q-btn { font-size:11px; min-height:24px; padding:2px 7px; }
 .workspace-scopes { color:#667363; font-size:12px; overflow-wrap:anywhere; }
 .workspace-filter { min-width:170px; font-size:11px; }
 .workspace-property-grid { display:grid; grid-template-columns:1fr auto; gap:5px 16px; width:100%; font-size:13px; }
-.commander-sidebar .s-volumes { max-height:calc(100vh - 340px); }
+.commander-sidebar .s-volumes { max-height:calc(100vh - 310px); }
 .commander-sidebar .s-volume-row { padding-left:6px; padding-right:6px; }
 .commander-sidebar .s-volume-capacity { font-size:10px; }
-@media(max-width:1100px) {
- .commander-layout { grid-template-columns:200px minmax(0,1fr) minmax(0,1fr); gap:10px; padding:0 16px 20px; }
- .workspace-operations { margin:0 16px 12px; width:calc(100% - 32px); }
- .commander-intro { padding:16px; }
+.workspace-operations { max-height:calc(100vh - 180px); overflow-y:auto; }
+@media(max-width:1450px) {
+ .commander-layout { grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 240px; gap:10px; padding:0 16px 20px; }
+ .commander-intro { padding:12px 16px 10px; }
 }
-@media(max-width:760px) {
- .commander-layout { grid-template-columns:minmax(260px,1fr) minmax(260px,1fr); overflow-x:auto; }
- .commander-sidebar { grid-column:1 / -1; }
- .commander-sidebar .s-volumes { max-height:190px; }
- .commander-pane .s-tree { height:440px; min-height:330px; }
- .workspace-history { min-width:180px; }
+@media(max-width:1100px) {
+ .commander-layout { grid-template-columns:180px minmax(300px,1fr) minmax(300px,1fr) 240px; overflow-x:auto; }
 }
 """
 
@@ -94,18 +96,20 @@ class BrowserPane:
         self.expanded = {''}
         self.limits = {}
         self.matches = set()
+        self.rows = {}
         self.generation = 0
         self.filter_value = ''
         with ui.column().classes('s-panel commander-pane w-full gap-0') as self.container:
             self.container.on('click', lambda: workspace.set_active(index))
+            self.container.on('focusin', lambda: workspace.set_active(index))
             with ui.column().classes('s-panel-head w-full gap-2'):
+                workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.volume_id))
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=lambda: workspace.set_active(index)).props('flat dense no-caps color=green-9').classes('pane-heading')
                     with ui.row().classes('gap-0 no-wrap'):
                         ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
                         ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
                         ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props(f'aria-label="Обновить {self.title.lower()} панель"')
-                        ui.button(icon='info_outline', on_click=lambda: workspace.show_properties(self)).props('flat dense round color=dark').props(f'aria-label="Свойства {self.title.lower()} панели"')
                 self.volume_select = ui.select({}, label='Том слева' if index == 0 else 'Том справа', on_change=self.volume_changed).props('outlined dense').classes('pane-volume')
                 self.path_label = ui.label('Выбери том').classes('s-path s-muted pane-path')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap'):
@@ -214,7 +218,7 @@ class BrowserPane:
                 self.folders[path] = {**previous, 'entries': previous.get('entries', []), 'cached': True,
                                       'error': self.workspace.error_text(error)}
 
-    async def select(self, entry, toggle=False):
+    async def select(self, entry, toggle=False, *, render=True):
         self.workspace.set_active(self.index)
         self.path, self.kind, self.entry = entry['path'], entry['kind'], entry
         if toggle and self.kind == 'directory':
@@ -224,7 +228,12 @@ class BrowserPane:
                 self.expanded.add(self.path)
                 if self.path not in self.folders:
                     await self.load_folder(self.path)
-        self.render()
+        if render:
+            self.render()
+        else:
+            for path, row in self.rows.items():
+                row.classes(add='selected' if path == self.path else '', remove='' if path == self.path else 'selected')
+            self.update_header()
         self.workspace.update_scopes()
         if self.index == 0:
             await self.workspace.refresh_matches()
@@ -293,6 +302,7 @@ class BrowserPane:
     def render(self):
         self.update_header()
         self.tree.clear()
+        self.rows.clear()
         volume = self.volume
         with self.tree:
             if not volume:
@@ -327,7 +337,10 @@ class BrowserPane:
                     classes = 's-entry s-list-grid' + (' alt' if next(row_numbers) % 2 else '')
                     classes += ' selected' if entry['path'] == self.path else ''
                     classes += ' pane-match' if entry['path'] in self.matches else ''
-                    with ui.element('div').classes(classes):
+                    with ui.element('div').classes(classes) as row:
+                        self.rows[entry['path']] = row
+                        row.on('contextmenu', lambda e=entry: self.select(e, render=False))
+                        self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
                                 ui.button(icon='expand_more' if entry['path'] in self.expanded else 'chevron_right',
@@ -373,6 +386,7 @@ class StorageWorkspace:
         self.job_id = None
         self.last_marker = None
         self.editing = False
+        self.context_menu_open = False
         self.match_generation = 0
         self.current_matches = []
         ui.add_head_html('<meta name="color-scheme" content="light">')
@@ -393,41 +407,44 @@ class StorageWorkspace:
             with ui.row().classes('items-center gap-2'):
                 ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props('outline no-caps color=green-9')
                 self.refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props('outline no-caps color=dark')
-        with ui.column().classes('s-panel workspace-operations'):
-            with ui.row().classes('w-full items-center justify-between gap-2'):
-                with ui.row().classes('items-center gap-2'):
-                    self.start_button = ui.button('Сверить левую → правую', icon='compare_arrows', on_click=self.start_comparison).props('unelevated no-caps color=green-9')
-                    self.refresh_lists = ui.checkbox('Обновить списки с дисков', value=False).props('dense size=xs').classes('text-xs')
-                    ui.button('Свойства', icon='info_outline', on_click=lambda: self.show_properties(self.panes[self.active_index])).props('flat dense no-caps color=dark')
-                self.history = ui.select({}, label='История сверок', on_change=self.history_changed).props('outlined dense clearable').classes('workspace-history')
-            self.scopes_label = ui.label('Выбери том и папку в каждой панели.').classes('workspace-scopes w-full')
-            with ui.row().classes('w-full items-center justify-between gap-2') as self.progress_row:
-                self.phase_label = ui.label('Готово к сверке имён').classes('text-xs s-muted')
-                with ui.row().classes('gap-1 items-center'):
-                    self.pause_button = ui.button('Остановить', icon='pause', on_click=lambda: self.control('pause')).props('flat dense no-caps color=dark')
-                    self.resume_button = ui.button('Продолжить', icon='play_arrow', on_click=lambda: self.control('resume')).props('flat dense no-caps color=green-9')
-                    self.browse_button = ui.button('К просмотру дисков', icon='folder_open', on_click=self.browse).props('flat dense no-caps color=dark')
-                    self.journal_button = ui.button('Журнал', icon='receipt_long', on_click=self.show_journal).props('flat dense no-caps color=dark')
-            self.progress = ui.linear_progress(value=0, show_value=False).props('color=green-8').classes('w-full')
-            self.summary = ui.label('Сверка использует сохранённые списки; отсутствующие списки будут собраны. Содержимое файлов не читается.').classes('workspace-summary')
-            self.results = ui.row().classes('workspace-results w-full')
         with ui.element('div').classes('commander-layout') as self.layout:
             with ui.column().classes('s-panel commander-sidebar w-full gap-0'):
                 with ui.column().classes('s-panel-head w-full gap-2'):
                     with ui.row().classes('w-full items-center justify-between'):
                         ui.label('ТОМА').classes('s-caption')
                         self.volume_count = ui.label('—').classes('s-muted text-xs')
-                    self.active_select = ui.toggle({0: 'Слева', 1: 'Справа'}, value=0, on_change=lambda e: self.set_active(e.value)).props('no-caps dense color=grey-3 text-color=dark toggle-color=green-8').classes('w-full')
-                    self.active_hint = ui.label('Открыть в левой панели').classes('s-muted text-xs')
                 self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
                 with ui.expansion('Архив', icon='archive', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
                     self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
                 with ui.column().classes('px-3 py-3 gap-1'):
-                    ui.label('Нажми на панель, затем выбери том.').classes('s-muted text-xs')
+                    ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs')
                     ui.link('Системная медиатека Photos →', '/media').classes('text-xs text-green-900 no-underline')
             self.panes = [BrowserPane(self, index) for index in range(2)]
+            self.build_operations()
         self.set_active(0)
         self.render_progress()
+
+    def build_operations(self):
+        with ui.column().classes('s-panel workspace-operations w-full gap-0'):
+            with ui.column().classes('s-panel-head w-full'):
+                ui.label('ОПЕРАЦИИ').classes('s-caption')
+            with ui.column().classes('workspace-operation-body w-full'):
+                ui.label('Сверка').classes('workspace-operation-title')
+                self.scopes_label = ui.label('Выбери том и папку в каждой панели.').classes('workspace-scopes w-full').style('white-space:pre-line')
+                self.start_button = ui.button('Сверить левую → правую', icon='compare_arrows', on_click=self.start_comparison).props('unelevated no-caps color=green-9').classes('workspace-start w-full text-xs')
+                self.refresh_lists = ui.checkbox('Обновить списки с дисков', value=False).props('dense size=xs').classes('text-xs')
+                self.history = ui.select({}, label='История сверок', on_change=self.history_changed).props('outlined dense clearable').classes('workspace-history')
+                with ui.column().classes('w-full gap-2') as self.progress_row:
+                    self.phase_label = ui.label('Готово к сверке имён').classes('text-xs s-muted')
+                    with ui.row().classes('gap-1 items-center'):
+                        self.pause_button = ui.button('Остановить', icon='pause', on_click=lambda: self.control('pause')).props('flat dense no-caps color=dark')
+                        self.resume_button = ui.button('Продолжить', icon='play_arrow', on_click=lambda: self.control('resume')).props('flat dense no-caps color=green-9')
+                self.progress = ui.linear_progress(value=0, show_value=False).props('color=green-8').classes('w-full')
+                self.counts = ui.element('div').classes('workspace-counts')
+                self.summary = ui.label('').classes('workspace-summary')
+                self.results = ui.row().classes('workspace-results w-full')
+                self.journal_button = ui.button('Журнал', icon='receipt_long', on_click=self.show_journal).props('flat dense no-caps color=dark')
+                self.browse_button = ui.button('Закрыть результат сверки', icon='close', on_click=self.browse).props('flat dense no-caps color=dark').classes('text-xs')
 
     @staticmethod
     def error_text(error):
@@ -452,13 +469,24 @@ class StorageWorkspace:
     def set_active(self, index):
         if index not in (0, 1):
             return
+        changed = index != self.active_index
         self.active_index = index
-        if self.active_select.value != index:
-            self.active_select.set_value(index)
-        self.active_hint.text = 'Открыть в левой панели' if index == 0 else 'Открыть в правой панели'
         for pane in getattr(self, 'panes', []):
             pane.container.classes(add='active-pane' if pane.index == index else '', remove='' if pane.index == index else 'active-pane')
-        self.render_volumes()
+        if changed:
+            self.render_volumes()
+
+    def property_menu(self, label, callback):
+        client = ui.context.client
+
+        async def invoke():
+            with client:
+                await callback()
+
+        with ui.context_menu() as menu:
+            menu.on('before-show', lambda: setattr(self, 'context_menu_open', True))
+            menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
+            ui.menu_item(label, on_click=invoke)
 
     def render_volumes(self):
         self.volume_list.clear()
@@ -487,6 +515,7 @@ class StorageWorkspace:
                     channel = bool(volume.get('marker_id') and volume.get('share_name'))
                     classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
                     with ui.button(on_click=lambda v=volume: self.panes[self.active_index].show_volume(v['id'])).props('flat no-caps color=dark').classes(classes).tooltip(volume_label(volume) + ' · ' + self.capacity_text(volume)):
+                        self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']))
                         ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[volume['availability']])
                         with ui.column().classes('gap-0 flex-1 min-w-0'):
                             with ui.row().classes('w-full items-center no-wrap gap-1'):
@@ -506,6 +535,8 @@ class StorageWorkspace:
             groups(offline)
 
     async def refresh_volumes(self, force=False):
+        if not force and (self.context_menu_open or self.editing):
+            return
         self.refresh_button.disable()
         try:
             data = await self.request('GET', '/api/storage/volumes', params={'refresh': force}, timeout=45)
@@ -534,7 +565,7 @@ class StorageWorkspace:
                 labels.append(volume_label(pane.volume) + (' /' + scope['path'] if scope['path'] else ' /'))
             else:
                 labels.append('Выбери том и папку')
-        self.scopes_label.text = 'Слева: ' + labels[0] + '  →  Справа: ' + labels[1]
+        self.scopes_label.text = 'Слева: ' + labels[0] + '\nСправа: ' + labels[1]
         running = self.report and self.report['state'] in ('running', 'pausing')
         self.start_button.set_enabled(bool(valid and not running))
 
@@ -628,6 +659,8 @@ class StorageWorkspace:
         return report['state'], report['phase'], tuple((s['id'], s['state']) for s in report['scans'])
 
     async def poll(self):
+        if self.context_menu_open or self.editing:
+            return
         if not self.job_id or (self.report and self.report['state'] == 'completed'):
             return
         job_id = self.job_id
@@ -663,10 +696,11 @@ class StorageWorkspace:
         self.journal_button.set_visibility(bool(report))
         self.progress.set_visibility(bool(report))
         self.progress_row.set_visibility(bool(report))
-        self.layout.classes(add='comparing' if report else '', remove='' if report else 'comparing')
+        self.counts.clear()
+        self.counts.set_visibility(bool(report and report.get('counts')))
         if not report:
             self.phase_label.text = 'Готово к сверке имён'
-            self.summary.text = 'Сверка использует сохранённые списки; отсутствующие списки будут собраны. Содержимое файлов не читается.'
+            self.summary.text = 'Сравниваются имена в сохранённых списках. Отсутствующие списки будут собраны.'
             self.update_scopes()
             return
         phase = {'index': 'Подготовка списков', 'names': 'Сопоставление имён', 'hash': 'Прежний отчёт по содержимому', 'done': 'Сверка завершена'}.get(report['phase'], report['phase'])
@@ -685,8 +719,11 @@ class StorageWorkspace:
         if running:
             self.summary.text = report.get('current_path') or report.get('message') or phase
         else:
-            counts = ' · '.join(f'{LABELS.get(status, status)}: {number}' for status, number in report.get('counts', {}).items())
-            self.summary.text = (counts + ' · ' if counts else '') + 'Результат относится к сохранённым спискам от ' + self.format_date(report['created_at'])
+            self.summary.text = 'Сохранённые списки от ' + self.format_date(report['created_at'])
+        with self.counts:
+            for status, number in report.get('counts', {}).items():
+                ui.label(LABELS.get(status, status)).style('color:' + STATUS_COLORS.get(status, '#747b72'))
+                ui.label(str(number)).classes('text-right')
         self.update_scopes()
 
     async def control(self, action):
@@ -800,26 +837,30 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
-    async def show_properties(self, pane):
-        volume = pane.volume
+    async def show_properties(self, volume_id, entry=None):
+        volume = next((v for v in self.volumes if v['id'] == volume_id), None)
         if not volume:
             return
-        self.set_active(pane.index)
+        path = entry['path'] if entry else ''
+        kind = entry['kind'] if entry else 'directory'
         try:
-            data = await self.request('GET', f'/api/storage/volumes/{volume["id"]}/directory',
-                                      params={'path': pane.path if pane.kind == 'directory' else '', 'refresh': False}, timeout=45)
-            metadata = data['metadata'] if pane.kind == 'directory' else (pane.entry or {}).get('metadata', volume['metadata'])
+            metadata = (entry or {}).get('metadata', volume['metadata'])
+            if path and kind == 'directory':
+                data = await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
+                                          params={'path': path, 'refresh': False}, timeout=45)
+                metadata = data['metadata']
         except Exception as error:
             self.notice(error)
             return
         with ui.dialog() as dialog, ui.card().classes('w-[450px] max-w-full p-5 gap-4'):
-            ui.label('Свойства · ' + pane.title.lower() + ' панель').classes('s-caption')
-            ui.label(PurePosixPath(pane.path).name if pane.path else volume_label(volume)).classes('text-lg font-semibold break-words')
-            ui.label(pane.path or volume.get('network_url') or volume['mount_path']).classes('s-path s-muted')
-            if volume.get('removable'):
+            ui.label('Свойства диска' if not path else 'Свойства папки' if kind == 'directory' else 'Свойства файла').classes('s-caption')
+            ui.label(PurePosixPath(path).name if path else volume_label(volume)).classes('text-lg font-semibold break-words')
+            base = volume.get('network_url') or volume['mount_path'] or ''
+            ui.label(base.rstrip('/') + ('/' + path if path else '')).classes('s-path s-muted')
+            if not path and volume.get('removable'):
                 ui.label('Сменный носитель').classes('s-tag purpose')
             capacity = volume.get('capacity')
-            if capacity:
+            if not path and capacity:
                 ui.label('Место на томе').classes('s-caption')
                 with ui.element('div').classes('workspace-property-grid'):
                     for title, key in [('Объём', 'total_bytes'), ('Занято', 'used_bytes'), ('Свободно', 'free_bytes')]:
@@ -829,9 +870,9 @@ class StorageWorkspace:
                 ui.label(prefix + ': ' + self.format_date(capacity['checked_at'])).classes('text-xs s-muted')
             if volume.get('identity_error'):
                 ui.label(volume['identity_error']).classes('s-error w-full')
-            if volume.get('marker_id'):
+            if not path and volume.get('marker_id'):
                 ui.label('ID: ' + volume['marker_id']).classes('s-path s-muted')
-            if volume.get('share_name'):
+            if not path and volume.get('share_name'):
                 ui.label('Ресурс NAS: ' + volume['share_name']).classes('text-xs s-muted')
             values = metadata['effective']
             with ui.element('div').classes('workspace-property-grid'):
@@ -846,20 +887,20 @@ class StorageWorkspace:
             if not volume.get('mounted') and volume.get('network_url'):
                 ui.button('Подключить на M4', icon='lan', on_click=lambda: self.connect(volume['id'])).props('outline no-caps color=dark')
             with ui.row().classes('w-full justify-end gap-2'):
-                if pane.kind == 'directory' and volume.get('identity_status') != 'unverified':
+                if kind == 'directory' and volume.get('identity_status') != 'unverified':
                     ui.button('Изменить роли', on_click=lambda: dialog.submit('edit')).props('outline no-caps color=green-9')
                 ui.button('Закрыть', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
         if await dialog == 'edit':
-            await self.edit_metadata(pane, metadata)
+            await self.edit_metadata(volume, path, metadata)
 
-    async def edit_metadata(self, pane, metadata):
-        volume_id, path = pane.volume_id, pane.path
+    async def edit_metadata(self, volume, path, metadata):
+        volume_id = volume['id']
         inherit = '__inherit__'
         own = metadata['own']
         self.editing = True
         with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-4'):
             ui.label('Роли и назначение').classes('text-lg font-semibold')
-            ui.label(PurePosixPath(path).name if path else volume_label(pane.volume)).classes('text-sm s-muted break-words')
+            ui.label(PurePosixPath(path).name if path else volume_label(volume)).classes('text-sm s-muted break-words')
             default = 'От родительской папки / тома' if path else 'Не назначено'
             purpose = ui.select({inherit: default, **PURPOSES}, value=own['purpose'] if own['purpose'] is not None else inherit, label='Что здесь хранится').props('outlined dense').classes('w-full')
             role = ui.select({inherit: default, **ROLES}, value=own['role'] if own['role'] is not None else inherit, label='Роль хранения').props('outlined dense').classes('w-full')
@@ -879,11 +920,13 @@ class StorageWorkspace:
                        'role': None if role.value == inherit else role.value, 'comment': comment.value or ''}
             payload.update({key: None if control.value == inherit else control.value == 'yes' for key, control in flags.items()})
             await self.request('PATCH', f'/api/storage/volumes/{volume_id}/metadata', json=payload)
+            self.editing = False
             await self.refresh_volumes()
-            if pane.volume_id == volume_id:
-                for folder in list(pane.folders):
-                    await pane.load_folder(folder, refresh=False)
-                pane.render()
+            for pane in self.panes:
+                if pane.volume_id == volume_id:
+                    for folder in list(pane.folders):
+                        await pane.load_folder(folder, refresh=False)
+                    pane.render()
             ui.notify('Отметки сохранены', type='positive')
         except Exception as error:
             self.notice(error)
