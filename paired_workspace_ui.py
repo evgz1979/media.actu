@@ -269,7 +269,7 @@ class PairedWorkspace:
     def visible_rows(self):
         include = None
         if self.differences_only:
-            include = set()
+            include = {row['path'] for row in self.rows if row['kind'] == 'directory' and '/' not in row['path']}
             for row in self.rows:
                 if row['status'] not in ('both', 'same', 'same_size', 'skipped'):
                     path = row['path']

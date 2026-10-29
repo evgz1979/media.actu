@@ -19,19 +19,31 @@ class PairedWorkspaceTests(unittest.TestCase):
             dict(path='Album/Sub/different', kind='file', status='size_different', depth=2),
             dict(path='Album/different', kind='file', status='missing_copy', depth=1),
             dict(path='Album/same', kind='file', status='same_size', depth=1),
+            dict(path='Matching', kind='directory', status='both', depth=0),
+            dict(path='Matching/Sub', kind='directory', status='both', depth=1),
+            dict(path='Matching/Sub/file', kind='file', status='same_size', depth=2),
             dict(path='root-file', kind='file', status='extra_copy', depth=0),
         ]
-        workspace.closed = {'Album', 'Album/Sub'}
+        workspace.closed = {'Album', 'Album/Sub', 'Matching', 'Matching/Sub'}
         return workspace
 
     def test_expanding_one_folder_reveals_only_its_differing_files(self):
         workspace = self.workspace()
         paths = lambda: [r['path'] for r in workspace.visible_rows()]
-        self.assertEqual(paths(), ['Album'])
+        self.assertEqual(paths(), ['Album', 'Matching'])
         workspace.closed.remove('Album')
-        self.assertEqual(paths(), ['Album', 'Album/Sub', 'Album/different'])
+        self.assertEqual(paths(), ['Album', 'Album/Sub', 'Album/different', 'Matching'])
         workspace.closed.remove('Album/Sub')
-        self.assertEqual(paths(), ['Album', 'Album/Sub', 'Album/Sub/different', 'Album/different'])
+        self.assertEqual(paths(), ['Album', 'Album/Sub', 'Album/Sub/different', 'Album/different', 'Matching'])
+
+    def test_fully_matching_report_keeps_root_folders_collapsed(self):
+        workspace = self.workspace()
+        workspace.rows = [row for row in workspace.rows if row['path'].startswith('Matching')]
+        rows = workspace.visible_rows()
+        self.assertEqual([row['path'] for row in rows], ['Matching'])
+        self.assertTrue(rows[0]['collapsed'])
+        workspace.closed.remove('Matching')
+        self.assertEqual([row['path'] for row in workspace.visible_rows()], ['Matching'])
 
     def test_root_files_require_explicit_disclosure_even_after_navigation(self):
         workspace = self.workspace()

@@ -407,7 +407,7 @@ class PairedComparisonCatalog:
 
     def rows(self, job, offset=0, limit=1000, differences_only=False):
         report = self.job(job)
-        predicate = " AND (r.status NOT IN ('both','same','same_size','skipped') OR (r.kind='directory' AND json_extract(r.data,'$.attention_count')>0))" if differences_only else ''
+        predicate = " AND (r.status NOT IN ('both','same','same_size','skipped') OR (r.kind='directory' AND (instr(r.path,'/')=0 OR json_extract(r.data,'$.attention_count')>0)))" if differences_only else ''
         with self.storage.connect() as db:
             rows = []
             total = db.execute('SELECT COUNT(*) FROM paired_rows r WHERE r.job_id=?' + predicate, (job,)).fetchone()[0] if differences_only else report['row_count']

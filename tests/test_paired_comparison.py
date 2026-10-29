@@ -119,7 +119,7 @@ class PairedComparisonTests(unittest.TestCase):
         self.assertEqual(rows['Folder']['attention_count'], 3)
         self.assertEqual(rows['Folder']['file_attention_count'], 3)
 
-    def test_difference_pages_keep_only_differences_and_their_parent_folders(self):
+    def test_difference_pages_keep_root_folders_alongside_differences_and_their_parents(self):
         for side in ('left', 'right'):
             self.put(side, 'Album/Trips/same', b'abc')
             self.put(side, 'Matching/file', b'abc')
@@ -130,18 +130,22 @@ class PairedComparisonTests(unittest.TestCase):
         report, _ = self.run_job('files', folders['id'])
         pages = [self.pairs.rows(report['id'], offset=i, limit=2, differences_only=True) for i in (0, 2, 4)]
         paths = [r['path'] for page in pages for r in page['rows']]
-        self.assertEqual(paths, ['Album', 'Album/Trips', 'Album/Trips/changed', 'Extra', 'Extra/file'])
-        self.assertTrue(all(page['total'] == 5 for page in pages))
-        self.assertGreater(report['row_count'], 5)
+        self.assertEqual(paths, ['Album', 'Album/Trips', 'Album/Trips/changed', 'Extra', 'Extra/file', 'Matching'])
+        self.assertTrue(all(page['total'] == 6 for page in pages))
+        self.assertGreater(report['row_count'], 6)
 
-    def test_matching_files_leave_no_difference_rows_for_both_methods(self):
+    def test_matching_reports_keep_root_folders_without_matching_files_for_both_methods(self):
         for side in ('left', 'right'):
             self.put(side, 'Folder/Sub/file')
+            self.put(side, 'root-file')
+            (self.main/'Original/Empty' if side == 'left' else self.copy/'Backup/Empty').mkdir()
         folders, _ = self.run_job()
         for method in ('size', 'sha256'):
             report, _ = self.run_job('files', folders['id'], method=method)
-            self.assertEqual(self.pairs.rows(report['id'], differences_only=True)['rows'], [])
-            self.assertEqual(self.pairs.rows(report['id'], differences_only=True)['total'], 0)
+            page = self.pairs.rows(report['id'], differences_only=True)
+            self.assertEqual([row['path'] for row in page['rows']], ['Empty', 'Folder'])
+            self.assertTrue(all(row['status'] == 'both' and row['attention_count'] == 0 for row in page['rows']))
+            self.assertEqual(page['total'], 2)
 
     def test_upgrade_preserves_old_reports_as_sha256(self):
         folders, _ = self.run_job()
