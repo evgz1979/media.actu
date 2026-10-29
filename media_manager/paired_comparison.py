@@ -17,6 +17,7 @@ from .volume_identity import MARKER_FILES
 STATUS_LABELS = {
     'both': 'Есть в обоих', 'missing_copy': 'Нет в копии', 'extra_copy': 'Только в копии',
     'same': 'Совпадает', 'different': 'Отличается', 'conflict': 'Разный тип',
+    'same_size': 'Имя и размер совпали', 'size_different': 'Размер отличается',
     'unverified': 'Не проверено', 'skipped': 'Не сравнивается',
 }
 DECISIONS = {'keep': 'Оставить в копии', 'add_main': 'Добавить в 00-main',
@@ -64,6 +65,9 @@ class PairedComparisonCatalog:
             ''')
             if 'indexed_directories' not in {r['name'] for r in db.execute('PRAGMA table_info(paired_jobs)')}:
                 db.execute('ALTER TABLE paired_jobs ADD COLUMN indexed_directories INTEGER NOT NULL DEFAULT 0')
+            # Existing file reports checked content; preserve their meaning on upgrade.
+            if 'method' not in {r['name'] for r in db.execute('PRAGMA table_info(paired_jobs)')}:
+                db.execute("ALTER TABLE paired_jobs ADD COLUMN method TEXT NOT NULL DEFAULT 'sha256'")
             db.execute("UPDATE paired_jobs SET state='paused',message=?,updated_at=? WHERE state IN ('running','pausing')",
                        ('Проверка прервана перезапуском. Можно продолжить.', now()))
 
@@ -93,9 +97,11 @@ class PairedComparisonCatalog:
                     return {'left': group['main'], 'right': copy}
         raise KeyError('Связь с копией не найдена')
 
-    def create(self, copy_id, mode='folders', base_job_id=None, *, background=True):
+    def create(self, copy_id, mode='folders', base_job_id=None, *, method='size', background=True):
         if mode not in ('folders', 'files'):
             raise ValueError('Неизвестный вид сверки')
+        if method not in ('size', 'sha256'):
+            raise ValueError('Неизвестный метод сверки файлов')
         scopes = self._pair(copy_id)
         if mode == 'files':
             previous = self.job(base_job_id)
@@ -113,9 +119,9 @@ class PairedComparisonCatalog:
             job, timestamp = uuid4().hex, now()
             with self.storage.connect() as db:
                 db.execute('''INSERT INTO paired_jobs
-                    (id,copy_id,mode,state,phase,created_at,updated_at,scopes,base_job_id)
-                    VALUES (?,?,?,'paused','index',?,?,?,?)''',
-                           (job, copy_id, mode, timestamp, timestamp, json.dumps(scopes, ensure_ascii=False), base_job_id))
+                    (id,copy_id,mode,state,phase,created_at,updated_at,scopes,base_job_id,method)
+                    VALUES (?,?,?,'paused','index',?,?,?,?,?)''',
+                           (job, copy_id, mode, timestamp, timestamp, json.dumps(scopes, ensure_ascii=False), base_job_id, method))
             if background:
                 self.resume(job)
         return self.job(job)
@@ -297,7 +303,7 @@ class PairedComparisonCatalog:
                     self._save_entry(db, job, side, entry['relative'], entry)
 
     @staticmethod
-    def _status(path, left, right, failures, files):
+    def _status(path, left, right, failures, files, method):
         if any(e and e.get('error') for e in (left, right)):
             return 'unverified'
         for side, entry in (('left', left), ('right', right)):
@@ -315,13 +321,17 @@ class PairedComparisonCatalog:
             return 'both'
         if not files:
             return 'unverified'
+        if left.get('size') is None or right.get('size') is None:
+            return 'unverified'
         if left.get('size') != right.get('size'):
-            return 'different'
+            return 'size_different' if method == 'size' else 'different'
+        if method == 'size':
+            return 'same_size'
         if left.get('digest') and right.get('digest'):
             return 'same' if left['digest'] == right['digest'] else 'different'
         return 'unverified'
 
-    def _classify(self, job, inventories, files):
+    def _classify(self, job, inventories, files, method):
         failures = {side: {p for p, e in entries.items() if e.get('error') and e['kind'] == 'directory'}
                     for side, entries in inventories.items()}
         rows, children = {}, {}
@@ -334,15 +344,18 @@ class PairedComparisonCatalog:
                 continue
             rows[path] = {'path': path, 'name': PurePosixPath(path).name, 'depth': len(PurePosixPath(path).parts) - 1,
                           'kind': 'directory' if directory else (left or right)['kind'], 'left': left, 'right': right,
-                          'status': self._status(path, left, right, failures, files), 'attention_count': 0}
+                          'status': self._status(path, left, right, failures, files, method),
+                          'attention_count': 0, 'file_attention_count': 0}
             parent = str(PurePosixPath(path).parent)
             children.setdefault('' if parent == '.' else parent, []).append(path)
         for row in rows.values():
-            if row['status'] not in ('both', 'same', 'skipped'):
+            if row['status'] not in ('both', 'same', 'same_size', 'skipped'):
                 parent = str(PurePosixPath(row['path']).parent)
                 while parent != '.':
                     if parent in rows:
                         rows[parent]['attention_count'] += 1
+                        if row['kind'] != 'directory':
+                            rows[parent]['file_attention_count'] += 1
                     parent = str(PurePosixPath(parent).parent)
         ordered, pending = [], list(reversed(sorted(children.get('', []), key=lambda p: (rows[p]['kind'] != 'directory', rows[p]['name'].casefold(), p))))
         while pending:
@@ -372,10 +385,10 @@ class PairedComparisonCatalog:
                 if not report[side + '_complete']:
                     self._inventory(job, side, scope, volumes[side], report['mode'] == 'files')
             inventories = {side: self._entries(job, side) for side in ('left', 'right')}
-            if report['mode'] == 'files':
+            if report['mode'] == 'files' and report['method'] == 'sha256':
                 self._hash_pairs(job, inventories, volumes)
             self._update(job, phase='align', current_path='')
-            errors = self._classify(job, inventories, report['mode'] == 'files')
+            errors = self._classify(job, inventories, report['mode'] == 'files', report['method'])
             self._update(job, state='completed', phase='done', errors=errors,
                          message='Есть непрочитанные элементы' if errors else 'Сверка завершена')
         except Paused:
@@ -383,14 +396,16 @@ class PairedComparisonCatalog:
         except Exception as error:
             self._update(job, state='failed', message=str(error))
 
-    def rows(self, job, offset=0, limit=1000):
+    def rows(self, job, offset=0, limit=1000, differences_only=False):
         report = self.job(job)
+        predicate = " AND (r.status NOT IN ('both','same','same_size','skipped') OR (r.kind='directory' AND json_extract(r.data,'$.attention_count')>0))" if differences_only else ''
         with self.storage.connect() as db:
             rows = []
+            total = db.execute('SELECT COUNT(*) FROM paired_rows r WHERE r.job_id=?' + predicate, (job,)).fetchone()[0] if differences_only else report['row_count']
             decisions = {r['path']: (r['action'], r['kind']) for r in db.execute('''SELECT d.path,d.action,r.kind
                 FROM paired_decisions d JOIN paired_rows r ON r.job_id=d.job_id AND r.path=d.path WHERE d.job_id=?''', (job,))}
             for row in db.execute('''SELECT r.data,d.action FROM paired_rows r LEFT JOIN paired_decisions d
-                ON d.job_id=r.job_id AND d.path=r.path WHERE r.job_id=? ORDER BY position LIMIT ? OFFSET ?''', (job, limit, offset)):
+                ON d.job_id=r.job_id AND d.path=r.path WHERE r.job_id=?''' + predicate + ' ORDER BY position LIMIT ? OFFSET ?', (job, limit, offset)):
                 data = json.loads(row['data'])
                 action, inherited = row['action'], None
                 if action is None and data['status'] == 'extra_copy':
@@ -401,7 +416,7 @@ class PairedComparisonCatalog:
                             break
                         parent = str(PurePosixPath(parent).parent)
                 rows.append(dict(data, decision=action, own_decision=row['action'], decision_from=inherited))
-        return {'rows': rows, 'total': report['row_count'], 'offset': offset}
+        return {'rows': rows, 'total': total, 'offset': offset}
 
     def decide(self, job, path, action):
         path = relative_path(path)

@@ -23,6 +23,9 @@ PAIR_CSS = '''
 .pair-rail-state { font-size:9px; text-align:center; line-height:13px; color:#64725f; overflow-wrap:anywhere; }
 .pair-running-path { max-width:100%; }
 .s-tree.pair-host { overflow:hidden; }
+.pair-tree { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.pair-root-files { display:flex; align-items:center; gap:4px; width:100%; min-height:28px; border:0; border-bottom:1px solid #dfe7db; background:#f3f6ef; color:#626f59; font-size:11px; text-align:left; cursor:pointer; }
+.pair-root-files .material-icons { font-size:17px; }
 .pair-virtual { position:relative; flex:1; min-height:0; width:100%; overflow:auto; scrollbar-gutter:stable; }
 .pair-row { position:absolute; left:0; width:100%; height:28px; display:flex; align-items:center; gap:4px; padding-right:7px; font-size:12px; cursor:default; border-bottom:1px solid #f0f2ef; }
 .pair-row.alt { background:#f6f8f5; }
@@ -36,9 +39,9 @@ PAIR_CSS = '''
 .pair-row-state { font-size:10px; color:#71816d; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
 .pair-missing_copy .pair-row-state { color:#a96717; }
 .pair-extra_copy .pair-row-state { color:#85518e; }
-.pair-different .pair-row-state, .pair-conflict .pair-row-state { color:#b1443f; }
+.pair-different .pair-row-state, .pair-size_different .pair-row-state, .pair-conflict .pair-row-state { color:#b1443f; }
 .pair-unverified .pair-row-state { color:#a27130; }
-.pair-same .pair-row-state { color:#35804b; }
+.pair-same .pair-row-state, .pair-same_size .pair-row-state { color:#35804b; }
 .pair-decide { border:0; background:none; padding:0; cursor:pointer; text-decoration:underline; }
 .pair-size { color:#7a8477; font-size:10px; flex-shrink:0; }
 .pair-decision { color:#795688; font-size:9px; max-width:70px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -69,6 +72,14 @@ class PairedWorkspace:
         self.saved = None
         self.saved_active = 0
         self.rail_signature = None
+        self.loaded_job = None
+        self.root_files_open = False
+
+    @staticmethod
+    def report_title(report):
+        if report['mode'] == 'folders':
+            return 'Папки'
+        return 'Файлы · ' + ('имя и размер' if report.get('method') == 'size' else 'SHA-256')
 
     def build(self):
         ui.add_css(PAIR_CSS)
@@ -86,7 +97,8 @@ class PairedWorkspace:
             return
         signature = (self.active, (self.report or {}).get('state'), (self.report or {}).get('mode'),
                      (self.report or {}).get('phase'), bool(self.ws.report), (self.report or {}).get('checked_files'),
-                     (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'))
+                     (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'),
+                     (self.report or {}).get('method'), bool(self.rows), self.differences_only)
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
@@ -101,10 +113,10 @@ class PairedWorkspace:
             folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
             folders.set_enabled(not running)
             if self.report and self.report['state'] == 'completed':
-                ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Полная сверка файлов по SHA-256"')
+                ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Сверить имена и размеры файлов"')
             if self.report:
                 state = {'running': 'Проверяем', 'pausing': 'Остановка', 'paused': 'Пауза', 'failed': 'Ошибка', 'completed': 'Готово'}[self.report['state']]
-                phase = {'index': 'Список', 'hash': 'SHA-256', 'align': 'Структура', 'done': 'Файлы' if self.report['mode'] == 'files' else 'Папки'}[self.report['phase']]
+                phase = {'index': 'Список', 'hash': 'SHA-256', 'align': 'Сравнение', 'done': ('Имя, размер' if self.report.get('method') == 'size' else 'SHA-256') if self.report['mode'] == 'files' else 'Папки'}[self.report['phase']]
                 ui.label(phase + '\n' + state).classes('pair-rail-state').style('white-space:pre-line')
                 if running:
                     total = self.report['total_files']
@@ -120,12 +132,16 @@ class PairedWorkspace:
                     ui.button('Далее', icon='play_arrow', on_click=self.resume).props('flat no-caps color=green-9 aria-label="Продолжить сверку"')
                 ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props('flat no-caps color=green-9')
             ui.button('История', icon='history', on_click=self.history).props('flat no-caps color=dark')
-            if self.rows:
-                with ui.button(icon='more_horiz').props('flat aria-label="Вид деревьев"'):
+            if self.rows or (self.report and self.report['state'] == 'completed'):
+                with ui.button(icon='more_horiz').props('flat aria-label="Дополнительные команды"'):
                     with ui.menu():
-                        ui.menu_item('Раскрыть всё', on_click=lambda: self.collapse_all(False))
-                        ui.menu_item('Свернуть всё', on_click=lambda: self.collapse_all(True))
-                        ui.menu_item('Показать все строки' if self.differences_only else 'Только различия', on_click=self.toggle_differences)
+                        if self.rows:
+                            if self.report['mode'] == 'folders':
+                                ui.menu_item('Раскрыть всё', on_click=lambda: self.collapse_all(False))
+                                ui.menu_item('Показать все строки' if self.differences_only else 'Только различия', on_click=self.toggle_differences)
+                            ui.menu_item('Свернуть всё', on_click=lambda: self.collapse_all(True))
+                        if self.report['state'] == 'completed':
+                            ui.menu_item('Сверить содержимое · SHA-256', on_click=lambda: self.start('files', 'sha256'))
             ui.button('Отвязать', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разорвать связь панелей"')
 
     async def link(self, group, location):
@@ -145,6 +161,8 @@ class PairedWorkspace:
             self.root = self.selected = ''
             self.closed.clear()
             self.differences_only = False
+            self.loaded_job = None
+            self.root_files_open = False
             self.show_hidden = any(p.hidden.value for p in self.ws.panes)
             self.views.clear()
             self.rail_signature = None
@@ -187,7 +205,7 @@ class PairedWorkspace:
         pane.render_path(scope['volume_id'], pane.path, pane.kind, boundary=boundary)
         if self.report:
             pane.snapshot_label.text = ('Проверяем файлы · папки: ' + self.ws.format_date(self.structure_at)
-                                        if self.structure_at else 'Сверка: ' + self.ws.format_date(self.report['created_at']))
+                                        if self.structure_at else self.report_title(self.report) + ' · ' + self.ws.format_date(self.report['created_at']))
             row = self.by_path.get(self.selected)
             if row and not row.get(side):
                 pane.footer.text = 'Не проверено' if row['status'] == 'unverified' else 'Нет в ' + scope['label']
@@ -221,7 +239,7 @@ class PairedWorkspace:
         if self.differences_only:
             include = set()
             for row in self.rows:
-                if row['status'] not in ('both', 'same', 'skipped'):
+                if row['status'] not in ('both', 'same', 'same_size', 'skipped'):
                     path = row['path']
                     while path:
                         include.add(path)
@@ -237,11 +255,25 @@ class PairedWorkspace:
                 continue
             if include is not None and path not in include:
                 continue
+            parent = str(PurePosixPath(path).parent)
+            if (self.report and self.report['mode'] == 'files' and row['kind'] != 'directory'
+                    and ('' if parent == '.' else parent) == self.root and not self.root_files_open):
+                continue
             if hidden_under and path.startswith(hidden_under + '/'):
                 continue
             hidden_under = path if path in self.closed else None
             result.append(dict(row, level=row['depth'] - base_depth, collapsed=path in self.closed))
         return result
+
+    def configure_view(self, view):
+        root_files = sum(r['kind'] != 'directory' and str(PurePosixPath(r['path']).parent) == (self.root or '.')
+                         and (self.show_hidden or not any(p.startswith('.') for p in PurePosixPath(r['path']).parts))
+                         for r in self.rows) if self.report['mode'] == 'files' else 0
+        view.props.update(root_file_count=root_files, root_files_open=self.root_files_open)
+        view.props['empty_text'] = ('Идёт сверка…' if self.report['state'] in ('running', 'pausing') else
+                                   self.report['message'] if self.report['state'] == 'failed' else
+                                   'Часть данных не проверена. Подробности — в итогах.' if self.report.get('root_errors') else
+                                   'Различий нет' if self.differences_only else 'Папок нет')
 
     def render_tree(self, pane):
         side = 'left' if pane.index == 0 else 'right'
@@ -250,10 +282,9 @@ class PairedWorkspace:
         if existing is None:
             pane.tree.clear()
             with pane.tree:
-                existing = PairedTree(side, self.on_select, self.on_open, self.on_toggle, self.on_context)
+                existing = PairedTree(side, self.on_select, self.on_open, self.on_toggle, self.on_context, self.toggle_root_files)
             self.views[side] = existing
-        existing.props['empty_text'] = ('Идёт сверка…' if self.report['state'] in ('running', 'pausing') else
-                                        self.report['message'] if self.report['state'] == 'failed' else 'Папок нет' if self.report['mode'] == 'folders' else 'Элементов нет')
+        self.configure_view(existing)
         existing.set_rows(self.visible_rows(), self.selected)
 
     def redraw(self, rows_changed=True):
@@ -261,6 +292,7 @@ class PairedWorkspace:
         for side, pane in zip(('left', 'right'), self.ws.panes):
             if side in self.views:
                 if rows_changed:
+                    self.configure_view(self.views[side])
                     self.views[side].set_rows(visible, self.selected)
                 else:
                     self.views[side].run_method('setSelection', self.selected)
@@ -280,6 +312,7 @@ class PairedWorkspace:
 
     def navigate(self, relative):
         self.root = relative
+        self.root_files_open = False
         self.closed.discard(relative)
         self.choose(relative)
         self.redraw()
@@ -313,6 +346,11 @@ class PairedWorkspace:
 
     def collapse_all(self, value):
         self.closed = {r['path'] for r in self.rows if r['kind'] == 'directory'} if value else set()
+        self.root_files_open = not value
+        self.redraw()
+
+    def toggle_root_files(self):
+        self.root_files_open = not self.root_files_open
         self.redraw()
 
     def toggle_differences(self):
@@ -332,12 +370,12 @@ class PairedWorkspace:
         if changed:
             self.redraw()
 
-    async def start(self, mode):
+    async def start(self, mode, method='size'):
         with self.ws.client:
             generation = self.generation
             try:
                 data = await self.ws.request('POST', '/api/storage/paired-comparisons',
-                                             json={'copy_id': self.copy_id, 'mode': mode,
+                                             json={'copy_id': self.copy_id, 'mode': mode, 'method': method,
                                                    'base_job_id': self.report['id'] if mode == 'files' and self.report else None}, timeout=45)
                 if generation != self.generation:
                     return
@@ -354,7 +392,9 @@ class PairedWorkspace:
             pane.volume_select.set_value(pane.volume_id)
         if not previous or report['id'] != previous['id']:
             self.root = self.selected = ''
-            self.closed.clear()
+            self.differences_only = report['mode'] == 'files'
+            self.root_files_open = False
+            self.closed = {r['path'] for r in self.rows if r['kind'] == 'directory'} if report['mode'] == 'files' else set()
             carry = previous and report['mode'] == 'files' and previous['copy_id'] == report['copy_id'] and bool(self.rows)
             if carry:
                 self.structure_at = self.structure_at or previous['created_at']
@@ -379,13 +419,14 @@ class PairedWorkspace:
 
     async def load_rows(self, job):
         generation = self.generation
-        first = await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}/rows', params={'limit': 5000}, timeout=45)
+        params = {'limit': 5000, 'differences_only': self.report['mode'] == 'files'}
+        first = await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}/rows', params=params, timeout=45)
         rows = first['rows']
         for offset in range(5000, first['total'], 5000):
             if generation != self.generation:
                 return
             rows += (await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}/rows',
-                                           params={'offset': offset, 'limit': 5000}, timeout=45))['rows']
+                                           params={**params, 'offset': offset}, timeout=45))['rows']
         if generation != self.generation or not self.report or self.report['id'] != job:
             return
         for row in rows:
@@ -395,6 +436,21 @@ class PairedWorkspace:
         self.rows = rows
         self.structure_at = None
         self.by_path = {row['path']: row for row in rows}
+        # Older SHA reports predate the separate file counter.
+        old_directories = {r['path'] for r in rows if r['kind'] == 'directory' and 'file_attention_count' not in r}
+        for path in old_directories:
+            self.by_path[path]['file_attention_count'] = 0
+        if old_directories:
+            for row in rows:
+                if row['kind'] == 'directory' or row['status'] in ('same', 'same_size', 'skipped'):
+                    continue
+                for parent in PurePosixPath(row['path']).parents:
+                    if str(parent) in old_directories:
+                        self.by_path[str(parent)]['file_attention_count'] += 1
+        if self.loaded_job != job:
+            self.closed = {r['path'] for r in rows if r['kind'] == 'directory'} if self.report['mode'] == 'files' else set()
+            self.root_files_open = False
+            self.loaded_job = job
         self.choose(self.selected)
         self.rail_signature = None
         self.render_rail()
@@ -430,7 +486,7 @@ class PairedWorkspace:
         with self.ws.client:
             report = self.report
             with ui.dialog() as dialog, ui.card().classes('w-[580px] max-w-full p-5 gap-3'):
-                ui.label('Итоги · ' + ('Файлы · SHA-256' if report['mode'] == 'files' else 'Папки')).classes('text-lg font-semibold')
+                ui.label('Итоги · ' + self.report_title(report)).classes('text-lg font-semibold')
                 for side, title in (('left', '00-main'), ('right', self.scopes['right']['label'])):
                     scope = self.scopes[side]
                     ui.label(title + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes('pair-scopes')
@@ -443,7 +499,11 @@ class PairedWorkspace:
                     with ui.row().classes('w-full justify-between'):
                         ui.label(STATUS_LABELS[status])
                         ui.label(str(count))
-                ui.label('Есть в обоих — наличие папок. Совпадает — проверенное содержимое файлов.').classes('text-xs s-muted')
+                explanation = ('Сравниваются имена, относительные пути и размеры. Содержимое файлов не читается.'
+                               if report['mode'] == 'files' and report.get('method') == 'size' else
+                               'Совпадает — содержимое файлов проверено по SHA-256.' if report['mode'] == 'files' else
+                               'Есть в обоих — наличие папок. Файлы пока не сравнивались.')
+                ui.label(explanation).classes('text-xs s-muted')
                 if report['errors']:
                     ui.label(f"Не удалось прочитать элементов: {report['errors']}").classes('text-sm text-amber-9')
                     for side, error in report.get('root_errors', {}).items():
@@ -514,7 +574,7 @@ class PairedWorkspace:
                         self.generation += 1
                         await self.apply(job)
                     for job in jobs:
-                        label = self.ws.format_date(job['created_at']) + ' · ' + ('Папки' if job['mode'] == 'folders' else 'Файлы · SHA-256')
+                        label = self.ws.format_date(job['created_at']) + ' · ' + self.report_title(job)
                         label += ' · ' + {'completed': 'Готово', 'paused': 'Пауза', 'running': 'Выполняется', 'pausing': 'Остановка', 'failed': 'Ошибка'}[job['state']]
                         ui.button(label, on_click=lambda j=job: choose(j)).props('flat no-caps color=green-9').classes('pair-history-row')
                     ui.separator()

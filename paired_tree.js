@@ -1,7 +1,12 @@
 export default {
   template: `
+    <div class="pair-tree">
+    <button v-if="root_file_count" class="pair-root-files" :aria-expanded="root_files_open" @click="$emit('toggle_files')">
+      <i class="material-icons" aria-hidden="true">{{ root_files_open ? 'expand_more' : 'chevron_right' }}</i>
+      Файлы в этой папке · различий: {{ root_file_count }}
+    </button>
     <div class="pair-virtual" ref="viewport" @scroll="scrolled" tabindex="0" :aria-label="side === 'left' ? 'Дерево основной папки' : 'Дерево копии'">
-      <div v-if="!rows.length" class="pair-empty">{{ empty_text }}</div>
+      <div v-if="!rows.length && !(root_file_count && !root_files_open)" class="pair-empty">{{ empty_text }}</div>
       <div v-else :style="{height: (rows.length * 28) + 'px', position:'relative'}" role="tree">
         <div v-for="(row, i) in visible" :key="row.path" role="treeitem" :aria-selected="selection === row.path"
           :aria-level="row.level + 1" :aria-expanded="row.kind === 'directory' ? !row.collapsed : undefined"
@@ -15,7 +20,7 @@ export default {
           <span v-else class="pair-toggle-spacer"></span>
           <i class="material-icons pair-file-icon" aria-hidden="true">{{ row.kind === 'directory' ? 'folder' : 'insert_drive_file' }}</i>
           <span class="pair-row-name">{{ row.name }}</span>
-          <span v-if="row.attention_count" class="pair-attention" :aria-label="'Ниже требуют внимания: '+row.attention_count">{{ row.attention_count }}</span>
+          <span v-if="row.attention_count" class="pair-attention" :aria-label="'Различий внутри: '+row.attention_count">{{ row.file_attention_count ? 'Файлы: '+row.file_attention_count : row.attention_count }}</span>
           <span v-if="row.decision && side === 'right'" class="pair-decision">{{ decisions[row.decision] }}</span>
           <span v-if="row[side]?.size_text" class="pair-size">{{ row[side].size_text }}</span>
           <button v-if="row.status === 'extra_copy' && side === 'right'" class="pair-row-state pair-decide"
@@ -23,9 +28,9 @@ export default {
           <span v-else class="pair-row-state">{{ status(row) }}</span>
         </div>
       </div>
-    </div>`,
-  props: {rows:Array, side:String, selected:String, empty_text:String},
-  emits: ['select','open','toggle','context'],
+    </div></div>`,
+  props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean},
+  emits: ['select','open','toggle','context','toggle_files'],
   data() { return {top:0, height:400, observer:null, selection:this.selected, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
   watch: {selected(value) {this.selection=value;}},
   computed: {
@@ -54,8 +59,9 @@ export default {
         if (row.status === 'unverified') return 'Не проверено';
         return this.side === 'left' ? 'Нет в 00-main' : 'Нет в копии';
       }
-      return {both:'Есть в обоих',missing_copy:'Нет в копии',extra_copy:'Только в копии',same:'Совпадает',
-        different:'Отличается',conflict:'Разный тип',unverified:'Не проверено',skipped:'Не сравнивается'}[row.status] || '';
+      if (row.kind === 'directory' && row.status === 'both' && row.attention_count) return 'Есть различия';
+      return {both:'Есть в обоих',missing_copy:'Нет в копии',extra_copy:'Только в копии',same:'Совпадает',same_size:'Имя и размер совпали',
+        different:'Отличается',size_different:'Размер отличается',conflict:'Разный тип',unverified:'Не проверено',skipped:'Не сравнивается'}[row.status] || '';
     },
   },
 };

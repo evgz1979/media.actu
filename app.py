@@ -404,6 +404,7 @@ class PairedComparisonRequest(BaseModel):
     copy_id: str = Field(min_length=1, max_length=128)
     mode: Literal['folders', 'files'] = 'folders'
     base_job_id: str | None = None
+    method: Literal['size', 'sha256'] = 'size'
 
 
 class PairedDecisionRequest(BaseModel):
@@ -420,7 +421,7 @@ async def paired_jobs(copy_id: str | None = None) -> dict:
 @app.post('/api/storage/paired-comparisons', status_code=201)
 async def start_paired_comparison(request: PairedComparisonRequest) -> dict:
     return await comparison_call(start_comparison_exclusive, paired_comparison.create,
-                                 request.copy_id, request.mode, request.base_job_id)
+                                 request.copy_id, request.mode, request.base_job_id, method=request.method)
 
 
 @app.get('/api/storage/paired-comparisons/{job_id}')
@@ -429,8 +430,9 @@ async def paired_job(job_id: str) -> dict:
 
 
 @app.get('/api/storage/paired-comparisons/{job_id}/rows')
-async def paired_rows(job_id: str, offset: int = Query(0, ge=0), limit: int = Query(1000, ge=1, le=5000)) -> dict:
-    return await comparison_call(paired_comparison.rows, job_id, offset, limit)
+async def paired_rows(job_id: str, offset: int = Query(0, ge=0), limit: int = Query(1000, ge=1, le=5000),
+                      differences_only: bool = False) -> dict:
+    return await comparison_call(paired_comparison.rows, job_id, offset, limit, differences_only)
 
 
 @app.post('/api/storage/paired-comparisons/{job_id}/pause')

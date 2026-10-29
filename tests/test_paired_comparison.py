@@ -36,8 +36,8 @@ class PairedComparisonTests(unittest.TestCase):
         target.write_bytes(data)
         return target
 
-    def run_job(self, mode='folders', base=None):
-        job = self.pairs.create(self.location['id'], mode, base, background=False)
+    def run_job(self, mode='folders', base=None, method='size'):
+        job = self.pairs.create(self.location['id'], mode, base, method=method, background=False)
         self.pairs.run(job['id'])
         report = self.pairs.job(job['id'])
         self.assertEqual(report['state'], 'completed', report['message'])
@@ -79,7 +79,7 @@ class PairedComparisonTests(unittest.TestCase):
                  self.put('left', 'empty', b''), self.put('right', 'empty', b'')]
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files}
         folders, _ = self.run_job()
-        report, rows = self.run_job('files', folders['id'])
+        report, rows = self.run_job('files', folders['id'], method='sha256')
         self.assertEqual(rows['same']['status'], 'same')
         self.assertEqual(rows['same']['left']['digest'], hashlib.sha256(b'abcdef').hexdigest())
         self.assertEqual(rows['changed']['status'], 'different')
@@ -89,6 +89,70 @@ class PairedComparisonTests(unittest.TestCase):
         self.assertEqual(rows['extra']['status'], 'extra_copy')
         self.assertEqual(report['checked_files'], 6)
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files})
+
+    def test_default_file_check_compares_names_and_sizes_without_reading_contents(self):
+        for side, data in [('left', b'AAAA'), ('right', b'BBBB')]:
+            self.put(side, 'Folder/same-size', data)
+            self.put(side, 'Folder/empty', b'')
+        self.put('left', 'Folder/size', b'x')
+        self.put('right', 'Folder/size', b'xx')
+        self.put('left', 'Folder/old-name', b'abc')
+        self.put('right', 'Folder/new-name', b'abc')
+        folders, _ = self.run_job()
+        original_open = os.open
+
+        def directory_only(path, flags, **kwargs):
+            self.assertTrue(flags & os.O_DIRECTORY, 'Name/size must never open a regular file')
+            return original_open(path, flags, **kwargs)
+
+        with patch('media_manager.comparison.os.open', side_effect=directory_only), \
+                patch('media_manager.paired_comparison.os.read', side_effect=AssertionError('no content reads')):
+            report, rows = self.run_job('files', folders['id'])
+        self.assertEqual(report['method'], 'size')
+        self.assertEqual(report['hashed_bytes'], 0)
+        self.assertEqual(rows['Folder/same-size']['status'], 'same_size')
+        self.assertEqual(rows['Folder/empty']['status'], 'same_size')
+        self.assertNotIn('digest', rows['Folder/same-size']['left'])
+        self.assertEqual(rows['Folder/size']['status'], 'size_different')
+        self.assertEqual(rows['Folder/old-name']['status'], 'missing_copy')
+        self.assertEqual(rows['Folder/new-name']['status'], 'extra_copy')
+        self.assertEqual(rows['Folder']['attention_count'], 3)
+        self.assertEqual(rows['Folder']['file_attention_count'], 3)
+
+    def test_difference_pages_keep_only_differences_and_their_parent_folders(self):
+        for side in ('left', 'right'):
+            self.put(side, 'Album/Trips/same', b'abc')
+            self.put(side, 'Matching/file', b'abc')
+        self.put('left', 'Album/Trips/changed', b'a')
+        self.put('right', 'Album/Trips/changed', b'aa')
+        self.put('right', 'Extra/file')
+        folders, _ = self.run_job()
+        report, _ = self.run_job('files', folders['id'])
+        pages = [self.pairs.rows(report['id'], offset=i, limit=2, differences_only=True) for i in (0, 2, 4)]
+        paths = [r['path'] for page in pages for r in page['rows']]
+        self.assertEqual(paths, ['Album', 'Album/Trips', 'Album/Trips/changed', 'Extra', 'Extra/file'])
+        self.assertTrue(all(page['total'] == 5 for page in pages))
+        self.assertGreater(report['row_count'], 5)
+
+    def test_matching_files_leave_no_difference_rows_for_both_methods(self):
+        for side in ('left', 'right'):
+            self.put(side, 'Folder/Sub/file')
+        folders, _ = self.run_job()
+        for method in ('size', 'sha256'):
+            report, _ = self.run_job('files', folders['id'], method=method)
+            self.assertEqual(self.pairs.rows(report['id'], differences_only=True)['rows'], [])
+            self.assertEqual(self.pairs.rows(report['id'], differences_only=True)['total'], 0)
+
+    def test_upgrade_preserves_old_reports_as_sha256(self):
+        folders, _ = self.run_job()
+        old, _ = self.run_job('files', folders['id'], method='sha256')
+        with self.storage.connect() as db:
+            db.execute('ALTER TABLE paired_jobs DROP COLUMN method')
+        reopened = PairedComparisonCatalog(self.storage, self.copies)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.job(old['id'])['method'], 'sha256')
+        new = reopened.create(self.location['id'], 'files', folders['id'], background=False)
+        self.assertEqual(new['method'], 'size')
 
     def test_full_stage_requires_finished_folder_check_for_same_pair(self):
         with self.assertRaises(KeyError):
@@ -156,7 +220,7 @@ class PairedComparisonTests(unittest.TestCase):
             return chunk
 
         with patch('media_manager.paired_comparison.os.read', side_effect=change_after_read):
-            _, rows = self.run_job('files', folders['id'])
+            _, rows = self.run_job('files', folders['id'], method='sha256')
         self.assertEqual(rows['file']['status'], 'unverified')
 
     def test_folder_decisions_inherit_and_survive_the_file_stage(self):
@@ -193,7 +257,7 @@ class PairedComparisonTests(unittest.TestCase):
         for side in ('left', 'right'):
             self.put(side, 'Folder/file', b'x'*2048)
         folders, _ = self.run_job()
-        job = self.pairs.create(self.location['id'], 'files', folders['id'], background=False)
+        job = self.pairs.create(self.location['id'], 'files', folders['id'], method='sha256', background=False)
         read = os.read
 
         def stop_after_chunk(descriptor, size):
