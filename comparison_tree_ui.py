@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from itertools import count
+import json
 from pathlib import PurePosixPath
 
 from nicegui import ui
@@ -19,6 +20,7 @@ class ComparisonTree:
         self.expanded = set()
         self.folders = {}
         self.selected = None
+        self.focus = None
         self.limit = 100
 
     def reset(self, context=None):
@@ -28,6 +30,11 @@ class ComparisonTree:
         self.expanded.clear()
         self.folders.clear()
         self.selected = None
+        self.focus = None
+
+    def show_matches(self):
+        self.focus = self.selected = None
+        self.pane.render()
 
     def set_matches(self, matches, context, limit=100):
         if context != self.context:
@@ -57,6 +64,9 @@ class ComparisonTree:
         def node(entry, scope, depth=0, root=False):
             key = entry['scan_id'], entry['path']
             directory = entry['kind'] == 'directory'
+            if directory:
+                folder_key = json.dumps([scope['volume_id'], entry['scan_id'], entry['path']], ensure_ascii=False)
+                self.pane.folder_entries[folder_key] = entry, scope
             selected = self.selected and key == (self.selected[1]['scan_id'], self.selected[1]['path'])
             classes = 's-entry match-entry' + (' alt' if next(rows) % 2 else '') + (' selected' if selected else '')
             with ui.element('div').classes(classes).style(f'padding-left:{4 + depth * 14}px'):
@@ -64,11 +74,13 @@ class ComparisonTree:
                 if directory:
                     ui.button(icon='expand_more' if key in self.expanded else 'chevron_right',
                               on_click=lambda e=entry, s=scope: self.select(e, s)).props('flat dense color=grey-7 aria-label="Раскрыть найденную папку"').classes('s-tree-toggle')
-                    folder_icon()
+                    folder_icon().props['data-folder-key'] = folder_key
                 else:
                     ui.element('span').classes('s-tree-spacer')
                     ui.icon('insert_drive_file' if entry['kind'] == 'file' else 'link', size='14px').classes('s-muted shrink-0')
-                ui.button(entry['name'], on_click=lambda e=entry, s=scope: self.select(e, s)).props('flat dense no-caps color=dark').classes('s-entry-name')
+                name_button = ui.button(entry['name'], on_click=None if directory else lambda e=entry, s=scope: self.select(e, s)).props('flat dense no-caps color=dark').classes('s-entry-name')
+                if directory:
+                    name_button.props['data-folder-key'] = folder_key
                 membership = self.workspace.copies.membership(scope['volume_id'], entry['path']) if directory else None
                 if membership:
                     ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
@@ -78,20 +90,27 @@ class ComparisonTree:
                     parent = str(PurePosixPath(entry['path']).parent)
                     ui.label(scope['volume_name'] + ' /' + ('' if parent == '.' else parent)).classes('match-location')
             if directory and key in self.expanded:
-                data = self.folders.get(key, {})
-                for child in data.get('entries', []):
-                    if self.pane.hidden.value or not child['name'].startswith('.'):
-                        node(child, scope, depth + 1)
-                if data.get('error'):
-                    ui.label(data['error']).classes('s-error m-2')
-                elif not data.get('entries'):
-                    ui.label('Папка пуста').classes('s-muted text-xs py-1').style(f'padding-left:{34 + depth * 14}px')
-                if len(data.get('entries', [])) < data.get('total', 0):
-                    ui.button('Показать ещё…', on_click=lambda e=entry: self.more(e)).props('flat dense no-caps color=dark').style(f'margin-left:{28 + depth * 14}px')
+                branch(entry, scope, depth + 1)
 
-        for entry in self.roots:
-            node(entry, entry, root=True)
-        if self.roots and len(self.roots) == self.limit:
+        def branch(entry, scope, depth=0):
+            data = self.folders.get((entry['scan_id'], entry['path']), {})
+            for child in data.get('entries', []):
+                if self.pane.hidden.value or not child['name'].startswith('.'):
+                    node(child, scope, depth)
+            if data.get('error'):
+                ui.label(data['error']).classes('s-error m-2')
+            elif not data.get('entries'):
+                ui.label('Папка пуста').classes('s-muted text-xs py-1').style(f'padding-left:{20 + depth * 14}px')
+            if len(data.get('entries', [])) < data.get('total', 0):
+                ui.button('Показать ещё…', on_click=lambda e=entry: self.more(e)).props('flat dense no-caps color=dark').style(f'margin-left:{14 + depth * 14}px')
+
+        if self.focus:
+            scope, entry = self.focus
+            branch(entry, scope)
+        else:
+            for entry in self.roots:
+                node(entry, entry, root=True)
+        if not self.focus and self.roots and len(self.roots) == self.limit:
             ui.label(f'Показаны первые {self.limit} найденных путей.').classes('s-muted text-xs p-3')
 
     async def load(self, entry, *, more=False):
@@ -120,7 +139,19 @@ class ComparisonTree:
             return
         entry = {'scan_id': scope['scan_id'], 'path': path, 'kind': 'directory',
                  'name': PurePosixPath(path).name or scope['volume_name']}
+        await self.open_folder(entry, scope)
+
+    async def open_folder(self, entry, scope):
+        if entry['kind'] != 'directory':
+            return
+        boundary = scope['path']
+        if boundary and entry['path'] != boundary and not entry['path'].startswith(boundary + '/'):
+            return
+        generation, job_id = self.generation, self.workspace.job_id
         await self.select(entry, scope, expand=True)
+        if generation == self.generation and job_id == self.workspace.job_id:
+            self.focus = scope, entry
+            self.pane.render()
 
     async def select(self, entry, scope, *, expand=False):
         previous_volume = self.pane.volume_id

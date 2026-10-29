@@ -9,6 +9,21 @@ from nicegui import ui
 
 FOLDER_ICON_IDS = count()
 
+# The tree element survives row rendering, so the second click is recognized even
+# when selecting/expanding the folder has already replaced its button.
+FOLDER_CLICK_JS = '''event => {
+    const tree = event.currentTarget;
+    const item = event.target.closest('[data-folder-key]');
+    if (!item || !tree.contains(item)) { tree.folderClick = null; return; }
+    const key = item.dataset.folderKey;
+    const now = performance.now();
+    const last = tree.folderClick;
+    const twice = event.detail > 1 || (event.detail > 0 && last && last.key === key &&
+        now - last.time < 500 && Math.abs(event.clientX - last.x) < 6 && Math.abs(event.clientY - last.y) < 6);
+    tree.folderClick = twice || event.detail === 0 ? null : {key, time: now, x: event.clientX, y: event.clientY};
+    emit({key, double: Boolean(twice)});
+}'''
+
 
 def folder_icon(size=16):
     gradient = f'folder-blue-{next(FOLDER_ICON_IDS)}'

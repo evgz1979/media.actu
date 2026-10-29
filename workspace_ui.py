@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from itertools import count
+import json
 from pathlib import PurePosixPath
 
 from nicegui import ui
@@ -12,7 +13,7 @@ from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.storage import FLAGS, PURPOSES, relative_path
 from network_ui import show_network_dialog
-from storage_ui import CSS, folder_icon
+from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
 
 
 STATUS_COLORS = {
@@ -53,7 +54,7 @@ WORKSPACE_CSS = """
 .pane-path-prefix, .pane-path-slash { flex-shrink:0; white-space:nowrap; color:#526b83; font-size:13px; }
 .pane-crumb { flex-shrink:0; min-height:28px; padding:2px 7px; border:1px solid #c7dced; border-radius:5px; background:#eaf4fc; color:#285b80; font-size:13px; line-height:22px; white-space:nowrap; }
 .pane-crumb .q-btn__content { flex-wrap:nowrap; gap:4px; }
-.pane-crumb .q-icon { font-size:15px; }
+.pane-crumb .q-icon { font-size:15px; margin:0; }
 .pane-crumb.current { background:#d8eafa; border-color:#a8c8e2; color:#164b74; font-weight:650; }
 .pane-crumb.context { display:flex; align-items:center; gap:4px; }
 .pane-crumb.q-btn:hover { background:#d7eafb; }
@@ -144,6 +145,7 @@ class BrowserPane:
         self.limits = {}
         self.matches = set()
         self.rows = {}
+        self.folder_entries = {}
         self.generation = 0
         self.filter_value = ''
         self.path_signature = None
@@ -153,7 +155,7 @@ class BrowserPane:
             with ui.column().classes('s-panel-head w-full gap-2'):
                 workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.volume_id))
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
-                    self.heading = ui.button(self.title + ' панель', on_click=lambda: workspace.set_active(index)).props('flat dense no-caps color=green-9').classes('pane-heading')
+                    self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
                     with ui.row().classes('gap-0 no-wrap') as self.navigation:
                         ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
                         ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
@@ -171,6 +173,7 @@ class BrowserPane:
                                           on_change=self.change_filter).props('outlined dense').classes('workspace-filter mx-2 my-1')
             self.result_filter.set_visibility(False)
             self.tree = ui.column().classes('s-tree gap-0')
+            self.tree.on('click', self.folder_clicked, js_handler=FOLDER_CLICK_JS)
             self.footer = ui.label('Том не выбран').classes('pane-status w-full')
         self.comparison = ComparisonTree(self) if index == 1 else None
 
@@ -187,6 +190,27 @@ class BrowserPane:
     async def volume_changed(self, event):
         if event.value and event.value != self.volume_id:
             await self.workspace.open_volume(event.value, self.index)
+
+    def activate_heading(self):
+        self.workspace.set_active(self.index)
+        if self.index == 1 and self.workspace.report and self.comparison.focus:
+            self.comparison.show_matches()
+
+    async def folder_clicked(self, event):
+        entry = self.folder_entries.get(event.args['key'])
+        if entry is None:
+            return
+        with self.workspace.client:
+            if self.index == 1 and self.workspace.report:
+                entry, scope = entry
+                if event.args['double']:
+                    await self.comparison.open_folder(entry, scope)
+                else:
+                    await self.comparison.select(entry, scope)
+            elif event.args['double']:
+                await self.open_path(entry['path'])
+            else:
+                await self.select(entry, True)
 
     def save_browse_state(self):
         return {'volume_id': self.volume_id, 'root_path': self.root_path, 'path': self.path,
@@ -439,6 +463,7 @@ class BrowserPane:
         self.update_header()
         self.tree.clear()
         self.rows.clear()
+        self.folder_entries.clear()
         if self.index == 1 and self.workspace.report:
             with self.tree:
                 self.comparison.render()
@@ -474,6 +499,9 @@ class BrowserPane:
                     ui.label('Нет видимых элементов' if data.get('entries') else 'Папка пуста').classes('s-muted text-xs p-3')
                 for entry in entries[:limit]:
                     directory = entry['kind'] == 'directory'
+                    if directory:
+                        folder_key = json.dumps([self.volume_id, self.job_id, entry['path']], ensure_ascii=False)
+                        self.folder_entries[folder_key] = entry
                     classes = 's-entry s-list-grid' + (' alt' if next(row_numbers) % 2 else '')
                     classes += ' selected' if entry['path'] == self.path else ''
                     classes += ' pane-match' if entry['path'] in self.matches else ''
@@ -486,11 +514,13 @@ class BrowserPane:
                             if directory:
                                 ui.button(icon='expand_more' if entry['path'] in self.expanded else 'chevron_right',
                                           on_click=lambda e=entry: self.select(e, True)).props('flat dense color=grey-7 aria-label="Раскрыть папку"').classes('s-tree-toggle')
-                                folder_icon()
+                                folder_icon().props['data-folder-key'] = folder_key
                             else:
                                 ui.element('span').classes('s-tree-spacer')
                                 ui.icon({'symlink': 'link', 'mount': 'storage'}.get(entry['kind'], 'insert_drive_file'), size='14px').classes('s-muted shrink-0')
-                            ui.button(entry['name'], on_click=lambda e=entry: self.select(e, e['kind'] == 'directory')).props('flat dense no-caps color=dark').classes('s-entry-name')
+                            name_button = ui.button(entry['name'], on_click=None if directory else lambda e=entry: self.select(e)).props('flat dense no-caps color=dark').classes('s-entry-name')
+                            if directory:
+                                name_button.props['data-folder-key'] = folder_key
                             membership = self.workspace.copies.membership(self.volume_id, entry['path']) if directory else None
                             if membership:
                                 ui.label(membership['label']).classes('s-tree-role copy-label' + (' main' if membership['number'] == 0 else ''))
