@@ -253,6 +253,66 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual({m['volume_name'] for m in self.detail(job, 'Album/a')['matches']}, {'nas', 'copy'})
         self.assertEqual(len(self.detail(job, 'Album')['matches']), 2)
 
+    def test_target_tree_expands_saved_subdirectories_without_accessing_nas(self):
+        self.put(self.source, 'Album/a')
+        self.put(self.target, 'Private/Album/a')
+        self.put(self.target, 'Private/Album/Extra/nested.txt')
+        (self.target / 'Private/Album/Empty').mkdir()
+        job = self.run_job()
+        match = self.detail(job, 'Album')['matches'][0]
+        self.assertEqual(match['name'], 'Album')
+        self.mounted.clear()
+        with patch('media_manager.comparison.open_readonly', side_effect=AssertionError('no filesystem access')), \
+                patch.object(self.storage, 'refresh', side_effect=AssertionError('no discovery')):
+            children = self.comparison.target_tree(job['id'], match['scan_id'], match['path'])
+            self.assertEqual([e['name'] for e in children['entries']], ['Empty', 'Extra', 'a'])
+            nested = self.comparison.target_tree(job['id'], match['scan_id'], 'Private/Album/Extra')
+            self.assertEqual(nested['entries'][0]['name'], 'nested.txt')
+            empty = self.comparison.target_tree(job['id'], match['scan_id'], 'Private/Album/Empty')
+            self.assertEqual(empty['total'], 0)
+            self.assertEqual(empty['entries'], [])
+
+    def test_target_tree_only_reads_target_scopes_in_the_requested_job(self):
+        self.put(self.source, 'Album/a')
+        self.put(self.target, 'Private/Album/a')
+        self.put(self.target, 'Private/outside')
+        job = self.run_job(targets=[dict(volume_id='nas', path='Private/Album')])
+        source_scan, target_scan = job['scans']
+        with self.assertRaises(KeyError):
+            self.comparison.target_tree(job['id'], source_scan['id'], '')
+        with self.assertRaises(KeyError):
+            self.comparison.target_tree('another-job', target_scan['id'], 'Private/Album')
+        for path in ('Private', 'Private/outside', '../outside', '/etc', 'Private/Album/../outside'):
+            with self.assertRaises(ValueError):
+                self.comparison.target_tree(job['id'], target_scan['id'], path)
+        with self.assertRaises(ValueError):
+            self.comparison.target_tree(job['id'], target_scan['id'], 'Private/Album/a')
+        with self.assertRaises(KeyError):
+            self.comparison.target_tree(job['id'], target_scan['id'], 'Private/Album/missing')
+
+    def test_same_named_matches_on_two_volumes_expand_independently(self):
+        self.put(self.source, 'Album/source.txt')
+        self.put(self.target, 'Album/main-only.txt')
+        self.put(self.second, 'Album/other-only.txt')
+        job = self.run_job(targets=[dict(volume_id='nas'), dict(volume_id='copy')])
+        matches = self.detail(job, 'Album')['matches']
+        results = {m['volume_name']: self.comparison.target_tree(job['id'], m['scan_id'], m['path'])['entries'][0]['name'] for m in matches}
+        self.assertEqual(results, {'nas': 'main-only.txt', 'copy': 'other-only.txt'})
+        self.assertEqual(len({m['scan_id'] for m in matches}), 2)
+
+    def test_target_tree_paginates_names_and_does_not_follow_symlinks(self):
+        self.put(self.source, 'Album/a')
+        for name in ('a', 'b', 'c'):
+            self.put(self.target, 'Album/' + name)
+        (self.target / 'Album/link').symlink_to(self.source, target_is_directory=True)
+        job = self.run_job()
+        scan = job['scans'][1]['id']
+        page = self.comparison.target_tree(job['id'], scan, 'Album', offset=1, limit=2)
+        self.assertEqual(page['total'], 4)
+        self.assertEqual([e['name'] for e in page['entries']], ['b', 'c'])
+        with self.assertRaises(ValueError):
+            self.comparison.target_tree(job['id'], scan, 'Album/link')
+
     def test_directory_list_cache_is_available_in_explorer_offline(self):
         self.put(self.source, 'Album/a')
         self.run_job()

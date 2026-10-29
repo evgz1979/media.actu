@@ -340,6 +340,12 @@ async def comparison_tree(job_id: str, path: str | None = None, status: str = ""
     return await comparison_call(comparison.tree, job_id, path, status, offset, limit)
 
 
+@app.get("/api/storage/comparisons/{job_id}/target-tree")
+async def comparison_target_tree(job_id: str, scan_id: int = Query(..., ge=1), path: str | None = None,
+                                 offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)) -> dict:
+    return await comparison_call(comparison.target_tree, job_id, scan_id, path, offset, limit)
+
+
 @app.get("/api/storage/comparisons/{job_id}/detail")
 async def comparison_detail(job_id: str, path: str | None = None) -> dict:
     return await comparison_call(comparison.detail, job_id, path)

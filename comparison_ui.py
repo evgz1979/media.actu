@@ -29,10 +29,9 @@ COMPARE_CSS = '''
 .c-size { width:62px; text-align:right; flex-shrink:0; font-size:10px; color:#93999a; }
 .c-filters { padding:6px 10px; border-bottom:1px solid var(--s-line); }
 .c-filters .q-btn { padding:2px 7px; min-height:24px; font-size:11px; }
-.c-evidence { padding:16px 18px; gap:12px; width:100%; min-height:320px; max-height:calc(100vh - 400px); overflow:auto; }
-.c-match { border:1px solid var(--s-line); border-radius:7px; padding:9px 11px; width:100%; gap:3px; }
+.c-target-place { min-width:0; flex:0 1 45%; max-width:45%; font-size:10px; color:#8b9195; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:right; }
 .c-progress { padding:12px 16px; width:100%; gap:6px; }
-@media(max-width:850px) { .c-config,.c-panes { grid-template-columns:1fr; } .c-body { padding:16px; } .c-tree,.c-evidence { max-height:440px; } }
+@media(max-width:850px) { .c-config,.c-panes { grid-template-columns:1fr; } .c-body { padding:16px; } .c-tree { max-height:440px; } }
 '''
 
 
@@ -53,6 +52,13 @@ def register_comparison_page(request, format_bytes, format_date):
         last_phase = None
         journal_before = None
         filter_signature = None
+        right_context = None
+        right_generation = 0
+        right_roots = []
+        right_expanded = set()
+        right_cache = {}
+        right_selected = None
+        right_limit = 100
 
         async def error_message(error):
             detail = str(error)
@@ -117,7 +123,7 @@ def register_comparison_page(request, format_bytes, format_date):
                 with ui.column().classes('s-panel w-full gap-0'):
                     with ui.row().classes('s-panel-head w-full items-center'):
                         ui.label('Что найдено на NAS').classes('font-semibold')
-                    evidence = ui.column().classes('c-evidence')
+                    evidence = ui.column().classes('c-tree gap-0')
             ui.label('Сопоставляем имя файла и имя его папки без учёта регистра. Размеры, даты и содержимое не сравниваются.').classes('s-muted text-xs')
 
         def render_target_paths():
@@ -346,72 +352,115 @@ def register_comparison_page(request, format_bytes, format_date):
                 if not cache.get(root, {}).get('entries'):
                     ui.label('Подходящих элементов пока нет.' if status_filter else 'Пустая папка или обход ещё не завершён.').classes('s-muted text-xs p-4')
 
-        async def render_evidence():
+        def render_right_tree():
             evidence.clear()
-            if not report:
-                with evidence:
-                    ui.label('Выбери источник и области NAS, затем запусти сверку имён.').classes('s-muted text-sm')
-                return
-            requested_job, requested_path = job_id, selected_path
-            params = {'path': requested_path} if requested_path is not None else {}
-            try:
-                data = await request('GET', f'/api/storage/comparisons/{requested_job}/detail', params=params)
-            except Exception:
-                with evidence:
-                    ui.label('Эта часть списка ещё не готова.').classes('s-muted text-sm')
-                return
-            if requested_job != job_id or requested_path != selected_path:
-                return
-            entry = data['entry']
-            modern = report.get('mode') == 'names'
             with evidence:
-                with ui.row().classes('items-center gap-2 no-wrap'):
-                    if entry['kind'] == 'directory':
-                        folder_icon(22)
-                    else:
-                        ui.icon('insert_drive_file', size='20px').classes('s-muted')
-                    ui.label(entry['name']).classes('font-semibold break-all')
-                ui.label('/' + entry['path']).classes('s-path s-muted')
-                if entry['metadata']['effective'].get('no_duplicate'):
-                    ui.label('Не дублировать').classes('s-tag flag')
-                if entry['error']:
-                    ui.label(entry['error']).classes('s-error w-full')
-                if entry.get('status'):
-                    ui.label(LABELS[entry['status']]).classes('font-semibold').style('color:' + COLORS[entry['status']])
-                    ui.label(entry.get('reason') or '').classes('s-note w-full')
-                if entry['kind'] == 'directory':
-                    counts = entry.get('counts', {})
-                    for status in (NAME_STATUSES if modern else LABELS):
-                        if counts.get(status):
-                            with ui.row().classes('w-full justify-between text-sm'):
-                                ui.label(LABELS[status]).style('color:' + COLORS[status])
-                                ui.label(str(counts[status])).classes('font-semibold')
-                    if not counts:
-                        ui.label('В сохранённом списке нет вложенных объектов или обход ещё не завершён.').classes('s-muted text-xs')
-                    ui.label('Выбери файл слева для просмотра найденных путей.').classes('s-muted text-xs')
-                if modern:
-                    if data['matches']:
-                        ui.label('Папки с таким именем' if entry['kind'] == 'directory' else 'Файлы с таким именем').classes('s-caption')
-                    for match in data['matches']:
-                        with ui.column().classes('c-match'):
-                            ui.label(match['volume_name']).classes('font-semibold text-sm')
-                            ui.label('/' + match['path']).classes('s-path')
-                            if entry['kind'] == 'file':
-                                ui.label('Совпали имя файла и папка' if match['same_folder'] else 'Имя совпало, папка другая').classes('text-xs').style('color:' + COLORS['names_found' if match['same_folder'] else 'other_folder'])
-                            ui.label('Список от ' + format_date(match['indexed_at'])).classes('s-muted text-xs')
-                    if len(data['matches']) == data['matches_limit']:
-                        ui.label('Показаны первые 100 путей.').classes('s-muted text-xs')
+                if not right_roots:
+                    return
+                def node(entry, scope, depth=0, root=False):
+                    key = (entry['scan_id'], entry['path'])
+                    directory = entry['kind'] == 'directory'
+                    full_path = scope['volume_name'] + ' /' + entry['path']
+                    with ui.row().classes('c-row no-wrap' + (' selected' if key == right_selected else '')).style(f'padding-left:{8 + depth * 14}px'):
+                        if directory:
+                            ui.button(icon='expand_more' if key in right_expanded else 'chevron_right', on_click=lambda e=entry: select_right(e)).props('flat dense round color=grey-7').classes('s-tree-toggle').tooltip('Раскрыть папку NAS')
+                            folder_icon()
+                        else:
+                            ui.element('span').classes('s-tree-spacer')
+                            ui.icon('insert_drive_file' if entry['kind'] == 'file' else 'link', size='14px').classes('s-muted')
+                        ui.button(entry['name'], on_click=lambda e=entry: select_right(e)).props('flat dense no-caps color=dark').classes('c-name').tooltip(full_path)
+                        if entry.get('error'):
+                            ui.icon('error_outline', size='12px').style('color:' + COLORS['unverified']).tooltip(entry['error'])
+                        if root:
+                            parent = entry['path'].rpartition('/')[0]
+                            ui.label(scope['volume_name'] + ' /' + parent).classes('c-target-place').tooltip(full_path)
+                    if directory and key in right_expanded:
+                        data = right_cache.get(key, {})
+                        for child in data.get('entries', []):
+                            node(child, scope, depth + 1)
+                        if data.get('error'):
+                            ui.label(data['error']).classes('text-xs text-orange-800 py-1 px-6')
+                        elif not data.get('entries'):
+                            ui.label('Пустая папка').classes('s-muted text-xs py-1').style(f'padding-left:{36 + (depth + 1) * 14}px')
+                        if len(data.get('entries', [])) < data.get('total', 0):
+                            ui.button('Показать ещё…', on_click=lambda e=entry: more_right(e)).props('flat dense no-caps color=grey-7').style(f'margin-left:{28 + depth * 14}px')
+                for entry in right_roots:
+                    node(entry, entry, root=True)
+                if len(right_roots) == right_limit:
+                    ui.label('Показаны первые 100 найденных путей.').classes('s-muted text-xs p-3')
+
+        async def load_right(entry, more=False):
+            key = (entry['scan_id'], entry['path'])
+            requested_job, generation = job_id, right_generation
+            offset = len(right_cache[key]['entries']) if more and key in right_cache else 0
+            try:
+                data = await request('GET', f'/api/storage/comparisons/{requested_job}/target-tree', params={'scan_id': key[0], 'path': key[1], 'offset': offset})
+            except Exception as error:
+                if generation == right_generation:
+                    await error_message(error)
+                return False
+            if requested_job != job_id or generation != right_generation:
+                return False
+            if more and key in right_cache:
+                data['entries'] = right_cache[key]['entries'] + data['entries']
+            right_cache[key] = data
+            return True
+
+        async def select_right(entry):
+            nonlocal right_selected
+            key = (entry['scan_id'], entry['path'])
+            right_selected = key
+            if entry['kind'] == 'directory':
+                if key in right_expanded:
+                    right_expanded.remove(key)
                 else:
-                    ui.label('Предыдущий отчёт сохранён. Новая сверка будет только по именам.').classes('s-note w-full')
-                if selected_path is None or entry['kind'] == 'directory':
-                    for scan in report['scans']:
-                        with ui.column().classes('c-match'):
-                            ui.label(scan['volume_name'] + (' /' + scan['root_path'] if scan['root_path'] else '')).classes('text-sm font-medium')
-                            label = ('Сохранённый список' if scan.get('reused_from') else 'Список собран') if scan['state'] == 'complete' else {'pending': 'Ожидает списка', 'running': 'Чтение имён', 'error': 'Неполный список'}.get(scan['state'], scan['state'])
-                            ui.label(label + ' · ' + format_date(scan['finished_at'] or scan['started_at'])).classes('text-xs s-muted')
-                            if scan['error']:
-                                ui.label(scan['error']).classes('text-xs text-orange-800')
-                ui.label('Результат относится к указанным спискам. Содержимое файлов не сравнивалось.' if modern else 'Старый отчёт от ' + format_date(report['created_at'])).classes('s-muted text-xs')
+                    if key not in right_cache and not await load_right(entry):
+                        return
+                    right_expanded.add(key)
+            render_right_tree()
+
+        async def more_right(entry):
+            if await load_right(entry, more=True):
+                render_right_tree()
+
+        async def render_evidence():
+            nonlocal right_context, right_generation, right_roots, right_selected, right_limit
+            context = (job_id, selected_path)
+            if context != right_context:
+                right_context = context
+                right_generation += 1
+                right_roots = []
+                right_expanded.clear()
+                right_cache.clear()
+                right_selected = None
+                evidence.clear()
+            if not report or selected_path is None:
+                evidence.clear()
+                with evidence:
+                    ui.label('Выбери папку или файл слева.').classes('s-muted text-xs p-4')
+                return
+            if report.get('mode') != 'names':
+                evidence.clear()
+                with evidence:
+                    ui.label('Для этого отчёта сначала выполни сверку по именам.').classes('s-muted text-xs p-4')
+                return
+            requested_job, requested_path, generation = job_id, selected_path, right_generation
+            try:
+                data = await request('GET', f'/api/storage/comparisons/{requested_job}/detail', params={'path': requested_path})
+            except Exception:
+                if generation == right_generation:
+                    evidence.clear()
+                    with evidence:
+                        ui.label('Эта часть списка ещё не готова.').classes('s-muted text-xs p-4')
+                return
+            if requested_job != job_id or requested_path != selected_path or generation != right_generation:
+                return
+            right_roots = data['matches']
+            right_limit = data['matches_limit']
+            render_right_tree()
+            if not right_roots:
+                with evidence:
+                    ui.label('Совпадений по имени не найдено.' if data['entry'].get('status') == 'names_missing' else 'Найденных путей пока нет.').classes('s-muted text-xs p-4')
 
         async def show_journal():
             nonlocal journal_before

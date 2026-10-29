@@ -457,7 +457,7 @@ class ComparisonCatalog:
             if entry['kind'] == 'directory':
                 entry['counts'] = self._counts(db, scan['id'], path)
             if report['mode'] == 'names' and entry['kind'] in ('directory', 'file'):
-                matches = [dict(r) for r in db.execute('''SELECT e.path,e.kind,e.parent_key,s.finished_at AS indexed_at,s.reused_from,
+                matches = [dict(r) for r in db.execute('''SELECT e.path,e.name,e.kind,e.error,e.parent_key,s.id AS scan_id,s.finished_at AS indexed_at,s.reused_from,
                     v.name AS volume_name,s.volume_id,CASE WHEN e.parent_key=? THEN 1 ELSE 0 END AS same_folder
                     FROM comparison_entries e JOIN comparison_scans s ON s.id=e.scan_id JOIN volumes v ON v.id=s.volume_id
                     WHERE s.job_id=? AND s.side='target' AND e.kind=? AND e.name_key=? AND e.error IS NULL
@@ -470,6 +470,24 @@ class ComparisonCatalog:
                     (job, entry['digest'] or entry['size']))]
 
         return dict(entry=entry, matches=matches, matches_limit=100)
+
+    def target_tree(self, job, scan_id, path=None, offset=0, limit=200):
+        """Read one level of a target snapshot. Never visit the mounted filesystem."""
+        with self.storage.connect() as db:
+            scan = db.execute("SELECT s.*,v.name AS volume_name FROM comparison_scans s JOIN volumes v ON v.id=s.volume_id WHERE s.job_id=? AND s.id=? AND s.side='target'", (job, scan_id)).fetchone()
+            if scan is None:
+                raise KeyError('Область NAS не найдена в этой сверке')
+            path = scan['root_path'] if path is None else relative_path(path)
+            if scan['root_path'] and path != scan['root_path'] and not path.startswith(scan['root_path'] + '/'):
+                raise ValueError('Папка вне выбранной области NAS')
+            folder = db.execute('SELECT kind,error FROM comparison_entries WHERE scan_id=? AND path=?', (scan_id, path)).fetchone()
+            if folder is None:
+                raise KeyError('Папка отсутствует в сохранённом списке')
+            if folder['kind'] != 'directory':
+                raise ValueError('Раскрывать можно только папки из сохранённого списка')
+            total = db.execute('SELECT COUNT(*) FROM comparison_entries WHERE scan_id=? AND parent=?', (scan_id, path)).fetchone()[0]
+            entries = [dict(row, scan_id=scan_id) for row in db.execute("SELECT path,name,kind,error FROM comparison_entries WHERE scan_id=? AND parent=? ORDER BY kind!='directory',name COLLATE NOCASE LIMIT ? OFFSET ?", (scan_id, path, limit, offset))]
+        return dict(entries=entries, total=total, path=path, scan_id=scan_id, volume_name=scan['volume_name'], error=folder['error'])
 
     def events(self, job, before=None, limit=100):
         self.job(job)
