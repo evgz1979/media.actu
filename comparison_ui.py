@@ -117,7 +117,7 @@ def register_comparison_page(request, format_bytes, format_date):
                         with ui.column().classes('gap-1 min-w-0'):
                             tree_title = ui.label('Дерево источника').classes('font-semibold')
                             tree_subtitle = ui.label('После сканирования здесь появятся все папки и файлы.').classes('s-path s-muted')
-                        ui.button(icon='vertical_align_top', on_click=lambda: select_root()).props('flat dense round color=dark').tooltip('Результат для всего источника')
+                        ui.button(icon='vertical_align_top', on_click=lambda: select_root()).props('flat dense round color=dark aria-label="Результат для всего источника"')
                     filters = ui.row().classes('c-filters w-full gap-1')
                     tree = ui.column().classes('c-tree gap-0')
                 with ui.column().classes('s-panel w-full gap-0'):
@@ -137,8 +137,8 @@ def register_comparison_page(request, format_bytes, format_date):
                     target_paths[vid] = ui.input(name, value=previous, placeholder='Весь том').props('outlined dense').classes('w-full')
 
         def update_targets():
-            options = {v['id']: v['name'] + (' · отключён' if v['availability'] != 'online' else '') for v in volumes
-                       if v['kind'] == 'network' and v['id'] != source_select.value}
+            options = {v['id']: (v.get('display_name') or v['name']) + (' · отключён' if v['availability'] != 'online' else '') for v in volumes
+                       if v['kind'] == 'network' and v['id'] != source_select.value and v.get('identity_status') != 'unverified'}
             target_select.options = options
             target_select.value = [v for v in target_select.value or [] if v in options]
             target_select.update()
@@ -330,19 +330,19 @@ def register_comparison_page(request, format_bytes, format_date):
                         else:
                             ui.element('span').classes('s-tree-spacer')
                             ui.icon('insert_drive_file' if entry['kind'] == 'file' else 'link', size='14px').classes('s-muted')
-                        ui.button(entry['name'], on_click=lambda e=entry: select(e, e['kind'] == 'directory')).props('flat dense no-caps color=dark').classes('c-name').tooltip(entry['path'])
+                        ui.button(entry['name'], on_click=lambda e=entry: select(e, e['kind'] == 'directory')).props('flat dense no-caps color=dark').classes('c-name')
                         if directory:
                             if entry.get('error'):
-                                ui.label('Ошибка чтения').classes('c-status').style('color:' + COLORS['unverified']).tooltip(entry['error'])
+                                ui.label('Ошибка чтения').classes('c-status').style('color:' + COLORS['unverified'])
                             if report.get('mode') == 'names' and entry.get('status') in ('names_found', 'names_missing'):
-                                ui.icon('check' if entry['status'] == 'names_found' else 'remove', size='12px').style('color:' + COLORS[entry['status']]).tooltip(LABELS[entry['status']])
+                                ui.icon('check' if entry['status'] == 'names_found' else 'remove', size='12px').style('color:' + COLORS[entry['status']])
                             for status in (NAME_STATUSES if report.get('mode') == 'names' else ('found', 'cached', 'missing', 'unverified', 'candidate')):
                                 count = entry.get('counts', {}).get(status, 0)
                                 if count:
-                                    ui.label(str(count)).classes('c-count').style('color:' + COLORS[status]).tooltip(LABELS[status])
+                                    ui.label(str(count)).classes('c-count').style('color:' + COLORS[status])
                         else:
                             status = entry.get('status') or 'unverified'
-                            ui.label(LABELS[status]).classes('c-status').style('color:' + COLORS[status]).tooltip(entry.get('reason') or 'Идёт обход')
+                            ui.label(LABELS[status]).classes('c-status').style('color:' + COLORS[status])
                     if directory and entry['path'] in expanded:
                         branch(entry['path'], depth + 1)
                 if len(data.get('entries', [])) < data.get('total', 0):
@@ -360,20 +360,19 @@ def register_comparison_page(request, format_bytes, format_date):
                 def node(entry, scope, depth=0, root=False):
                     key = (entry['scan_id'], entry['path'])
                     directory = entry['kind'] == 'directory'
-                    full_path = scope['volume_name'] + ' /' + entry['path']
                     with ui.row().classes('c-row no-wrap' + (' selected' if key == right_selected else '')).style(f'padding-left:{8 + depth * 14}px'):
                         if directory:
-                            ui.button(icon='expand_more' if key in right_expanded else 'chevron_right', on_click=lambda e=entry: select_right(e)).props('flat dense round color=grey-7').classes('s-tree-toggle').tooltip('Раскрыть папку NAS')
+                            ui.button(icon='expand_more' if key in right_expanded else 'chevron_right', on_click=lambda e=entry: select_right(e)).props('flat dense round color=grey-7 aria-label="Раскрыть папку NAS"').classes('s-tree-toggle')
                             folder_icon()
                         else:
                             ui.element('span').classes('s-tree-spacer')
                             ui.icon('insert_drive_file' if entry['kind'] == 'file' else 'link', size='14px').classes('s-muted')
-                        ui.button(entry['name'], on_click=lambda e=entry: select_right(e)).props('flat dense no-caps color=dark').classes('c-name').tooltip(full_path)
+                        ui.button(entry['name'], on_click=lambda e=entry: select_right(e)).props('flat dense no-caps color=dark').classes('c-name')
                         if entry.get('error'):
-                            ui.icon('error_outline', size='12px').style('color:' + COLORS['unverified']).tooltip(entry['error'])
+                            ui.icon('error_outline', size='12px').style('color:' + COLORS['unverified'])
                         if root:
                             parent = entry['path'].rpartition('/')[0]
-                            ui.label(scope['volume_name'] + ' /' + parent).classes('c-target-place').tooltip(full_path)
+                            ui.label(scope['volume_name'] + ' /' + parent).classes('c-target-place')
                     if directory and key in right_expanded:
                         data = right_cache.get(key, {})
                         for child in data.get('entries', []):
@@ -514,8 +513,9 @@ def register_comparison_page(request, format_bytes, format_date):
         await render_evidence()
         try:
             volumes = (await request('GET', '/api/storage/volumes', timeout=45))['volumes']
-            source_select.options = {v['id']: v['name'] + (' · отключён' if v['availability'] != 'online' else '') for v in volumes}
-            default = source if source in source_select.options else next((v['id'] for v in volumes if v['name'].casefold() == 'usbshare1'), None)
+            selectable = [v for v in volumes if v.get('identity_status') != 'unverified']
+            source_select.options = {v['id']: (v.get('display_name') or v['name']) + (' · сменный' if v.get('removable') else '') + (' · отключён' if v['availability'] != 'online' else '') for v in selectable}
+            default = source if source in source_select.options else next((v['id'] for v in selectable if v.get('removable') and v['availability'] == 'online'), None)
             source_select.set_value(default)
             update_targets()
             target_select.set_value([v['id'] for v in volumes if v['name'] in ('Media-copy01', 'Media-copy02') and v['id'] != default])

@@ -37,16 +37,25 @@ body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,
 .s-nav.active { background:#edf2e9; color:var(--s-green); font-weight:650; }
 .s-intro { padding:26px 26px 20px; } .s-title { font-size:28px; font-weight:650; letter-spacing:-.7px; }
 .s-muted { color:var(--s-muted); } .s-caption { font-size:10px; font-weight:700; letter-spacing:1.2px; color:var(--s-muted); }
-.s-layout { display:grid; grid-template-columns:240px minmax(340px,1fr) 280px; gap:16px; padding:0 26px 26px; width:100%; align-items:start; }
+.s-layout { display:grid; grid-template-columns:270px minmax(340px,1fr) 280px; gap:16px; padding:0 26px 26px; width:100%; align-items:start; }
 .s-panel { background:white; border:1px solid var(--s-line); border-radius:12px; overflow:hidden; min-width:0; }
 .s-panel-head { padding:17px 18px; border-bottom:1px solid var(--s-line); }
 .s-volumes { max-height:calc(100vh - 330px); overflow-y:auto; }
 .s-volume-group { padding:6px 8px 3px; font-size:11px; font-weight:650; color:#687466; gap:7px; }
-.s-volume-row { width:100%; min-height:24px; height:24px; padding:0 9px; border:1px solid transparent; border-radius:6px; }
+.s-volume-row { width:100%; min-height:46px; padding:4px 9px; border:1px solid transparent; border-radius:6px; }
+.s-volume-row.with-channel { height:64px; min-height:64px; }
 .s-volume-row .q-btn__content { width:100%; flex-wrap:nowrap; justify-content:flex-start; gap:8px; }
 .s-volume-row:hover { background:#f6f8f2; } .s-volume-row.chosen { border-color:#b7c8b0; background:#edf3e7; }
 .s-volume-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:13px; font-weight:500; line-height:22px; }
 .s-volume-role { flex-shrink:0; max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#4e7149; background:#eef3e9; border-radius:4px; padding:0 4px; font-size:10px; line-height:15px; }
+.s-volume-removable { color:#536a89; background:#edf1f7; }
+.s-volume-channel { width:100%; text-align:left; font-size:11px; line-height:15px; font-weight:400; color:#63716a; }
+.s-volume-capacity { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:10px; color:var(--s-muted); line-height:16px; font-weight:400; }
+.s-volume-archive { border-top:1px solid var(--s-line); }
+.s-volume-archive > .q-expansion-item__container > .q-item { min-height:38px; padding:6px 16px; font-size:12px; color:#687466; }
+.s-volume-archive .q-item__section--avatar { min-width:25px; padding-right:7px; }
+.s-volume-archive .q-item__section--avatar .q-icon { font-size:17px; }
+.s-archive-volumes { max-height:230px; overflow-y:auto; }
 .s-volume-status { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .s-tag { font-size:11px; padding:3px 7px; border-radius:5px; line-height:1.4; background:#f0f1ed; color:#747b72; white-space:normal; }
 .s-tag.purpose { color:#536a89; background:#edf1f7; } .s-tag.role { color:#3f6744; background:#eaf2e6; }
@@ -79,7 +88,7 @@ body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,
 .s-note { background:#f6f7f3; border-radius:8px; padding:11px 12px; font-size:12px; color:#6b776a; line-height:1.5; }
 .s-error { background:#fff5e9; color:#9b6725; border-radius:8px; padding:10px 12px; font-size:12px; }
 .q-btn { box-shadow:none !important; border-radius:7px; } .s-divider { width:100%; height:1px; background:var(--s-line); margin:4px 0; }
-@media(max-width:1150px) { .s-layout { grid-template-columns:220px minmax(0,1fr); } .s-properties { grid-column:2; } .s-tree { max-height:520px; } }
+@media(max-width:1150px) { .s-layout { grid-template-columns:270px minmax(0,1fr); } .s-properties { grid-column:2; } .s-tree { max-height:520px; } }
 @media(max-width:700px) { .s-header { padding:14px 16px; flex-wrap:wrap; gap:10px; } .s-intro { padding:20px 16px 16px; } .s-layout { grid-template-columns:1fr; padding:0 16px 20px; } .s-properties { grid-column:1; } .s-volumes { max-height:290px; overflow:auto; } .s-tree { max-height:480px; } .s-header .s-readonly { display:none; } }
 """
 
@@ -116,6 +125,22 @@ def register_storage_page(request, format_bytes, format_date):
         def current_volume():
             return next((v for v in volumes if v['id'] == selected_volume), None)
 
+        def volume_name(volume):
+            name = volume.get('display_name') or volume['name']
+            share = volume.get('share_name')
+            return f'{name} · {share}' if volume.get('marker_id') and share and share.casefold() != name.casefold() else name
+
+        def is_archived(volume):
+            return not volume.get('mounted') and (volume['availability'] == 'offline' or volume.get('identity_status') == 'legacy')
+
+        def capacity_text(volume):
+            capacity = volume.get('capacity')
+            if not capacity:
+                return 'Объём и занятое место пока неизвестны'
+            percent = capacity['used_bytes'] / capacity['total_bytes'] * 100
+            return (f"Занято {format_bytes(capacity['used_bytes'])} из {format_bytes(capacity['total_bytes'])}"
+                    f" · {percent:.0f}%" + (' · ранее' if volume.get('capacity_cached') else ''))
+
         async def error_notice(error):
             detail = str(error)
             if hasattr(error, 'response'):
@@ -134,7 +159,7 @@ def register_storage_page(request, format_bytes, format_date):
                     ui.link('Медиа', '/media').classes('s-nav')
             with ui.row().classes('items-center gap-2 s-readonly'):
                 ui.icon('lock_outline', size='15px').classes('s-muted')
-                ui.label('Файлы только для чтения').classes('s-muted text-xs')
+                ui.label('Данные только для чтения').classes('s-muted text-xs')
         with ui.row().classes('s-intro w-full items-end justify-between'):
             with ui.column().classes('gap-1'):
                 ui.label('Хранилища').classes('s-title')
@@ -148,8 +173,10 @@ def register_storage_page(request, format_bytes, format_date):
                     ui.label('ТОМА').classes('s-caption')
                     volume_count = ui.label('—').classes('s-muted text-xs')
                 volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
+                with ui.expansion('Архив', icon='archive', value=False).props('dense').classes('s-volume-archive w-full') as volume_archive:
+                    archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
                 with ui.column().classes('px-4 pb-4 pt-2 gap-1'):
-                    ui.label('Отключённые остаются в списке.').classes('s-muted text-xs')
+                    ui.label('Отключённые тома сохраняются в архиве.').classes('s-muted text-xs')
                     ui.link('Системная медиатека Photos →', '/media').classes('text-xs text-green-900 no-underline')
             with ui.column().classes('s-panel w-full gap-0'):
                 with ui.row().classes('s-panel-head w-full items-center justify-between gap-2'):
@@ -167,36 +194,58 @@ def register_storage_page(request, format_bytes, format_date):
 
         def render_volumes():
             volume_list.clear()
+            archive_list.clear()
+            active = [v for v in volumes if not is_archived(v)]
+            archived = [v for v in volumes if is_archived(v)]
             online = sum(v['availability'] == 'online' for v in volumes)
-            overview.text = f'Томов: {len(volumes)} · подключено: {online} · недоступно или отключено: {len(volumes) - online}'
-            volume_count.text = str(len(volumes))
+            unknown = sum(v['availability'] == 'unknown' for v in volumes)
+            overview.text = f'Томов: {len(volumes)} · подключено: {online} · в архиве: {len(archived)}' + (f' · доступность неизвестна: {unknown}' if unknown else '')
+            volume_count.text = str(len(active))
+            volume_archive.text = f'Архив · {len(archived)}'
+            volume_archive.set_visibility(bool(archived))
             with volume_list:
-                if not volumes:
-                    ui.label('Пока нет сохранённых томов.').classes('s-muted text-sm p-3')
-                groups = {}
-                for volume in volumes:
-                    group = volume.get('group') or {'id': 'm4' if volume['kind'] != 'network' else 'network-unknown', 'name': 'M4' if volume['kind'] != 'network' else 'Сетевые тома', 'kind': 'local' if volume['kind'] != 'network' else 'network'}
-                    groups.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append(volume)
-                for group in sorted(groups.values(), key=lambda g: (g['details']['kind'] == 'local', g['details']['name'].casefold())):
-                    details = group['details']
-                    with ui.row().classes('s-volume-group w-full items-center no-wrap'):
-                        ui.icon('dns' if details['kind'] == 'network' else 'computer', size='15px')
-                        ui.label(details['name']).classes('grow truncate')
-                        ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
-                    for volume in group['volumes']:
-                        available = volume['availability']
-                        status = {'online': 'Подключён', 'offline': 'Отключён' if volume['mount_path'] else 'Не подключён', 'unknown': 'Доступность неизвестна'}[available]
-                        values = volume['metadata']['effective']
-                        role = values.get('role') or ''
-                        description = f"{volume['name']} · {status} · {ROLES[role]}"
-                        if values.get('purpose'):
-                            description += ' · ' + PURPOSES[values['purpose']]
-                        with ui.button(on_click=lambda v=volume: choose_volume(v['id'])).props('flat no-caps color=dark').classes('s-volume-row' + (' chosen' if volume['id'] == selected_volume else '')).tooltip(description):
-                            ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[available])
-                            ui.label(volume['name']).classes('s-volume-name')
-                            if role:
-                                ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-volume-role')
-                            ui.label(status).classes('s-volume-status')
+                if not active:
+                    ui.label('Нет активных томов.' if volumes else 'Пока нет сохранённых томов.').classes('s-muted text-sm p-3')
+                render_volume_groups(active)
+            with archive_list:
+                render_volume_groups(archived)
+
+        def render_volume_groups(items):
+            groups = {}
+            for volume in items:
+                group = volume.get('group') or {'id': 'm4' if volume['kind'] != 'network' else 'network-unknown', 'name': 'M4' if volume['kind'] != 'network' else 'Сетевые тома', 'kind': 'local' if volume['kind'] != 'network' else 'network'}
+                groups.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append(volume)
+            for group in sorted(groups.values(), key=lambda g: (g['details']['kind'] == 'local', g['details']['name'].casefold())):
+                details = group['details']
+                with ui.row().classes('s-volume-group w-full items-center no-wrap'):
+                    ui.icon('dns' if details['kind'] == 'network' else 'computer', size='15px')
+                    ui.label(details['name']).classes('grow truncate')
+                    ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
+                for volume in group['volumes']:
+                    available = volume['availability']
+                    status = {'online': 'Подключён', 'offline': 'Отключён' if volume['mount_path'] else 'Не подключён', 'unknown': 'Доступность неизвестна'}[available]
+                    values = volume['metadata']['effective']
+                    role = values.get('role') or ''
+                    if volume.get('identity_status') == 'unverified':
+                        status = 'Носитель не подтверждён'
+                    description = f"{volume_name(volume)} · {status} · {ROLES[role]} · {capacity_text(volume)}"
+                    if volume.get('capacity'):
+                        description += ' · Замер: ' + format_date(volume['capacity']['checked_at'])
+                    if values.get('purpose'):
+                        description += ' · ' + PURPOSES[values['purpose']]
+                    with ui.button(on_click=lambda v=volume: choose_volume(v['id'])).props('flat no-caps color=dark').classes('s-volume-row' + (' with-channel' if volume.get('marker_id') and volume.get('share_name') else '') + (' chosen' if volume['id'] == selected_volume else '')).tooltip(description):
+                        ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[available])
+                        with ui.column().classes('gap-0 flex-1 min-w-0'):
+                            with ui.row().classes('w-full items-center no-wrap gap-1'):
+                                ui.label(volume.get('display_name') or volume['name']).classes('s-volume-name')
+                                if volume.get('removable'):
+                                    ui.label('Сменный').classes('s-volume-role s-volume-removable')
+                                if role:
+                                    ui.label({'primary': 'Осн.', 'copy': 'Копия', 'archive': 'Архив', 'temporary': 'Врем.'}[role]).classes('s-volume-role')
+                            if volume.get('marker_id') and volume.get('share_name'):
+                                ui.label(volume['share_name']).classes('s-volume-channel')
+                            ui.label(capacity_text(volume)).classes('s-volume-capacity')
+                        ui.label(status).classes('s-volume-status')
 
         async def load_folder(path, refresh=True):
             volume_id = selected_volume
@@ -213,6 +262,8 @@ def register_storage_page(request, format_bytes, format_date):
                 expanded.clear()
                 expanded.add('')
                 limits.clear()
+                if any(v['id'] == volume_id and is_archived(v) for v in volumes):
+                    volume_archive.open()
                 render_volumes()
                 tree_list.clear()
                 with tree_list:
@@ -256,7 +307,7 @@ def register_storage_page(request, format_bytes, format_date):
             volume = current_volume()
             if not volume:
                 return
-            tree_title.text = volume['name']
+            tree_title.text = volume_name(volume)
             tree_path.text = volume['mount_path'] or volume.get('network_url') or 'Не подключён'
             tree_list.clear()
             selected_snapshot = folders.get(selected_path, folders.get('', {}))
@@ -273,7 +324,9 @@ def register_storage_page(request, format_bytes, format_date):
                 if data.get('error'):
                     ui.label(data['error']).classes('s-error mx-3 mb-2')
                 if not data.get('scanned_at'):
-                    ui.label('Снимок папки не сохранён. Подключи том и открой её.').classes('s-note mx-3 mb-2')
+                    message = ('Дерево станет доступно после регистрации носителя.' if volume.get('identity_status') == 'unverified'
+                               else 'Снимок папки не сохранён. Подключи том и открой её.')
+                    ui.label(message).classes('s-note mx-3 mb-2')
                     return
                 entries = [e for e in data['entries'] if show_hidden.value or not e['name'].startswith('.')]
                 if not entries:
@@ -336,8 +389,35 @@ def register_storage_page(request, format_bytes, format_date):
                         folder_icon(28)
                     else:
                         ui.icon('storage' if not selected_path else 'insert_drive_file', size='30px').classes('text-green-900')
-                    ui.label(PurePosixPath(selected_path).name if selected_path else volume['name']).classes('text-lg font-semibold break-all')
+                    ui.label(PurePosixPath(selected_path).name if selected_path else volume_name(volume)).classes('text-lg font-semibold break-all')
                     ui.label(str(PurePosixPath(volume['mount_path']) / selected_path) if volume['mount_path'] else volume.get('network_url') or 'Не подключён').classes('s-path s-muted')
+                if volume.get('removable'):
+                    ui.label('Сменный носитель').classes('s-tag purpose')
+                capacity = volume.get('capacity')
+                with ui.column().classes('w-full gap-1'):
+                    ui.label('Место на томе').classes('s-caption')
+                    if capacity:
+                        for title, key in [('Объём', 'total_bytes'), ('Занято', 'used_bytes'), ('Свободно', 'free_bytes')]:
+                            with ui.row().classes('w-full justify-between no-wrap text-sm'):
+                                ui.label(title).classes('s-muted')
+                                ui.label(format_bytes(capacity[key]))
+                        percent = capacity['used_bytes'] / capacity['total_bytes']
+                        ui.linear_progress(value=percent, show_value=False).props('color=green-8 track-color=grey-3').classes('w-full mt-1')
+                        ui.label(f'Заполнено {percent * 100:.1f}%').classes('s-muted text-xs')
+                        prefix = 'Последние сведения' if volume.get('capacity_cached') else 'Обновлено'
+                        ui.label(f'{prefix}: {format_date(capacity["checked_at"])}').classes('s-muted text-xs')
+                    else:
+                        ui.label('Сведения пока недоступны').classes('s-muted text-sm')
+                    if volume.get('capacity_error'):
+                        ui.label(volume['capacity_error']).classes('s-muted text-xs')
+                if volume.get('identity_error'):
+                    ui.label(volume['identity_error']).classes('s-error w-full')
+                if volume.get('marker_id'):
+                    ui.label('ID: ' + volume['marker_id']).classes('s-path s-muted')
+                    if volume.get('share_name'):
+                        ui.label('Ресурс NAS: ' + volume['share_name']).classes('s-muted text-xs')
+                if volume.get('identity_status') == 'unverified' and volume.get('mounted') and volume.get('removable'):
+                    ui.button('Зарегистрировать диск', icon='usb', on_click=lambda v=volume: register_disk(v)).props('unelevated no-caps color=green-9').classes('w-full')
                 with ui.row().classes('gap-1 w-full'):
                     tags(metadata)
                 for field, mapping, title in [('purpose', PURPOSES, 'Назначение'), ('role', ROLES, 'Хранение')]:
@@ -348,9 +428,9 @@ def register_storage_page(request, format_bytes, format_date):
                         origin = metadata['inherited_from'].get(field)
                         if origin is not None:
                             ui.label('От тома' if not origin else f'От папки: {origin}').classes('s-muted text-xs')
-                if volume.get('network_url') and volume['availability'] != 'online':
+                if volume.get('network_url') and not volume.get('mounted', volume['availability'] == 'online'):
                     ui.button('Подключить на M4', icon='lan', on_click=lambda v=volume: connect_volume(v['id'])).props('outline no-caps color=dark').classes('w-full')
-                if selected_kind == 'directory':
+                if selected_kind == 'directory' and volume.get('identity_status') != 'unverified':
                     ui.link('Сверить с NAS →', '/compare?' + urlencode({'source': volume['id'], 'path': selected_path})).classes('text-sm text-green-900 no-underline')
                     ui.button('Изменить роли', icon='edit_note', on_click=lambda: edit_metadata(metadata)).props('outline no-caps color=dark').classes('w-full')
                 if metadata['effective'].get('role') == 'copy':
@@ -367,6 +447,31 @@ def register_storage_page(request, format_bytes, format_date):
                     ui.label('Переход по ссылкам и на вложенные тома отключён.').classes('s-note')
                 ui.label('Отметки хранятся в приложении. Имена и содержимое файлов не меняются.').classes('s-note')
                 ui.label('Для отключённого тома доступны только ранее просмотренные папки.').classes('s-muted text-xs')
+
+        async def register_disk(volume):
+            nonlocal editing
+            editing = True
+            with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-6 gap-4'):
+                ui.label('Регистрация сменного диска').classes('text-lg font-semibold')
+                ui.label(volume.get('network_url') or volume['mount_path']).classes('s-path s-muted')
+                name = ui.input('Имя диска', placeholder='Например, Архив фото 2 ТБ').props('outlined dense maxlength=120').classes('w-full')
+                ui.label('На диск будет один раз записан небольшой файл .media-actu-volume.json с постоянным ID и этим именем. По нему приложение узнает диск при следующем подключении.').classes('s-note')
+                ui.label('Прежняя история usbshare останется отдельной записью.').classes('s-muted text-xs')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                    ui.button('Создать ID на диске', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+            try:
+                if not await dialog:
+                    return
+                registered = await request('POST', f'/api/storage/volumes/{volume["id"]}/register-removable', json={'name': (name.value or '').strip()}, timeout=45)
+                await refresh_volumes(True)
+                await choose_volume(registered['id'])
+                ui.notify('Диск зарегистрирован', type='positive')
+            except Exception as error:
+                await error_notice(error)
+            finally:
+                editing = False
+                render_properties()
 
         async def edit_metadata(metadata):
             nonlocal editing
@@ -454,7 +559,9 @@ def register_storage_page(request, format_bytes, format_date):
 
         await refresh_volumes()
         if volumes:
-            initial = next((v for v in volumes if v['name'] == 'Media-copy01'), volumes[0])
+            active = [v for v in volumes if not is_archived(v)]
+            candidates = active or volumes
+            initial = next((v for v in candidates if v['name'] == 'Media-copy01'), candidates[0])
             await choose_volume(initial['id'])
         else:
             render_properties()

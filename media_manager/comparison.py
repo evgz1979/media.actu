@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from .storage import StorageCatalog, now, relative_path
+from .volume_identity import MARKER_FILES, verify_identity
 
 
 LABELS = {
@@ -48,6 +49,7 @@ def open_readonly(volume: dict, path: str, *, directory=False):
         device = os.fstat(root).st_dev
         if volume.get('device') is not None and device != volume['device']:
             raise OSError('Том был отключён или заменён')
+        verify_identity(root, volume)
         parts = PurePosixPath(path).parts
         for index, part in enumerate(parts):
             is_directory = index < len(parts) - 1 or directory
@@ -64,6 +66,7 @@ def open_readonly(volume: dict, path: str, *, directory=False):
         if not directory and not stat.S_ISREG(info.st_mode):
             raise OSError('Содержимое этого типа файлов не читается')
         yield descriptor
+        verify_identity(root, volume)
     finally:
         for descriptor in reversed(descriptors):
             os.close(descriptor)
@@ -165,6 +168,8 @@ class ComparisonCatalog:
             raise ValueError('Выбери от 1 до 16 областей поиска')
         for side, scope in [('source', source), *(('target', t) for t in targets)]:
             volume = self.storage.get_volume(scope['volume_id'])
+            if volume['identity_status'] == 'unverified':
+                raise ValueError('Сначала зарегистрируй сменный диск, чтобы не использовать индекс другого носителя')
             path = relative_path(scope.get('path', ''))
             for previous in scopes:
                 if previous['volume_id'] == volume['id']:
@@ -317,6 +322,8 @@ class ComparisonCatalog:
                     with os.scandir(descriptor) as iterator:
                         for item in iterator:
                             self._check()
+                            if not path and item.name in MARKER_FILES:
+                                continue
                             entry = dict(path=(path + '/' + item.name).lstrip('/'), parent=path, name=item.name,
                                          kind='file', size=None, mtime_ns=None, ctime_ns=None, inode=None, device=None, error=None)
                             entry['name_key'] = name_key(item.name)
@@ -403,6 +410,9 @@ class ComparisonCatalog:
                 raise KeyError('Проверка не найдена')
             result = dict(row)
             result['scans'] = [dict(r) for r in db.execute('SELECT s.*,v.name AS volume_name FROM comparison_scans s JOIN volumes v ON v.id=s.volume_id WHERE s.job_id=? ORDER BY s.id', (job,))]
+            for scan in result['scans']:
+                volume = self.storage.get_volume(scan['volume_id'])
+                scan['volume_name'] = volume['display_name']
             result['counts'] = {r['status']: r['n'] for r in db.execute('''SELECT r.status,COUNT(*) AS n FROM comparison_results r JOIN comparison_entries e ON e.id=r.entry_id
                 JOIN comparison_scans s ON s.id=e.scan_id WHERE s.job_id=? GROUP BY r.status''', (job,))}
             result['indexed_files'] = db.execute("SELECT COUNT(*) FROM comparison_entries e JOIN comparison_scans s ON s.id=e.scan_id WHERE s.job_id=? AND e.kind='file'", (job,)).fetchone()[0]

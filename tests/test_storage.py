@@ -4,6 +4,7 @@ import hashlib
 import subprocess
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -122,7 +123,7 @@ class StorageTests(unittest.TestCase):
     def test_network_identity_ignores_username_and_mount_point(self):
         def discovery(account, mount):
             output = f'//{account}@nas.local/Media-copy01 on /Volumes/{mount} (smbfs, nodev, nosuid)\n'
-            with patch('media_manager.storage.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=output)), patch('media_manager.storage.os.stat') as mock_stat:
+            with patch('media_manager.storage.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=output)), patch('media_manager.storage.os.stat') as mock_stat, patch('media_manager.storage.mounted_root', return_value=nullcontext(42)), patch('media_manager.storage.read_marker', return_value=None), patch('media_manager.storage.read_capacity', side_effect=OSError('unavailable')):
                 mock_stat.return_value.st_dev = 42
                 return discover_volumes()[0]
         first, second = discovery('alice', 'Media-copy01'), discovery('bob', 'Media-copy01-1')

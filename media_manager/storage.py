@@ -15,7 +15,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
+
+from .volume_identity import (
+    MARKER_FILES, canonical_host, create_marker, mounted_root, read_capacity,
+    read_marker, usb_share, verify_identity,
+)
 
 
 PURPOSES = {"": "Не назначено", "media": "Медиа", "documents": "Документы", "projects": "Проекты", "mixed": "Разные данные"}
@@ -57,10 +62,14 @@ def discover_volumes() -> list[dict[str, Any]]:
         network = filesystem in {"smbfs", "nfs", "afpfs", "webdav"}
         name = Path(mount_path).name
         server_host = None
+        share_name = None
+        marker = None
+        identity_error = None
         if network:
             # Do not retain credentials or account names from mount output.
             endpoint = device.removeprefix("//").split("@", 1)[-1]
             server_host = endpoint.split("/", 1)[0].rstrip(":")
+            share_name = unquote(endpoint.split('/', 1)[-1])
             identity = f"{filesystem}:{endpoint.casefold()}"
             kind = "network"
         else:
@@ -76,7 +85,49 @@ def discover_volumes() -> list[dict[str, Any]]:
             identity = f"volume:{identifier}"
             name = info.get("VolumeName") or name
             kind = "internal" if info.get("Internal") else "external"
-        volumes.append({"id": volume_key(identity), "name": name, "mount_path": mount_path, "kind": kind, "server_host": server_host, "device": os.stat(mount_path, follow_symlinks=False).st_dev})
+        device_number = os.stat(mount_path, follow_symlinks=False).st_dev
+        removable = kind == 'external' or (network and usb_share(share_name))
+        capacity = None
+        capacity_error = None
+        with mounted_root(mount_path, device_number) as root:
+            if kind != 'internal':
+                try:
+                    marker = read_marker(root)
+                except OSError:
+                    identity_error = 'Служебный файл носителя недоступен или повреждён'
+            try:
+                capacity = read_capacity(root)
+            except OSError:
+                capacity_error = 'Не удалось обновить сведения о месте на томе'
+            if marker:
+                try:
+                    if read_marker(root) != marker:
+                        raise OSError('identity changed')
+                except OSError:
+                    marker = None
+                    identity_error = 'Диск изменился во время определения носителя'
+        status = 'resource' if network else 'verified'
+        if marker:
+            identity = 'media-actu:' + marker['id']
+            name = marker['name']
+            removable, status = True, 'verified'
+        elif network and (removable or identity_error):
+            identity = 'unverified:' + canonical_host(server_host) + '/' + share_name.casefold()
+            name = 'Сменный диск · ' + share_name
+            removable, status = True, 'unverified'
+            identity_error = identity_error or 'Носитель не подтверждён. Зарегистрируй подключённый диск.'
+        elif identity_error:
+            # A damaged marker must not silently fall back to a different identity.
+            identity = 'unverified:' + identity
+            status = 'unverified'
+        volume = {"id": volume_key(identity), "name": name, "mount_path": mount_path,
+                  "kind": kind, "server_host": server_host, "device": device_number,
+                  "removable": bool(removable), "identity_status": status,
+                  "marker_id": marker['id'] if marker else None, "share_name": share_name,
+                  "identity_error": identity_error, "capacity": capacity, "capacity_error": capacity_error}
+        if network:
+            volume['network_url'] = f'smb://{server_host}/{quote(share_name, safe="")}'
+        volumes.append(volume)
     return volumes
 
 
@@ -108,6 +159,12 @@ class StorageCatalog:
             db.execute('CREATE TABLE IF NOT EXISTS network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS volume_origins (volume_id TEXT PRIMARY KEY, host TEXT NOT NULL)')
+            db.execute('''CREATE TABLE IF NOT EXISTS volume_details (
+                volume_id TEXT PRIMARY KEY, removable INTEGER NOT NULL, identity_status TEXT NOT NULL,
+                marker_id TEXT, share_name TEXT, identity_error TEXT)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS volume_capacity (
+                volume_id TEXT PRIMARY KEY, total_bytes INTEGER NOT NULL, used_bytes INTEGER NOT NULL,
+                free_bytes INTEGER NOT NULL, available_bytes INTEGER NOT NULL, checked_at TEXT NOT NULL)''')
 
     @contextmanager
     def connect(self):
@@ -123,11 +180,19 @@ class StorageCatalog:
         with self._lock:
             if force or time.monotonic() - self._checked > 10:
                 try:
-                    discovered = self.discover()
+                    discovered = [dict(v) for v in self.discover()]
+                    duplicates = {v['id'] for v in discovered if sum(other['id'] == v['id'] for other in discovered) > 1}
+                    for volume in discovered:
+                        if volume['id'] in duplicates:
+                            volume.update(id=volume_key('duplicate:' + volume['id'] + ':' + volume['mount_path']),
+                                          identity_status='unverified',
+                                          identity_error='Один ID обнаружен на нескольких томах. Носитель не подтверждён.')
                     timestamp = now()
                     with self.connect() as db:
                         for volume in discovered:
-                            alias = db.execute('SELECT volume_id FROM volume_aliases WHERE alias_id=?', (volume['id'],)).fetchone()
+                            status = volume.get('identity_status', 'resource' if volume['kind'] == 'network' else 'verified')
+                            alias = (db.execute('SELECT volume_id FROM volume_aliases WHERE alias_id=?', (volume['id'],)).fetchone()
+                                     if status == 'resource' else None)
                             if alias:
                                 volume['id'] = alias['volume_id']
                             db.execute("""
@@ -137,6 +202,16 @@ class StorageCatalog:
                             """, (volume["id"], volume["name"], volume["mount_path"], volume["kind"], timestamp, timestamp))
                             if volume.get('server_host'):
                                 db.execute('INSERT OR REPLACE INTO volume_origins VALUES (?,?)', (volume['id'], volume['server_host']))
+                            db.execute('INSERT OR REPLACE INTO volume_details VALUES (?,?,?,?,?,?)',
+                                       (volume['id'], int(volume.get('removable', volume['kind'] == 'external')), status,
+                                        volume.get('marker_id'), volume.get('share_name'), volume.get('identity_error')))
+                            if volume.get('network_url'):
+                                db.execute('INSERT OR IGNORE INTO network_volume_links VALUES (?,?)', (volume['id'], volume['network_url']))
+                            if volume.get('capacity'):
+                                capacity = volume['capacity']
+                                db.execute('INSERT OR REPLACE INTO volume_capacity VALUES (?,?,?,?,?,?)',
+                                           (volume['id'], capacity['total_bytes'], capacity['used_bytes'], capacity['free_bytes'],
+                                            capacity['available_bytes'], capacity['checked_at']))
                     self._mounted = {v["id"]: v for v in discovered}
                     self._discovery_error = None
                 except (OSError, ValueError, subprocess.SubprocessError) as error:
@@ -146,15 +221,56 @@ class StorageCatalog:
             with self.connect() as db:
                 rows = [dict(row) for row in db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id ORDER BY v.name COLLATE NOCASE")]
                 origins = {r['volume_id']: r['host'] for r in db.execute('SELECT * FROM volume_origins')}
+                details = {r['volume_id']: dict(r) for r in db.execute('SELECT * FROM volume_details')}
+                capacities = {r['volume_id']: dict(r) for r in db.execute('SELECT * FROM volume_capacity')}
                 servers = []
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='network_servers'").fetchone():
                     servers = [dict(r) for r in db.execute('SELECT id,name,host,aliases FROM network_servers')]
             for row in rows:
+                row.update(self._volume_details(row, details.get(row['id'])))
                 row['group'] = self.volume_group(row, origins.get(row['id']), servers)
                 row["availability"] = "unknown" if self._discovery_error else ("online" if row["id"] in self._mounted else "offline")
+                if row['id'] in self._mounted and row['identity_status'] == 'unverified':
+                    row['availability'] = 'unknown'
+                mounted = self._mounted.get(row['id'], {})
+                row['mounted'] = bool(mounted) and not self._discovery_error
                 row["device"] = self._mounted.get(row["id"], {}).get("device")
+                row['capacity'] = capacities.get(row['id'])
+                row['capacity_cached'] = bool(row['capacity']) and (bool(self._discovery_error) or not mounted.get('capacity'))
+                row['capacity_error'] = mounted.get('capacity_error')
                 row["metadata"] = self.metadata(row["id"], "")
+            # An unconfirmed endpoint is a registration placeholder, not a remembered disk.
+            rows = [row for row in rows if row['identity_status'] != 'unverified' or row['id'] in self._mounted or not row['mount_path']]
             return {"volumes": rows, "error": self._discovery_error, "checked_at": now(), "purposes": PURPOSES, "roles": ROLES}
+
+    @staticmethod
+    def _volume_details(volume: dict, details: dict | None) -> dict:
+        if details:
+            result = {key: details[key] for key in ('removable', 'identity_status', 'marker_id', 'share_name', 'identity_error')}
+            result['removable'] = bool(result['removable'])
+        else:
+            legacy_usb = volume['kind'] == 'network' and usb_share(volume['name'])
+            result = dict(removable=legacy_usb or volume['kind'] == 'external',
+                          identity_status='legacy' if legacy_usb else 'resource' if volume['kind'] == 'network' else 'verified',
+                          marker_id=None, share_name=volume['name'] if volume['kind'] == 'network' else None,
+                          identity_error='Старая привязка по имени ресурса; носитель не был подтверждён' if legacy_usb else None)
+        result['display_name'] = volume['name'] + (' · прежняя привязка' if result['identity_status'] == 'legacy' else '')
+        return result
+
+    def register_removable(self, volume_id: str, name: str) -> dict:
+        with self._lock:
+            volumes = self.refresh(True)['volumes']
+            volume = next((v for v in volumes if v['id'] == volume_id), None)
+            if not volume or not volume['mounted']:
+                raise ValueError('Носитель отключён или заменён. Обнови список томов.')
+            if volume['identity_status'] != 'unverified' or not volume['removable']:
+                raise ValueError('Этот том уже определён или не является сменным носителем')
+            marker = create_marker(volume['mount_path'], volume['device'], name)
+            identity = volume_key('media-actu:' + marker['id'])
+            registered = next((v for v in self.refresh(True)['volumes'] if v['id'] == identity), None)
+            if registered is None or registered['identity_status'] != 'verified':
+                raise ValueError('Файл ID создан, но подтвердить носитель не удалось. Обнови список томов.')
+            return registered
 
     @staticmethod
     def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict:
@@ -190,7 +306,19 @@ class StorageCatalog:
                                   for host in hosts for name in (share, quote(share, safe=''))))
 
     def find_network_volume(self, hosts: list[str], share: str) -> dict | None:
+        normalized = {canonical_host(host) for host in hosts}
+        for mounted in self._mounted.values():
+            if (mounted.get('identity_status') != 'unverified'
+                    and (mounted.get('share_name') or '').casefold() == share.casefold()
+                    and canonical_host(mounted.get('server_host') or '') in normalized):
+                return self.get_volume(mounted['id'])
         with self.connect() as db:
+            if usb_share(share):
+                for host in hosts:
+                    placeholder = volume_key('unverified:' + canonical_host(host) + '/' + share.casefold())
+                    if db.execute('SELECT 1 FROM volumes WHERE id=?', (placeholder,)).fetchone():
+                        return self.get_volume(placeholder)
+                return None
             for candidate in self.network_keys(hosts, share):
                 alias = db.execute('SELECT volume_id FROM volume_aliases WHERE alias_id=?', (candidate,)).fetchone()
                 row = db.execute('SELECT * FROM volumes WHERE id=?', (alias['volume_id'] if alias else candidate,)).fetchone()
@@ -203,7 +331,8 @@ class StorageCatalog:
             hosts = list(dict.fromkeys([host, *aliases]))
             existing = self.find_network_volume(hosts, share)
             keys = self.network_keys(hosts, share)
-            volume_id = existing['id'] if existing else keys[0]
+            removable = usb_share(share)
+            volume_id = existing['id'] if existing else (volume_key('unverified:' + canonical_host(host) + '/' + share.casefold()) if removable else keys[0])
             url = f"smb://{host}/{quote(share, safe='')}"
             timestamp = now()
             with self.connect() as db:
@@ -212,7 +341,10 @@ class StorageCatalog:
                     VALUES (?,?,'','network',?,?) ON CONFLICT(id) DO NOTHING
                 """, (volume_id, share, timestamp, timestamp))
                 db.execute('INSERT OR REPLACE INTO network_volume_links VALUES (?,?)', (volume_id, url))
-                for key in keys:
+                if removable and not existing:
+                    db.execute('INSERT OR REPLACE INTO volume_details VALUES (?,?,?,?,?,?)',
+                               (volume_id, 1, 'unverified', None, share, 'Носитель не подтверждён. Подключи и зарегистрируй диск.'))
+                for key in ([] if removable else keys):
                     # Existing independent records are not merged or overwritten.
                     collision = db.execute('SELECT id FROM volumes WHERE id=? AND id!=?', (key, volume_id)).fetchone()
                     if not collision:
@@ -222,9 +354,12 @@ class StorageCatalog:
     def get_volume(self, volume_id: str) -> dict:
         with self.connect() as db:
             row = db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id WHERE v.id=?", (volume_id,)).fetchone()
+            details = db.execute('SELECT * FROM volume_details WHERE volume_id=?', (volume_id,)).fetchone()
         if row is None:
             raise KeyError("Том не найден")
-        return dict(row)
+        volume = dict(row)
+        volume.update(self._volume_details(volume, dict(details) if details else None))
+        return volume
 
     def metadata(self, volume_id: str, path: str) -> dict:
         path = relative_path(path)
@@ -253,7 +388,9 @@ class StorageCatalog:
 
     def annotate(self, volume_id: str, path: str, values: dict) -> dict:
         path = relative_path(path)
-        self.get_volume(volume_id)
+        volume = self.get_volume(volume_id)
+        if volume['identity_status'] == 'unverified':
+            raise ValueError('Сначала зарегистрируй сменный диск; отметки должны относиться к конкретному носителю')
         if values.get("purpose") is not None and values["purpose"] not in PURPOSES:
             raise ValueError("Неизвестное назначение")
         if values.get("role") is not None and values["role"] not in ROLES:
@@ -288,7 +425,7 @@ class StorageCatalog:
         with self.connect() as db:
             snapshot = self._snapshot(db, volume_id, path)
         cached = True
-        error = None
+        error = volume.get('identity_error')
         if refresh and volume["availability"] == "online":
             try:
                 entries = self._read_directory(volume, path)
@@ -315,6 +452,7 @@ class StorageCatalog:
             device = os.fstat(descriptor).st_dev
             if volume.get("device") is not None and device != volume["device"]:
                 raise OSError("Том был отключён или заменён во время чтения")
+            verify_identity(descriptor, volume)
             for part in PurePosixPath(path).parts:
                 descriptor = os.open(part, flags, dir_fd=descriptor)
                 descriptors.append(descriptor)
@@ -323,6 +461,8 @@ class StorageCatalog:
             entries = []
             with os.scandir(descriptor) as iterator:
                 for item in iterator:
+                    if item.name in MARKER_FILES and not path:
+                        continue
                     kind = "symlink" if item.is_symlink() else "directory" if item.is_dir(follow_symlinks=False) else "file"
                     entry = {"name": item.name, "path": f"{path}/{item.name}".lstrip("/"), "kind": kind, "size": None, "modified_at": None}
                     try:
@@ -333,6 +473,7 @@ class StorageCatalog:
                     except OSError as failure:
                         entry["error"] = str(failure)
                     entries.append(entry)
+            verify_identity(descriptors[0], volume)
             return sorted(entries, key=lambda e: (e["kind"] != "directory", e["name"].casefold()))
         finally:
             for descriptor in reversed(descriptors):

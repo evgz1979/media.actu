@@ -222,6 +222,19 @@ async def storage_volumes(refresh: bool = False) -> dict:
     return await asyncio.to_thread(storage.refresh, refresh)
 
 
+class RegisterRemovableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+
+
+@app.post("/api/storage/volumes/{volume_id}/register-removable")
+async def register_removable(volume_id: str, request: RegisterRemovableRequest) -> dict:
+    try:
+        return await asyncio.to_thread(storage.register_removable, volume_id, request.name)
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 class NetworkShareRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     share: str = Field(min_length=1, max_length=255)
