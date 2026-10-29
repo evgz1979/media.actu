@@ -58,77 +58,87 @@ def discover_volumes() -> list[dict[str, Any]]:
             mount_path.startswith("/Volumes/") and "nobrowse" not in parts
         ):
             continue
-        filesystem = parts[0]
-        network = filesystem in {"smbfs", "nfs", "afpfs", "webdav"}
-        name = Path(mount_path).name
-        server_host = None
-        share_name = None
-        marker = None
-        identity_error = None
-        if network:
-            # Do not retain credentials or account names from mount output.
-            endpoint = device.removeprefix("//").split("@", 1)[-1]
-            server_host = endpoint.split("/", 1)[0].rstrip(":")
-            share_name = unquote(endpoint.split('/', 1)[-1])
-            identity = f"{filesystem}:{endpoint.casefold()}"
-            kind = "network"
-        else:
-            info_result = subprocess.run(
-                ["/usr/sbin/diskutil", "info", "-plist", mount_path],
-                capture_output=True, timeout=5, check=True,
-            )
-            info = plistlib.loads(info_result.stdout)
-            identifier = info.get("VolumeUUID")
-            if not identifier:
-                # An unstable device identifier must not inherit another disk's roles.
-                continue
-            identity = f"volume:{identifier}"
-            name = info.get("VolumeName") or name
-            kind = "internal" if info.get("Internal") else "external"
-        device_number = os.stat(mount_path, follow_symlinks=False).st_dev
-        removable = kind == 'external' or (network and usb_share(share_name))
-        capacity = None
-        capacity_error = None
-        with mounted_root(mount_path, device_number) as root:
-            if kind != 'internal':
-                try:
-                    marker = read_marker(root)
-                except OSError:
-                    identity_error = 'Служебный файл носителя недоступен или повреждён'
-            try:
-                capacity = read_capacity(root)
-            except OSError:
-                capacity_error = 'Не удалось обновить сведения о месте на томе'
-            if marker:
-                try:
-                    if read_marker(root) != marker:
-                        raise OSError('identity changed')
-                except OSError:
-                    marker = None
-                    identity_error = 'Диск изменился во время определения носителя'
-        status = 'resource' if network else 'verified'
-        if marker:
-            identity = 'media-actu:' + marker['id']
-            name = marker['name']
-            removable, status = True, 'verified'
-        elif network and (removable or identity_error):
-            identity = 'unverified:' + canonical_host(server_host) + '/' + share_name.casefold()
-            name = 'Сменный диск · ' + share_name
-            removable, status = True, 'unverified'
-            identity_error = identity_error or 'Носитель не подтверждён. Зарегистрируй подключённый диск.'
-        elif identity_error:
-            # A damaged marker must not silently fall back to a different identity.
-            identity = 'unverified:' + identity
-            status = 'unverified'
-        volume = {"id": volume_key(identity), "name": name, "mount_path": mount_path,
-                  "kind": kind, "server_host": server_host, "device": device_number,
-                  "removable": bool(removable), "identity_status": status,
-                  "marker_id": marker['id'] if marker else None, "share_name": share_name,
-                  "identity_error": identity_error, "capacity": capacity, "capacity_error": capacity_error}
-        if network:
-            volume['network_url'] = f'smb://{server_host}/{quote(share_name, safe="")}'
-        volumes.append(volume)
+        try:
+            volume = _inspect_volume(device, mount_path, parts[0])
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # A removed SMB share can leave an unreadable mount behind. Its saved
+            # record becomes offline; discovery must still inspect the other mounts.
+            continue
+        if volume is not None:
+            volumes.append(volume)
     return volumes
+
+
+def _inspect_volume(device: str, mount_path: str, filesystem: str) -> dict[str, Any] | None:
+    network = filesystem in {"smbfs", "nfs", "afpfs", "webdav"}
+    name = Path(mount_path).name
+    server_host = None
+    share_name = None
+    marker = None
+    identity_error = None
+    if network:
+        # Do not retain credentials or account names from mount output.
+        endpoint = device.removeprefix("//").split("@", 1)[-1]
+        server_host = endpoint.split("/", 1)[0].rstrip(":")
+        share_name = unquote(endpoint.split('/', 1)[-1])
+        identity = f"{filesystem}:{endpoint.casefold()}"
+        kind = "network"
+    else:
+        info_result = subprocess.run(
+            ["/usr/sbin/diskutil", "info", "-plist", mount_path],
+            capture_output=True, timeout=5, check=True,
+        )
+        info = plistlib.loads(info_result.stdout)
+        identifier = info.get("VolumeUUID")
+        if not identifier:
+            # An unstable device identifier must not inherit another disk's roles.
+            return None
+        identity = f"volume:{identifier}"
+        name = info.get("VolumeName") or name
+        kind = "internal" if info.get("Internal") else "external"
+    device_number = os.stat(mount_path, follow_symlinks=False).st_dev
+    removable = kind == 'external' or (network and usb_share(share_name))
+    capacity = None
+    capacity_error = None
+    with mounted_root(mount_path, device_number) as root:
+        if kind != 'internal':
+            try:
+                marker = read_marker(root)
+            except OSError:
+                identity_error = 'Служебный файл носителя недоступен или повреждён'
+        try:
+            capacity = read_capacity(root)
+        except OSError:
+            capacity_error = 'Не удалось обновить сведения о месте на томе'
+        if marker:
+            try:
+                if read_marker(root) != marker:
+                    raise OSError('identity changed')
+            except OSError:
+                marker = None
+                identity_error = 'Диск изменился во время определения носителя'
+    status = 'resource' if network else 'verified'
+    if marker:
+        identity = 'media-actu:' + marker['id']
+        name = marker['name']
+        removable, status = True, 'verified'
+    elif network and (removable or identity_error):
+        identity = 'unverified:' + canonical_host(server_host) + '/' + share_name.casefold()
+        name = 'Сменный диск · ' + share_name
+        removable, status = True, 'unverified'
+        identity_error = identity_error or 'Носитель не подтверждён. Зарегистрируй подключённый диск.'
+    elif identity_error:
+        # A damaged marker must not silently fall back to a different identity.
+        identity = 'unverified:' + identity
+        status = 'unverified'
+    volume = {"id": volume_key(identity), "name": name, "mount_path": mount_path,
+              "kind": kind, "server_host": server_host, "device": device_number,
+              "removable": bool(removable), "identity_status": status,
+              "marker_id": marker['id'] if marker else None, "share_name": share_name,
+              "identity_error": identity_error, "capacity": capacity, "capacity_error": capacity_error}
+    if network:
+        volume['network_url'] = f'smb://{server_host}/{quote(share_name, safe="")}'
+    return volume
 
 
 class StorageCatalog:

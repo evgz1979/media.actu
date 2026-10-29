@@ -120,6 +120,61 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(result['volumes'][0]['availability'], 'unknown')
         self.assertIsNotNone(result['error'])
 
+    def test_removed_share_archives_without_breaking_other_volumes_and_can_return(self):
+        output = ''.join(f'//user@nas.local/{name} on /Volumes/{name} (smbfs, nodev, nosuid)\n'
+                         for name in ('Before', 'Py', 'After'))
+        entries = [{'name': 'old.txt', 'path': 'old.txt', 'kind': 'file', 'size': 7, 'modified_at': None}]
+        capacity = {'total_bytes': 100, 'used_bytes': 60, 'free_bytes': 40,
+                    'available_bytes': 40, 'checked_at': '2026-10-29T10:00:00+00:00'}
+        for failure in ('stat', 'open'):
+            with self.subTest(failure=failure):
+                catalog = StorageCatalog(self.root / (failure + '.sqlite3'), discover_volumes)
+                with patch('media_manager.storage.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=output)), \
+                     patch('media_manager.storage.os.stat') as stat_mock, \
+                     patch('media_manager.storage.mounted_root', return_value=nullcontext(42)) as root_mock, \
+                     patch('media_manager.storage.read_marker', return_value=None), \
+                     patch('media_manager.storage.read_capacity', return_value=capacity):
+                    stat_mock.return_value.st_dev = 42
+                    initial = catalog.refresh(True)
+                    py = next(v for v in initial['volumes'] if v['name'] == 'Py')
+                    catalog.annotate(py['id'], '', {'role': 'copy', 'comment': 'Keep history'})
+                    with patch.object(catalog, '_read_directory', return_value=entries):
+                        snapshot = catalog.directory(py['id'])
+
+                    if failure == 'stat':
+                        def checked_stat(path, **_kwargs):
+                            if path == '/Volumes/Py':
+                                raise PermissionError(13, 'Permission denied', path)
+                            return stat_mock.return_value
+                        stat_mock.side_effect = checked_stat
+                    else:
+                        def checked_root(path, _device):
+                            if path == '/Volumes/Py':
+                                raise FileNotFoundError(2, 'No such file or directory', path)
+                            return nullcontext(42)
+                        root_mock.side_effect = checked_root
+
+                    updated = catalog.refresh(True)
+                    self.assertIsNone(updated['error'])
+                    states = {v['name']: v for v in updated['volumes']}
+                    self.assertEqual(states['Before']['availability'], 'online')
+                    self.assertEqual(states['After']['availability'], 'online')
+                    self.assertEqual(states['Py']['availability'], 'offline')
+                    self.assertFalse(states['Py']['mounted'])
+                    self.assertTrue(states['Py']['capacity_cached'])
+                    self.assertEqual(states['Py']['last_seen'], snapshot['volume']['last_seen'])
+                    self.assertEqual(states['Py']['metadata']['effective']['role'], 'copy')
+                    self.assertEqual(states['Py']['metadata']['own']['comment'], 'Keep history')
+                    with patch.object(catalog, '_read_directory', side_effect=AssertionError('must use archived snapshot')):
+                        saved = catalog.directory(py['id'], refresh=False)
+                    self.assertTrue(saved['cached'])
+                    self.assertEqual(saved['entries'], snapshot['entries'])
+
+                    stat_mock.side_effect = root_mock.side_effect = None
+                    restored = next(v for v in catalog.refresh(True)['volumes'] if v['id'] == py['id'])
+                    self.assertEqual(restored['availability'], 'online')
+                    self.assertEqual(restored['metadata']['effective']['role'], 'copy')
+
     def test_network_identity_ignores_username_and_mount_point(self):
         def discovery(account, mount):
             output = f'//{account}@nas.local/Media-copy01 on /Volumes/{mount} (smbfs, nodev, nosuid)\n'
