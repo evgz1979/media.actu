@@ -451,7 +451,8 @@ class PairedWorkspace:
                     if str(parent) in old_directories:
                         self.by_path[str(parent)]['file_attention_count'] += 1
         if self.loaded_job != job:
-            self.closed = {r['path'] for r in rows if r['kind'] == 'directory'} if self.report['mode'] == 'files' else set()
+            self.closed = {r['path'] for r in rows if r['kind'] == 'directory'
+                           and (self.report['mode'] == 'files' or not r.get('attention_count'))}
             self.root_files_open = False
             self.loaded_job = job
         self.choose(self.selected)

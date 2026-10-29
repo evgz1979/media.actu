@@ -43,6 +43,37 @@ class PairedWorkspaceTests(unittest.TestCase):
         self.assertEqual(paths(), ['Album/Sub', 'Album/different'])
 
 
+class ReportExpansionTests(unittest.IsolatedAsyncioTestCase):
+    def workspace(self, mode='folders'):
+        rows = [dict(path=path, name=path.rsplit('/', 1)[-1], kind='directory', status=status,
+                     depth=path.count('/'), attention_count=count, file_attention_count=0)
+                for path, status, count in [('Same', 'both', 0), ('Same/Child', 'both', 0),
+                                            ('Changed', 'both', 1), ('Changed/Matching', 'both', 0),
+                                            ('Changed/Matching/Deep', 'both', 0), ('Changed/Absent', 'missing_copy', 0)]]
+        ws = SimpleNamespace(request=AsyncMock(return_value={'rows': rows, 'total': len(rows)}), panes=[])
+        pair = PairedWorkspace(ws)
+        pair.report = {'id': 'report', 'mode': mode}
+        pair.render_rail, pair.redraw = Mock(), Mock()
+        return pair
+
+    async def test_only_branches_with_differences_expand_and_manual_changes_survive_reload(self):
+        pair = self.workspace()
+        await pair.load_rows('report')
+        self.assertNotIn('Changed', pair.closed)
+        self.assertEqual([r['path'] for r in pair.visible_rows()],
+                         ['Same', 'Changed', 'Changed/Matching', 'Changed/Absent'])
+        pair.closed.remove('Same')
+        await pair.load_rows('report')
+        self.assertNotIn('Same', pair.closed)
+        self.assertIn('Same/Child', [r['path'] for r in pair.visible_rows()])
+
+    async def test_file_stage_still_leaves_every_folder_closed_until_manual_expansion(self):
+        pair = self.workspace('files')
+        await pair.load_rows('report')
+        self.assertEqual(pair.closed, {r['path'] for r in pair.rows})
+        self.assertEqual([r['path'] for r in pair.visible_rows()], ['Same', 'Changed'])
+
+
 class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
     def workspace(self, state='completed'):
         panes = [SimpleNamespace(tree=SimpleNamespace(classes=Mock()), restore_browse_state=Mock()) for _ in range(2)]
