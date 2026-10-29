@@ -43,7 +43,7 @@ PAIR_CSS = '''
 .pair-missing_copy .pair-row-state { color:#a96717; }
 .pair-extra_copy .pair-row-state { color:#85518e; }
 .pair-different .pair-row-state, .pair-size_different .pair-row-state, .pair-conflict .pair-row-state { color:#b1443f; }
-.pair-unverified .pair-row-state { color:#a27130; }
+.pair-unverified .pair-row-state, .pair-copy_incomplete .pair-row-state { color:#a27130; }
 .pair-same .pair-row-state, .pair-same_size .pair-row-state { color:#35804b; }
 .pair-decide { border:0; background:none; padding:0; cursor:pointer; text-decoration:underline; }
 .pair-size { color:#7a8477; font-size:10px; flex-shrink:0; }
@@ -77,6 +77,12 @@ class PairedWorkspace:
         self.rail_signature = None
         self.loaded_job = None
         self.root_files_open = False
+        self.copy_operation = None
+        self.copy_dialog_open = False
+
+    @property
+    def copy_running(self):
+        return bool(self.copy_operation and self.copy_operation['state'] in ('running', 'stopping'))
 
     @staticmethod
     def report_title(report):
@@ -91,7 +97,7 @@ class PairedWorkspace:
         ui.timer(1.5, self.poll)
 
     def render_rail(self):
-        if not hasattr(self, 'rail'):
+        if not hasattr(self, 'rail') or self.ws.client.is_deleted:
             return
         linked = self.active or bool(self.ws.report)
         self.ws.trees.classes(add='pair-linked' if linked else '', remove='' if linked else 'pair-linked')
@@ -101,7 +107,9 @@ class PairedWorkspace:
         signature = (self.active, (self.report or {}).get('state'), (self.report or {}).get('mode'),
                      (self.report or {}).get('phase'), bool(self.ws.report), (self.report or {}).get('checked_files'),
                      (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'),
-                     (self.report or {}).get('method'), bool(self.rows), self.differences_only)
+                     (self.report or {}).get('method'), bool(self.rows), self.differences_only,
+                     tuple((self.copy_operation or {}).get(k) for k in ('id', 'state', 'copied_bytes', 'checked_items', 'message')),
+                     self.copy_dialog_open)
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
@@ -112,12 +120,25 @@ class PairedWorkspace:
                 ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props('flat no-caps color=green-9')
                 ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark aria-label="Разомкнуть панели"').classes('pair-disconnect')
                 return
-            running = self.report and self.report['state'] in ('running', 'pausing')
+            running = self.copy_running or (self.report and self.report['state'] in ('running', 'pausing'))
             folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
             folders.set_enabled(not running)
             if self.report and self.report['state'] == 'completed':
-                ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Сверить имена и размеры файлов"')
-            if self.report:
+                files = ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Сверить имена и размеры файлов"')
+                files.set_enabled(not self.copy_running)
+                if self.report['mode'] == 'files' and self.report.get('copyable_count', self.report.get('counts', {}).get('missing_copy')):
+                    copy = ui.button('Скопировать', icon='east', on_click=self.prepare_copy).props('outline no-caps color=green-9 aria-label="Скопировать отсутствующее из основной в копию"')
+                    copy.set_enabled(not self.copy_running and not self.copy_dialog_open)
+            if self.copy_running:
+                operation = self.copy_operation
+                ui.label('Копируем →').classes('pair-rail-state')
+                total = operation['total_bytes']
+                fraction = operation['copied_bytes'] / total if total else operation['checked_items'] / max(1, operation['total_directories'])
+                ui.linear_progress(value=min(1, fraction)).props('color=green-8').classes('w-full')
+                ui.label(str(operation['copied_files']) + '/' + str(operation['total_files'])).classes('pair-rail-state')
+                stop = ui.button('Стоп', icon='pause', on_click=self.stop_copy).props('flat no-caps color=dark aria-label="Остановить копирование"')
+                stop.set_enabled(operation['state'] == 'running')
+            if self.report and not self.copy_running:
                 state = {'running': 'Проверяем', 'pausing': 'Остановка', 'paused': 'Пауза', 'failed': 'Ошибка', 'completed': 'Готово'}[self.report['state']]
                 phase = {'index': 'Список', 'hash': 'SHA-256', 'align': 'Сравнение', 'done': ('Имя, размер' if self.report.get('method') == 'size' else 'SHA-256') if self.report['mode'] == 'files' else 'Папки'}[self.report['phase']]
                 ui.label(phase + '\n' + state).classes('pair-rail-state').style('white-space:pre-line')
@@ -134,6 +155,8 @@ class PairedWorkspace:
                 elif self.report['state'] in ('paused', 'failed'):
                     ui.button('Далее', icon='play_arrow', on_click=self.resume).props('flat no-caps color=green-9 aria-label="Продолжить сверку"')
                 ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props('flat no-caps color=green-9')
+            if self.copy_operation and self.copy_operation['state'] != 'planned':
+                ui.button('Копия', icon='assignment', on_click=self.copy_details).props('flat no-caps color=green-9 aria-label="Результат копирования"')
             ui.button('История', icon='history', on_click=self.history).props('flat no-caps color=dark')
             if self.rows or (self.report and self.report['state'] == 'completed'):
                 with ui.button(icon='more_horiz').props('flat aria-label="Дополнительные команды"'):
@@ -143,12 +166,14 @@ class PairedWorkspace:
                                 ui.menu_item('Раскрыть всё', on_click=lambda: self.collapse_all(False))
                                 ui.menu_item('Показать все строки' if self.differences_only else 'Только различия', on_click=self.toggle_differences)
                             ui.menu_item('Свернуть всё', on_click=lambda: self.collapse_all(True))
-                        if self.report['state'] == 'completed':
+                        if self.report['state'] == 'completed' and not self.copy_running:
                             ui.menu_item('Сверить содержимое · SHA-256', on_click=lambda: self.start('files', 'sha256'))
             ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes('pair-disconnect')
 
     async def link(self, group, location):
         with self.ws.client:
+            if self.copy_running:
+                await self.stop_copy()
             if self.active and self.report and self.report['state'] in ('running', 'pausing'):
                 await self.stop()
             if self.ws.report:
@@ -161,6 +186,7 @@ class PairedWorkspace:
             self.scopes = {'left': group['main'], 'right': location}
             self.copy_id = location['id']
             self.report, self.rows, self.by_path = None, [], {}
+            self.copy_operation = None
             self.root = self.selected = ''
             self.closed.clear()
             self.differences_only = False
@@ -179,10 +205,13 @@ class PairedWorkspace:
         if not self.active:
             return
         with self.ws.client:
+            if self.copy_running:
+                await self.stop_copy()
             if self.report and self.report['state'] in ('running', 'pausing'):
                 await self.stop()
             self.generation += 1
             self.active, self.report = False, None
+            self.copy_operation = None
             self.rows, self.by_path = [], {}
             self.views.clear()
             states, self.saved = self.saved, None
@@ -389,6 +418,7 @@ class PairedWorkspace:
     async def apply(self, report):
         previous = self.report
         self.report = report
+        self.copy_operation = report.get('copy_operation')
         self.scopes = report['scopes']
         for side, pane in zip(('left', 'right'), self.ws.panes):
             pane.volume_id = self.scopes[side]['volume_id']
@@ -461,10 +491,18 @@ class PairedWorkspace:
         self.redraw()
 
     async def poll(self):
-        if not self.active or not self.report or self.report['state'] not in ('running', 'pausing'):
+        if not self.active or not self.report:
             return
         generation, job = self.generation, self.report['id']
         try:
+            if self.copy_running:
+                operation = await self.ws.request('GET', f"/api/storage/copy-operations/{self.copy_operation['id']}", timeout=30)
+                if generation == self.generation and self.active and self.report and self.report['id'] == job:
+                    with self.ws.client:
+                        await self.apply_copy_operation(operation)
+                return
+            if self.report['state'] not in ('running', 'pausing'):
+                return
             report = await self.ws.request('GET', f'/api/storage/paired-comparisons/{job}', timeout=30)
             if generation != self.generation or not self.report or self.report['id'] != job:
                 return
@@ -472,6 +510,119 @@ class PairedWorkspace:
                 await self.apply(report)
         except Exception as error:
             self.ws.overview.text = 'Нет связи с Core: ' + self.ws.error_text(error)
+
+    async def apply_copy_operation(self, operation):
+        self.copy_operation = operation
+        verification = operation.get('verification_id')
+        if verification and self.report and self.report['id'] != verification:
+            report = await self.ws.request('GET', f'/api/storage/paired-comparisons/{verification}', timeout=30)
+            await self.apply(report)
+        self.rail_signature = None
+        self.render_rail()
+
+    async def stop_copy(self):
+        if self.copy_running:
+            self.copy_operation = await self.ws.request('POST', f"/api/storage/copy-operations/{self.copy_operation['id']}/stop", timeout=30)
+            self.rail_signature = None
+            self.render_rail()
+
+    def copy_paths(self, operation):
+        for side in ('left', 'right'):
+            scope = operation['scopes'][side]
+            ui.label(scope['label'] + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes('text-sm break-all')
+
+    async def copy_item_list(self, operation):
+        """The entire frozen plan can be reviewed in manageable pages."""
+        page = await self.ws.request('GET', f"/api/storage/copy-operations/{operation['id']}/items", params={'limit': 200}, timeout=30)
+        position = 0
+        container = ui.column().classes('w-full max-h-[45vh] overflow-auto gap-1')
+        shown = ui.label().classes('text-xs s-muted')
+        more = ui.button('Показать ещё 200').props('flat dense no-caps color=green-9')
+
+        def append(data):
+            nonlocal position
+            with container:
+                for item in data['items']:
+                    with ui.row().classes('w-full items-start no-wrap gap-2'):
+                        ui.icon('folder' if item['kind'] == 'directory' else 'insert_drive_file', size='16px').classes('text-blue-5')
+                        with ui.column().classes('min-w-0 flex-1 gap-0'):
+                            ui.label(item['path']).classes('text-xs break-all')
+                            if item.get('incomplete'):
+                                ui.label('Копия не завершена').classes('text-xs text-amber-9')
+                            if item['message']:
+                                ui.label(item['message']).classes('text-xs text-amber-9 break-all')
+                        if item['kind'] == 'file':
+                            ui.label(self.ws.format_bytes(item['size'])).classes('text-xs s-muted shrink-0')
+            position += len(data['items'])
+            shown.text = f"Показано: {position} из {data['total']}"
+            more.set_visibility(position < data['total'])
+
+        async def load_more():
+            with self.ws.client:
+                more.disable()
+                try:
+                    append(await self.ws.request('GET', f"/api/storage/copy-operations/{operation['id']}/items",
+                                                 params={'offset': position, 'limit': 200}, timeout=30))
+                except Exception as error:
+                    self.ws.notice(error)
+                finally:
+                    more.enable()
+
+        more.on_click(load_more)
+        append(page)
+
+    async def prepare_copy(self):
+        if self.copy_dialog_open or self.copy_running or not self.report:
+            return
+        with self.ws.client:
+            generation, report_id = self.generation, self.report['id']
+            was_editing = self.ws.editing
+            self.copy_dialog_open, self.ws.editing = True, True
+            self.rail_signature = None
+            self.render_rail()
+            try:
+                operation = await self.ws.request('POST', f'/api/storage/paired-comparisons/{report_id}/copy-plan', timeout=60)
+                if self.ws.client.is_deleted or generation != self.generation or not self.report or self.report['id'] != report_id:
+                    return
+                with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-3'):
+                    ui.label('Скопировать отсутствующее →').classes('text-lg font-semibold')
+                    self.copy_paths(operation)
+                    ui.label(f"Файлов: {operation['total_files']} · папок: {operation['total_directories']} · {self.ws.format_bytes(operation['total_bytes'])}").classes('text-sm font-semibold')
+                    ui.label('Копируется вся проверенная пара. Существующие файлы и элементы с другим размером останутся на месте.').classes('text-sm s-muted')
+                    ui.label('Незавершённые копии при прерывании записи будут отмечены для ручного разбора.').classes('text-xs s-muted')
+                    await self.copy_item_list(operation)
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                        ui.button('Начать копирование', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+                if await dialog and not self.ws.client.is_deleted and generation == self.generation and self.report and self.report['id'] == report_id:
+                    await self.apply_copy_operation(await self.ws.request('POST', f"/api/storage/copy-operations/{operation['id']}/start", timeout=45))
+            except Exception as error:
+                self.ws.notice(error)
+            finally:
+                self.copy_dialog_open, self.ws.editing = False, was_editing
+                self.rail_signature = None
+                self.render_rail()
+
+    async def copy_details(self):
+        if not self.copy_operation:
+            return
+        with self.ws.client:
+            try:
+                operation = await self.ws.request('GET', f"/api/storage/copy-operations/{self.copy_operation['id']}", timeout=30)
+                with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-3'):
+                    ui.label('Копирование из 00-main →').classes('text-lg font-semibold')
+                    self.copy_paths(operation)
+                    ui.label(operation['message']).classes('text-sm font-semibold')
+                    ui.label(f"Готово файлов: {operation['copied_files']} · папок: {operation['copied_directories']} · пропущено: {operation['skipped']} · ошибок: {operation['errors']}").classes('text-sm s-muted')
+                    if operation.get('incomplete_files'):
+                        ui.label(f"Незавершённых файлов в копии: {operation['incomplete_files']}").classes('text-sm text-amber-9')
+                    if operation['current_path']:
+                        ui.label(operation['current_path']).classes('text-xs break-all')
+                    await self.copy_item_list(operation)
+                    ui.button('Закрыть', on_click=dialog.close).props('flat no-caps color=dark')
+                dialog.open()
+            except Exception as error:
+                self.ws.notice(error)
 
     async def stop(self):
         if self.report:

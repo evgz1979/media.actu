@@ -13,6 +13,11 @@ from datetime import datetime, timezone
 MARKER_NAME = '.media-actu-volume.json'
 MARKER_FILES = frozenset((MARKER_NAME, '._' + MARKER_NAME))
 MARKER_LIMIT = 4096
+COPY_TEMP_PATTERN = re.compile(r'\.media-actu-copy-[a-f0-9]{32}-[a-f0-9]{32}\.part\Z')
+
+
+def copy_temporary(name: str) -> bool:
+    return bool(COPY_TEMP_PATTERN.fullmatch(name))
 
 
 def usb_share(name: str) -> bool:

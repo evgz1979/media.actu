@@ -61,7 +61,7 @@ export default {
       }
       if (row.kind === 'directory' && row.status === 'both' && row.attention_count) return 'Есть различия';
       return {both:'Есть в обоих',missing_copy:'Нет в копии',extra_copy:'Только в копии',same:'Совпадает',same_size:'Имя и размер совпали',
-        different:'Отличается',size_different:'Размер отличается',conflict:'Разный тип',unverified:'Не проверено',skipped:'Не сравнивается'}[row.status] || '';
+        different:'Отличается',size_different:'Размер отличается',copy_incomplete:'Копия не завершена',conflict:'Разный тип',unverified:'Не проверено',skipped:'Не сравнивается'}[row.status] || '';
     },
   },
 };

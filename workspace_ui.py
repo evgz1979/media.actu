@@ -609,7 +609,7 @@ class StorageWorkspace:
                     ui.link('Медиа', '/media').classes('s-nav')
             with ui.row().classes('items-center gap-2 s-readonly'):
                 ui.icon('lock_outline', size='15px').classes('s-muted')
-                ui.label('Данные только для чтения').classes('s-muted text-xs')
+                ui.label('Оригиналы — только чтение').classes('s-muted text-xs')
         with ui.row().classes('commander-intro w-full items-center justify-between'):
             with ui.column().classes('gap-1'):
                 ui.label('Хранилища').classes('s-title')

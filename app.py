@@ -29,6 +29,7 @@ from media_manager.network import NetworkCatalog, NetworkError
 from media_manager.comparison import ComparisonCatalog
 from media_manager.copies import CopyCatalog, COPY_KINDS
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
+from media_manager.copy_files import MissingCopyCatalog
 
 
 ROOT = Path(__file__).parent
@@ -50,6 +51,7 @@ network = NetworkCatalog(storage)
 comparison = ComparisonCatalog(storage)
 copies = CopyCatalog(storage)
 paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
+missing_copies = MissingCopyCatalog(paired_comparison)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
@@ -146,6 +148,7 @@ async def lifespan(_: FastAPI):
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
     yield
+    missing_copies.close()
     paired_comparison.close()
     comparison.close()
     watcher.stop()
@@ -453,6 +456,32 @@ async def paired_decision(job_id: str, request: PairedDecisionRequest) -> dict:
 @app.get("/api/storage/comparisons")
 async def comparison_jobs() -> dict:
     return {"jobs": await comparison_call(comparison.jobs)}
+
+
+@app.post('/api/storage/paired-comparisons/{job_id}/copy-plan', status_code=201)
+async def missing_copy_plan(job_id: str) -> dict:
+    return await comparison_call(missing_copies.plan, job_id)
+
+
+@app.get('/api/storage/copy-operations/{operation_id}')
+async def missing_copy_job(operation_id: str) -> dict:
+    return await comparison_call(missing_copies.job, operation_id)
+
+
+@app.get('/api/storage/copy-operations/{operation_id}/items')
+async def missing_copy_items(operation_id: str, offset: int = Query(0, ge=0),
+                             limit: int = Query(200, ge=1, le=1000)) -> dict:
+    return await comparison_call(missing_copies.items, operation_id, offset, limit)
+
+
+@app.post('/api/storage/copy-operations/{operation_id}/start')
+async def start_missing_copy(operation_id: str) -> dict:
+    return await comparison_call(start_comparison_exclusive, missing_copies.start, operation_id)
+
+
+@app.post('/api/storage/copy-operations/{operation_id}/stop')
+async def stop_missing_copy(operation_id: str) -> dict:
+    return await comparison_call(missing_copies.stop, operation_id)
 
 
 @app.post("/api/storage/comparisons", status_code=201)

@@ -11,13 +11,14 @@ from uuid import uuid4
 
 from .comparison import Paused, fingerprint, open_readonly
 from .storage import now, relative_path
-from .volume_identity import MARKER_FILES
+from .volume_identity import MARKER_FILES, copy_temporary
 
 
 STATUS_LABELS = {
     'both': 'Есть в обоих', 'missing_copy': 'Нет в копии', 'extra_copy': 'Только в копии',
     'same': 'Совпадает', 'different': 'Отличается', 'conflict': 'Разный тип',
     'same_size': 'Имя и размер совпали', 'size_different': 'Размер отличается',
+    'copy_incomplete': 'Копия не завершена',
     'unverified': 'Не проверено', 'skipped': 'Не сравнивается',
 }
 DECISIONS = {'keep': 'Оставить в копии', 'add_main': 'Добавить в 00-main',
@@ -35,6 +36,7 @@ class PairedComparisonCatalog:
         self._stop = threading.Event()
         self._thread = None
         self._flush_at = 0
+        self.transfers = None
         with storage.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS paired_jobs (
@@ -72,7 +74,7 @@ class PairedComparisonCatalog:
                        ('Проверка прервана перезапуском. Можно продолжить.', now()))
 
     def busy(self):
-        return self._thread is not None and self._thread.is_alive()
+        return (self._thread is not None and self._thread.is_alive()) or bool(self.transfers and self.transfers.busy())
 
     def _idle(self):
         if self.busy():
@@ -161,6 +163,8 @@ class PairedComparisonCatalog:
             result['root_errors'] = {r['side']: json.loads(r['data'])['error'] for r in db.execute(
                 "SELECT side,data FROM paired_entries WHERE job_id=? AND path=''", (job,)) if json.loads(r['data']).get('error')}
         result['scopes'] = json.loads(result['scopes'])
+        result['copy_operation'] = self.transfers.latest(job) if self.transfers else None
+        result['copyable_count'] = len(self.transfers.candidates(job)) if self.transfers and result['mode'] == 'files' and result['state'] == 'completed' else 0
         return result
 
     def jobs(self, copy_id=None):
@@ -197,7 +201,7 @@ class PairedComparisonCatalog:
                     with os.scandir(descriptor) as iterator:
                         for item in iterator:
                             self._check()
-                            if item.name.startswith('._') or item.name == '.DS_Store' or (not actual and item.name in MARKER_FILES):
+                            if item.name.startswith('._') or item.name == '.DS_Store' or copy_temporary(item.name) or (not actual and item.name in MARKER_FILES):
                                 continue
                             relative = '/'.join(p for p in (path, item.name) if p)
                             entry = {'path': absolute_scope_path(scope, relative), 'name': item.name, 'error': None}
@@ -332,6 +336,9 @@ class PairedComparisonCatalog:
         return 'unverified'
 
     def _classify(self, job, inventories, files, method):
+        with self.storage.connect() as db:
+            copy_id = db.execute('SELECT copy_id FROM paired_jobs WHERE id=?', (job,)).fetchone()[0]
+        incomplete = self.transfers.incomplete(copy_id) if files and self.transfers else {}
         failures = {side: {p for p, e in entries.items() if e.get('error') and e['kind'] == 'directory'}
                     for side, entries in inventories.items()}
         rows, children = {}, {}
@@ -346,6 +353,8 @@ class PairedComparisonCatalog:
                           'kind': 'directory' if directory else (left or right)['kind'], 'left': left, 'right': right,
                           'status': self._status(path, left, right, failures, files, method),
                           'attention_count': 0, 'file_attention_count': 0}
+            if right and path in incomplete and right.get('inode') == incomplete[path]['inode']:
+                rows[path]['status'] = 'copy_incomplete'
             parent = str(PurePosixPath(path).parent)
             children.setdefault('' if parent == '.' else parent, []).append(path)
         for row in rows.values():

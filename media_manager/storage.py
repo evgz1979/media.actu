@@ -19,7 +19,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 from .copies import COPY_SCHEMA, inherited_location
 from .volume_identity import (
-    MARKER_FILES, canonical_host, create_marker, mounted_root, read_capacity,
+    MARKER_FILES, canonical_host, copy_temporary, create_marker, mounted_root, read_capacity,
     read_marker, usb_share, verify_identity,
 )
 
@@ -476,7 +476,7 @@ class StorageCatalog:
             entries = []
             with os.scandir(descriptor) as iterator:
                 for item in iterator:
-                    if item.name in MARKER_FILES and not path:
+                    if copy_temporary(item.name) or (item.name in MARKER_FILES and not path):
                         continue
                     kind = "symlink" if item.is_symlink() else "directory" if item.is_dir(follow_symlinks=False) else "file"
                     entry = {"name": item.name, "path": f"{path}/{item.name}".lstrip("/"), "kind": kind, "size": None, "modified_at": None}

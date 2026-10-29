@@ -7,10 +7,21 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from nicegui import ui
+from nicegui import app as nicegui_app, ui
 
 
 CORE_URL = "http://127.0.0.1:18765"
+_core_client: httpx.AsyncClient | None = None
+
+
+async def close_core_client() -> None:
+    global _core_client
+    if _core_client is not None:
+        await _core_client.aclose()
+        _core_client = None
+
+
+nicegui_app.on_shutdown(close_core_client)
 
 
 def format_bytes(value: int) -> str:
@@ -44,10 +55,13 @@ def format_percent(done: int, total: int) -> str:
 async def core_request(
     method: str, path: str, *, timeout: float = 20, **kwargs: Any
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(base_url=CORE_URL, timeout=timeout) as client:
-        response = await client.request(method, path, **kwargs)
-        response.raise_for_status()
-        return response.json()
+    global _core_client
+    if _core_client is None or _core_client.is_closed:
+        _core_client = httpx.AsyncClient(base_url=CORE_URL,
+                                        limits=httpx.Limits(max_connections=30, max_keepalive_connections=10, keepalive_expiry=60))
+    response = await _core_client.request(method, path, timeout=timeout, **kwargs)
+    response.raise_for_status()
+    return response.json()
 
 
 @ui.page("/media")
