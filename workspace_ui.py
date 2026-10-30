@@ -6,7 +6,7 @@ from itertools import count
 import json
 from pathlib import PurePosixPath
 
-from nicegui import ui
+from nicegui import background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
@@ -40,10 +40,10 @@ WORKSPACE_CSS = """
 .commander-pane .s-panel-head { padding:8px 10px; gap:5px; }
 .commander-pane .s-panel-head, .commander-pane .s-tree-toolbar, .commander-pane .pane-status, .commander-pane .workspace-filter { flex-shrink:0; }
 .commander-pane .s-tree { flex:1; min-height:180px; max-height:none; width:100%; }
-.commander-pane .s-list-grid { grid-template-columns:minmax(150px,1fr) 112px 56px 56px; min-width:374px; }
-.commander-trees.names-comparison .commander-pane:first-child .s-list-grid { grid-template-columns:minmax(0,1fr); min-width:0; }
-.commander-trees.names-comparison .commander-pane:first-child .s-entry-cell,
-.commander-trees.names-comparison .commander-pane:first-child .s-tree-heading > div:not(:first-child) { display:none; }
+.commander-pane .s-list-grid { grid-template-columns:minmax(150px,1fr) 112px 80px 56px; min-width:398px; }
+.commander-trees.names-comparison .commander-pane:first-child .s-list-grid { grid-template-columns:minmax(0,1fr) 80px; min-width:0; }
+.commander-trees.names-comparison .commander-pane:first-child .s-entry-cell:not(.s-entry-size),
+.commander-trees.names-comparison .commander-pane:first-child .s-tree-heading > div:not(:first-child):not(:nth-child(3)) { display:none; }
 .commander-pane .pane-heading { font-size:13px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
 .pane-location { display:flex; align-items:center; gap:10px; width:100%; min-width:0; }
 .pane-volume { flex:0 0 clamp(148px,28%,180px); width:clamp(148px,28%,180px); min-width:0; font-size:12px; }
@@ -60,6 +60,7 @@ WORKSPACE_CSS = """
 .pane-crumb.context { display:flex; align-items:center; gap:4px; }
 .pane-crumb.q-btn:hover { background:#d7eafb; }
 .pane-crumb:focus-visible { outline:2px solid #6ca4d0; outline-offset:1px; }
+.pane-folder-size { font-size:12px; color:#526b57; min-height:18px; }
 .pane-status { padding:7px 11px; border-top:1px solid var(--s-line); font-size:11px; min-height:31px; color:var(--s-muted); }
 .pane-result { flex-shrink:0; font-size:10px; max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pane-count { font-size:10px; padding:0 3px; background:#edf1e9; border-radius:3px; }
@@ -105,7 +106,7 @@ WORKSPACE_CSS = """
 .copy-label { flex-shrink:0; font-size:10px; line-height:16px; padding:0 4px; border-radius:3px; background:#edf1f7; color:#536a89; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; }
 .copy-label.main { color:#3f6744; background:#eaf2e6; }
 .s-tree-role.copy-label { max-width:none; }
-.commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 56px 56px; min-width:444px; }
+.commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 80px 56px; min-width:468px; }
 @media(max-width:1450px) {
  .commander-layout { grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 240px; gap:10px; padding:0 16px 20px; }
  .commander-trees { gap:10px; }
@@ -146,6 +147,8 @@ class BrowserPane:
         self.limits = {}
         self.matches = set()
         self.rows = {}
+        self.size_cells = {}
+        self.loading_folders = set()
         self.folder_entries = {}
         self.generation = 0
         self.filter_value = ''
@@ -167,6 +170,7 @@ class BrowserPane:
                         'aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes('pane-volume')
                     self.path_bar = ui.element('nav').classes('pane-path').props(
                         'aria-label="Путь левой панели"' if index == 0 else 'aria-label="Путь правой панели"')
+                self.folder_size = ui.label().classes('pane-folder-size').props('aria-live=polite')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap') as self.toolbar:
                 self.snapshot_label = ui.label('Просмотр папок').classes('s-muted text-xs')
                 self.hidden = ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props('dense size=xs').classes('text-xs s-muted')
@@ -240,6 +244,7 @@ class BrowserPane:
         self.render()
 
     def update_header(self):
+        self.update_size_header()
         self.volume_select.options = {
             v['id']: volume_label(v) + (' · архив' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
             for v in self.workspace.volumes
@@ -281,6 +286,24 @@ class BrowserPane:
         self.footer.text = location + ' · ' + self.workspace.capacity_text(volume)
         self.result_filter.set_visibility(bool(self.scan and self.workspace.report and self.workspace.report['mode'] == 'names'))
         self.result_filter.set_enabled(bool(self.scan and self.scan['side'] == 'source'))
+
+    def size_scope(self):
+        if not self.volume_id:
+            return None
+        if self.workspace.pair.active and self.workspace.pair.report:
+            row = self.workspace.pair.by_path.get(self.workspace.pair.selected)
+            if row and not row.get('left' if self.index == 0 else 'right'):
+                return None
+        if self.workspace.report and self.index == 1 and not self.comparison.selected:
+            return None
+        path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
+        return self.volume_id, path
+
+    def update_size_header(self):
+        scope = self.size_scope()
+        self.folder_size.set_visibility(bool(scope))
+        if scope:
+            self.folder_size.text = 'Размер папки: ' + self.workspace.directory_size_text(*scope, detail=True)
 
     def render_path(self, volume_id, path, kind, *, boundary='', navigate=None):
         volume = next((v for v in self.workspace.volumes if v['id'] == volume_id), None)
@@ -341,6 +364,7 @@ class BrowserPane:
         self.kind, self.entry = 'directory', None
         self.scan, self.job_id = scan, job_id
         self.folders.clear()
+        self.loading_folders.clear()
         self.expanded = {self.root_path}
         self.limits.clear()
         self.matches.clear()
@@ -352,15 +376,32 @@ class BrowserPane:
         if activate:
             self.workspace.set_active(self.index)
         self.update_header()
+        self.size_cells.clear()
         self.tree.clear()
         with self.tree:
             ui.spinner(size='22px').classes('m-4')
-        await self.load_folder(self.root_path)
+        live = not self.scan and self.volume and self.volume['availability'] == 'online'
+        if live:
+            self.loading_folders.add(self.root_path)
+        await self.load_folder(self.root_path, refresh=False)
         if generation != self.generation:
             return
         self.render()
         self.workspace.render_volumes()
         self.workspace.update_scopes()
+        if live:
+            background_tasks.create(self.refresh_open_folder(generation, volume_id, self.root_path))
+
+    async def refresh_open_folder(self, generation, volume_id, path):
+        if generation != self.generation or self.workspace.client.is_deleted:
+            return
+        with self.workspace.client:
+            await self.load_folder(path)
+            if generation != self.generation or self.workspace.client.is_deleted:
+                return
+            self.loading_folders.discard(path)
+            if not self.workspace.context_menu_open and not self.workspace.editing:
+                self.render()
 
     async def load_folder(self, path, *, more=False, refresh=True):
         generation = self.generation
@@ -454,6 +495,9 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def refresh(self):
+        scope = self.size_scope()
+        if scope:
+            self.workspace.size_force.add(scope)
         if self.workspace.pair.active and self.workspace.pair.report:
             if self.workspace.pair.report['state'] == 'completed':
                 await self.workspace.pair.load_rows(self.workspace.pair.report['id'])
@@ -486,6 +530,7 @@ class BrowserPane:
         self.render()
 
     def render(self):
+        self.size_cells.clear()
         if self.workspace.pair.active and self.workspace.pair.report:
             self.update_header()
             self.folder_entries.clear()
@@ -526,7 +571,7 @@ class BrowserPane:
                 if data.get('error'):
                     ui.label(data['error']).classes('s-error m-2')
                 if not data.get('scanned_at') and not data.get('entries'):
-                    ui.label('Список готовится.' if self.scan and self.scan['state'] in ('pending', 'running') else 'Снимок папки не сохранён.').classes('s-muted text-xs p-3')
+                    ui.label('Читаю папку…' if path in self.loading_folders else 'Список готовится.' if self.scan and self.scan['state'] in ('pending', 'running') else 'Снимок папки не сохранён.').classes('s-muted text-xs p-3')
                     return
                 entries = [e for e in data.get('entries', []) if self.hidden.value or not e['name'].startswith('.')]
                 limit = len(entries) if self.scan else self.limits.get(path, 150)
@@ -572,7 +617,11 @@ class BrowserPane:
                             modified = datetime.fromtimestamp(entry['mtime_ns'] / 1e9, timezone.utc).isoformat()
                         ui.label(self.workspace.format_date(modified)).classes('s-entry-cell')
                         size = entry.get('size')
-                        ui.label(self.workspace.format_bytes(size) if size is not None and entry['kind'] == 'file' else '—').classes('s-entry-cell s-entry-size')
+                        if directory:
+                            self.size_cells[self.volume_id, entry['path']] = ui.label(
+                                self.workspace.directory_size_text(self.volume_id, entry['path'])).classes('s-entry-cell s-entry-size')
+                        else:
+                            ui.label(self.workspace.format_bytes(size) if size is not None and entry['kind'] == 'file' else '—').classes('s-entry-cell s-entry-size')
                         kind = {'directory': 'Папка', 'symlink': 'Ссылка', 'mount': 'Том', 'special': 'Особый'}.get(entry['kind'])
                         ui.label(kind or PurePosixPath(entry['name']).suffix[1:].upper() or 'Файл').classes('s-entry-cell')
                     if directory and entry['path'] in self.expanded:
@@ -597,6 +646,11 @@ class StorageWorkspace:
         self.context_menu_open = False
         self.match_generation = 0
         self.current_matches = []
+        self.directory_sizes = {}
+        self.size_requested = set()
+        self.size_force = set()
+        self.size_open_scopes = set()
+        self.sizes_polling = False
         self.browse_state = None
         self.browse_active = 0
         self.pair = PairedWorkspace(self)
@@ -702,6 +756,98 @@ class StorageWorkspace:
             await self.request('POST', f'/api/storage/volumes/{volume_id}/open-in-finder', json={'path': path})
         except Exception as error:
             self.notice(error)
+
+    def directory_size_text(self, volume_id, path, *, detail=False):
+        record = self.directory_sizes.get(volume_id, {}).get(path, {})
+        size, state = record.get('bytes'), record.get('state', 'unknown')
+        if size is None:
+            return {'offline': 'нет сохранённого размера', 'error': 'не удалось подсчитать',
+                    'unknown': 'ожидает подсчёта'}.get(state, 'Считаю…') if detail else {
+                        'offline': 'Неизвестно', 'error': 'Ошибка', 'unknown': '…'}.get(state, 'Считаю…')
+        text = ('' if record.get('complete') else '≥ ') + self.format_bytes(size)
+        if state in ('queued', 'running'):
+            text += ' · считаю…' if detail else ' …'
+        elif state in ('offline', 'error', 'stale'):
+            text += ' · сохранено ' + self.format_date(record.get('calculated_at')) if detail else ' *'
+            if detail and state == 'error':
+                text += ' · ошибка пересчёта'
+            if detail and state == 'stale':
+                text += ' · ожидает пересчёта'
+        elif not record.get('complete') and detail:
+            text += ' · подсчитано частично'
+        elif detail and record.get('calculated_at'):
+            text += ' · ' + self.format_date(record['calculated_at'])
+        return text
+
+    def size_texts(self, volume_id):
+        return {path: self.directory_size_text(volume_id, path) for path in self.directory_sizes.get(volume_id, {})}
+
+    def update_size_labels(self):
+        if self.client.is_deleted:
+            return
+        for pane in self.panes:
+            pane.update_size_header()
+            for scope, label in list(pane.size_cells.items()):
+                if label.is_deleted:
+                    pane.size_cells.pop(scope, None)
+                else:
+                    label.text = self.directory_size_text(*scope)
+        for side, view in self.pair.views.items():
+            if not view.is_deleted:
+                view.props['sizes'] = self.size_texts(self.pair.scopes[side]['volume_id'])
+                view.update()
+
+    async def load_directory_sizes(self, volume_id, paths, *, start=False, refresh=False):
+        try:
+            result = await self.request('POST', f'/api/storage/volumes/{volume_id}/directory-sizes',
+                                        json={'paths': paths, 'start': start, 'refresh': refresh}, timeout=30)
+            if self.client.is_deleted:
+                return
+            self.directory_sizes.setdefault(volume_id, {}).update(result['sizes'])
+            self.size_requested.update((volume_id, path) for path in paths)
+        except Exception as error:
+            records = self.directory_sizes.setdefault(volume_id, {})
+            for path in paths:
+                records[path] = dict(records.get(path, {}), state='error', error=self.error_text(error))
+        self.update_size_labels()
+
+    async def poll_directory_sizes(self):
+        if self.client.is_deleted or self.sizes_polling or self.context_menu_open or self.editing:
+            return
+        self.sizes_polling = True
+        try:
+            wanted = set()
+            open_scopes = set()
+            for pane in self.panes:
+                scope = pane.size_scope()
+                if scope:
+                    wanted.add(scope)
+                    open_scopes.add(scope)
+                wanted.update(pane.size_cells)
+            opened = open_scopes - self.size_open_scopes
+            self.size_open_scopes = open_scopes
+            if self.pair.active and self.pair.report:
+                for side in ('left', 'right'):
+                    scope = self.pair.scopes[side]
+                    for row in self.pair.visible_rows():
+                        data = row.get(side)
+                        if data and data['kind'] == 'directory':
+                            wanted.add((scope['volume_id'], data['path']))
+            grouped = {}
+            for volume_id, path in wanted:
+                grouped.setdefault(volume_id, []).append(path)
+            for volume_id, paths in grouped.items():
+                paths.sort(key=lambda p: (len(PurePosixPath(p).parts), p))
+                for offset in range(0, len(paths), 500):
+                    batch = paths[offset:offset + 500]
+                    start = any((volume_id, path) not in self.size_requested or (volume_id, path) in opened
+                                or self.directory_sizes.get(volume_id, {}).get(path, {}).get('state') == 'stale'
+                                for path in batch)
+                    forced = self.size_force.intersection((volume_id, path) for path in batch)
+                    await self.load_directory_sizes(volume_id, batch, start=start or bool(forced), refresh=bool(forced))
+                    self.size_force.difference_update(forced)
+        finally:
+            self.sizes_polling = False
 
     def property_menu(self, label, callback, *, volume_id, path='', extra=()):
         client = ui.context.client
@@ -847,6 +993,7 @@ class StorageWorkspace:
         self.set_active(0)
         ui.timer(30, self.refresh_volumes)
         ui.timer(3, self.poll)
+        ui.timer(1.5, self.poll_directory_sizes)
 
     async def refresh_history(self):
         try:

@@ -35,14 +35,14 @@ export default {
           <span class="pair-row-name">{{ row.name }}</span>
           <span v-if="row.attention_count" class="pair-attention" :aria-label="'Различий внутри: '+row.attention_count">{{ row.file_attention_count ? 'Файлы: '+row.file_attention_count : row.attention_count }}</span>
           <span v-if="row.decision && side === 'right'" class="pair-decision">{{ decisions[row.decision] }}</span>
-          <span v-if="row[side]?.size_text" class="pair-size">{{ row[side].size_text }}</span>
+          <span v-if="row[side]?.kind === 'directory' || row[side]?.size_text" class="pair-size">{{ row[side].kind === 'directory' ? (sizes[row[side].path] || '…') : row[side].size_text }}</span>
           <button v-if="row.status === 'extra_copy' && side === 'right'" class="pair-row-state pair-decide"
             @click.stop="$emit('context',{path:row.path,side,action:'decide'})">Только в копии</button>
           <span v-else class="pair-row-state">{{ status(row) }}</span>
         </div>
       </div>
     </div></div>`,
-  props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean},
+  props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean, sizes:Object},
   emits: ['select','open','toggle','context','toggle_files','menu_state'],
   data() { return {top:0, height:400, observer:null, selection:this.selected, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
   watch: {selected(value) {this.selection=value;}},

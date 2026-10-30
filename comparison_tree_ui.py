@@ -85,6 +85,11 @@ class ComparisonTree:
                 membership = self.workspace.copies.membership(scope['volume_id'], entry['path']) if directory else None
                 if membership:
                     ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
+                if directory:
+                    self.pane.size_cells[scope['volume_id'], entry['path']] = ui.label(
+                        self.workspace.directory_size_text(scope['volume_id'], entry['path'])).classes('text-xs s-muted shrink-0')
+                elif entry.get('size') is not None:
+                    ui.label(self.workspace.format_bytes(entry['size'])).classes('text-xs s-muted shrink-0')
                 if entry.get('error'):
                     ui.icon('error_outline', size='13px').classes('text-orange-800')
                 if root:

@@ -114,6 +114,31 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(first['scanned_at'], failed['scanned_at'])
         self.assertEqual(first['entries'], failed['entries'])
 
+    def test_cached_directory_does_not_wait_for_mount_discovery(self):
+        import threading
+        first = self.catalog.directory('disk-one')
+        locked, release = threading.Event(), threading.Event()
+
+        def discovery_lock():
+            with self.catalog._lock:
+                locked.set()
+                release.wait(2)
+
+        thread = threading.Thread(target=discovery_lock)
+        thread.start()
+        try:
+            self.assertTrue(locked.wait(1))
+            self.catalog._checked = 0
+            with patch.object(self.catalog, 'discover', side_effect=AssertionError('Cached reads must not inspect disks')):
+                saved = self.catalog.directory('disk-one', refresh=False)
+            self.assertEqual(saved['entries'], first['entries'])
+            self.assertTrue(saved['cached'])
+            self.assertFalse(release.is_set())
+            self.assertTrue(thread.is_alive())
+        finally:
+            release.set()
+            thread.join(2)
+
     def test_finder_opens_volumes_and_folders_and_reveals_files_and_links(self):
         (self.volume / 'link').symlink_to(self.root / 'absent')
         (self.volume / 'Example.app').mkdir()

@@ -11,7 +11,7 @@ import stat
 import subprocess
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
@@ -189,9 +189,10 @@ class StorageCatalog:
         finally:
             db.close()
 
-    def refresh(self, force: bool = False) -> dict:
-        with self._lock:
-            if force or time.monotonic() - self._checked > 10:
+    def refresh(self, force: bool = False, *, cached_only: bool = False) -> dict:
+        # Saved lists remain readable while another thread discovers slow mounts.
+        with nullcontext() if cached_only else self._lock:
+            if not cached_only and (force or time.monotonic() - self._checked > 10):
                 try:
                     discovered = [dict(v) for v in self.discover()]
                     duplicates = {v['id'] for v in discovered if sum(other['id'] == v['id'] for other in discovered) > 1}
@@ -468,7 +469,7 @@ class StorageCatalog:
     def directory(self, volume_id: str, path: str = "", refresh: bool = True) -> dict:
         import json
         path = relative_path(path)
-        volumes = self.refresh(force=refresh)
+        volumes = self.refresh(force=refresh, cached_only=not refresh)
         volume = next((v for v in volumes["volumes"] if v["id"] == volume_id), None)
         if volume is None:
             raise KeyError("Том не найден")

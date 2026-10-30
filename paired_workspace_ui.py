@@ -299,6 +299,8 @@ class PairedWorkspace:
         return result
 
     def configure_view(self, view):
+        side = view.props['side']
+        view.props['sizes'] = self.ws.size_texts(self.scopes[side]['volume_id'])
         root_files = sum(r['kind'] != 'directory' and str(PurePosixPath(r['path']).parent) == (self.root or '.')
                          and (self.show_hidden or not any(p.startswith('.') for p in PurePosixPath(r['path']).parts))
                          for r in self.rows) if self.report['mode'] == 'files' else 0

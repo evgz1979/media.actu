@@ -30,6 +30,7 @@ from media_manager.comparison import ComparisonCatalog
 from media_manager.copies import CopyCatalog, COPY_KINDS
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
+from media_manager.directory_sizes import DirectorySizeService
 
 
 ROOT = Path(__file__).parent
@@ -52,6 +53,7 @@ comparison = ComparisonCatalog(storage)
 copies = CopyCatalog(storage)
 paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
 missing_copies = MissingCopyCatalog(paired_comparison)
+directory_sizes = DirectorySizeService(storage)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
@@ -148,6 +150,7 @@ async def lifespan(_: FastAPI):
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
     yield
+    directory_sizes.close()
     missing_copies.close()
     paired_comparison.close()
     comparison.close()
@@ -300,6 +303,24 @@ async def storage_directory(volume_id: str, path: str = "", refresh: bool = True
 class StoragePathRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     path: str = Field(default='', max_length=4096)
+
+
+class DirectorySizesRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    paths: list[str] = Field(min_length=1, max_length=500)
+    start: bool = True
+    refresh: bool = False
+
+
+@app.post('/api/storage/volumes/{volume_id}/directory-sizes')
+async def storage_directory_sizes(volume_id: str, request: DirectorySizesRequest) -> dict:
+    try:
+        return await asyncio.to_thread(directory_sizes.request, volume_id, request.paths,
+                                       start=request.start, refresh=request.refresh)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail='Том не найден') from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post('/api/storage/volumes/{volume_id}/open-in-finder')
