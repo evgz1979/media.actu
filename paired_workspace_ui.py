@@ -232,7 +232,8 @@ class PairedWorkspace:
         pane.navigation.set_visibility(True)
         pane.toolbar.set_visibility(True)
         pane.result_filter.set_visibility(False)
-        pane.heading.text = scope['label']
+        description = 'основная папка' if side == 'left' else f"копия №{scope['number']}"
+        pane.heading.text = f"{scope['label']} ({description})"
         boundary = scope['path']
         pane.render_path(scope['volume_id'], pane.path, pane.kind, boundary=boundary)
         if self.report:

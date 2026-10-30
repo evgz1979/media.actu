@@ -44,7 +44,7 @@ WORKSPACE_CSS = """
 .commander-trees.names-comparison .commander-pane:first-child .s-list-grid { grid-template-columns:minmax(0,1fr); min-width:0; }
 .commander-trees.names-comparison .commander-pane:first-child .s-entry-cell,
 .commander-trees.names-comparison .commander-pane:first-child .s-tree-heading > div:not(:first-child) { display:none; }
-.commander-pane .pane-heading { font-size:11px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
+.commander-pane .pane-heading { font-size:13px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
 .pane-location { display:flex; align-items:center; gap:10px; width:100%; min-width:0; }
 .pane-volume { flex:0 0 clamp(148px,28%,180px); width:clamp(148px,28%,180px); min-width:0; font-size:12px; }
 .pane-volume .q-field__control, .pane-volume .q-field__marginal { height:34px; min-height:34px; }
