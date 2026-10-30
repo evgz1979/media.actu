@@ -55,6 +55,24 @@ ssh -N -T -o ExitOnForwardFailure=yes \
 После подключения интерфейс доступен по `http://127.0.0.1:18090`.
 На ноутбуке для работы с данными M4 отдельные Core и UI не требуются.
 
+### Вывод сервисов в Launcher
+
+Текущий Launcher создаёт для stdout/stderr канал без чтения. После заполнения
+канала запись журнала может заблокировать сервис. Для фонового запуска команды
+Core и UI оборачиваются в `media_manager.service_runtime`, сохраняя прежние
+аргументы и sandbox:
+
+```sh
+.venv/bin/python -m media_manager.service_runtime core -m uvicorn app:app --host 127.0.0.1 --port 18765
+.venv/bin/python -m media_manager.service_runtime ui -c 'import ui; ui.ui.run(host="127.0.0.1", port=8090, reload=False, show=False)'
+```
+
+Рабочие параметры UI, включая `CORE_URL`, заголовок и storage secret,
+сохраняются из действующей команды Launcher. Журналы `data/logs/core.log` и
+`data/logs/ui.log` ограничены 2 МБ, сохраняются три предыдущих файла.
+`SIGUSR1` записывает стек в `data/logs/core-stacks.log` или `ui-stacks.log`;
+сигнал посылается только процессу, запущенному через эту обёртку.
+
 ## Photos и сохранность данных
 
 Доступ к Photos выполняется в пользовательском GUI-сеансе M4. Для постоянной

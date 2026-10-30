@@ -191,6 +191,9 @@ class CopyGroupsUI:
     async def open_main(self, group):
         ws = self.workspace
         with ws.client:
+            if group['copies']:
+                await ws.pair.link(group, min(group['copies'], key=lambda location: location['number']))
+                return
             if ws.pair.active:
                 await ws.pair.unlink()
             if ws.report:

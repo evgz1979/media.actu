@@ -117,6 +117,29 @@ class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
         ws.request.assert_not_awaited()
 
 
+class MainFolderOpeningTests(unittest.IsolatedAsyncioTestCase):
+    def workspace(self, copies):
+        ws = SimpleNamespace(client=nullcontext(), pair=SimpleNamespace(active=True, link=AsyncMock(), unlink=AsyncMock()),
+                             report=None, browse=AsyncMock(), panes=[SimpleNamespace(show_volume=AsyncMock())])
+        group = {'main': {'volume_id': 'main-volume', 'path': 'Apple'}, 'copies': copies}
+        return ws, CopyGroupsUI(ws), group
+
+    async def test_main_opens_the_first_numbered_copy_in_linked_panels(self):
+        first = {'id': 'first', 'number': 1}
+        ws, controls, group = self.workspace([{'id': 'second', 'number': 2}, first])
+        await controls.open_main(group)
+        ws.pair.link.assert_awaited_once_with(group, first)
+        ws.pair.unlink.assert_not_awaited()
+        ws.panes[0].show_volume.assert_not_awaited()
+
+    async def test_main_without_copies_opens_only_the_main_folder(self):
+        ws, controls, group = self.workspace([])
+        await controls.open_main(group)
+        ws.pair.link.assert_not_awaited()
+        ws.pair.unlink.assert_awaited_once()
+        ws.panes[0].show_volume.assert_awaited_once_with('main-volume', 'Apple')
+
+
 class CopyRemovalConfirmationTests(unittest.IsolatedAsyncioTestCase):
     def controls(self, confirmed):
         pair = SimpleNamespace(active=True, copy_id='copy', unlink=AsyncMock())
