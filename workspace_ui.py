@@ -163,9 +163,9 @@ class BrowserPane:
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
                     with ui.row().classes('gap-0 no-wrap') as self.navigation:
-                        ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
-                        ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
-                        ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props(f'aria-label="Обновить {self.title.lower()} панель"')
+                        self.parent_button = ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
+                        self.root_button = ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
+                        self.refresh_button = ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props(f'aria-label="Обновить {self.title.lower()} панель"')
                 with ui.element('div').classes('pane-location') as self.location:
                     self.volume_select = ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props(
                         'aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes('pane-volume')
@@ -249,6 +249,8 @@ class BrowserPane:
         self.render()
 
     def update_header(self):
+        for button in (self.parent_button, self.root_button, self.refresh_button):
+            button.set_enabled(not self.comparison_open())
         self.update_size_header()
         self.volume_select.options = {
             v['id']: volume_label(v) + (' · архив' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
@@ -262,7 +264,7 @@ class BrowserPane:
         self.heading.text = ('Источник' if self.index == 0 else 'Совпадения') if report else self.title + ' панель'
         self.volume_select.set_enabled(not bool(report))
         self.volume_select.set_visibility(not (report and self.index == 1))
-        self.navigation.set_visibility(not (report and self.index == 1))
+        self.navigation.set_visibility(True)
         if report and self.index == 1:
             self.result_filter.set_visibility(False)
             self.comparison.update_header()
@@ -303,6 +305,9 @@ class BrowserPane:
             return None
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return self.volume_id, path
+
+    def comparison_open(self):
+        return bool(self.workspace.report or (self.workspace.pair.active and self.workspace.pair.report))
 
     def update_size_header(self):
         scope = self.size_scope()
@@ -456,6 +461,8 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def go_root(self):
+        if self.comparison_open():
+            return
         if self.workspace.pair.active:
             await self.workspace.pair.navigate_path(self.index, self.workspace.pair.scopes['left' if self.index == 0 else 'right']['path'])
             return
@@ -472,6 +479,8 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def go_parent(self):
+        if self.comparison_open():
+            return
         if self.workspace.pair.active:
             relative = self.workspace.pair.relative(self.index, self.path)
             if relative:
@@ -500,13 +509,11 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def refresh(self):
+        if self.comparison_open():
+            return
         scope = self.size_scope()
         if scope:
             self.workspace.size_force.add(scope)
-        if self.workspace.pair.active and self.workspace.pair.report:
-            if self.workspace.pair.report['state'] == 'completed':
-                await self.workspace.pair.load_rows(self.workspace.pair.report['id'])
-            return
         if not self.volume_id:
             return
         self.workspace.set_active(self.index)

@@ -173,6 +173,41 @@ class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
         ws.panes[0].show_volume.assert_not_awaited()
 
 
+class ComparisonToolbarTests(unittest.IsolatedAsyncioTestCase):
+    async def test_all_three_actions_ignore_queued_clicks_in_any_comparison_state(self):
+        for mode in ('pair', 'legacy'):
+            for state in ('running', 'pausing', 'paused', 'completed', 'failed'):
+                with self.subTest(mode=mode, state=state):
+                    report = {'id': 'report', 'state': state}
+                    ws = SimpleNamespace(report=report if mode == 'legacy' else None, size_force=set(),
+                                         pair=SimpleNamespace(active=mode == 'pair', report=report if mode == 'pair' else None,
+                                                              navigate_path=AsyncMock()), request=AsyncMock())
+                    pane = BrowserPane.__new__(BrowserPane)
+                    pane.workspace = ws
+                    pane.load_folder, pane.show_volume = AsyncMock(), AsyncMock()
+                    await pane.go_parent()
+                    await pane.go_root()
+                    await pane.refresh()
+                    self.assertEqual(ws.size_force, set())
+                    ws.request.assert_not_awaited()
+                    ws.pair.navigate_path.assert_not_awaited()
+                    pane.load_folder.assert_not_awaited()
+                    pane.show_volume.assert_not_awaited()
+
+    async def test_linked_browsing_without_a_report_keeps_navigation_available(self):
+        ws = SimpleNamespace(report=None)
+        ws.pair = PairedWorkspace(ws)
+        ws.pair.active = True
+        ws.pair.scopes = {'left': {'path': 'Original'}}
+        ws.pair.navigate_path = AsyncMock()
+        pane = BrowserPane.__new__(BrowserPane)
+        pane.workspace, pane.index, pane.path = ws, 0, 'Original/Sub'
+        await pane.go_parent()
+        ws.pair.navigate_path.assert_awaited_once_with(0, 'Original')
+        await pane.go_root()
+        self.assertEqual(ws.pair.navigate_path.await_count, 2)
+
+
 class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
     def workspace(self, state='completed'):
         panes = [SimpleNamespace(tree=SimpleNamespace(classes=Mock()), restore_browse_state=Mock()) for _ in range(2)]
