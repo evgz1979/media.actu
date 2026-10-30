@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 from copy_groups_ui import CopyGroupsUI
 from paired_workspace_ui import PairedWorkspace
+from workspace_ui import BrowserPane, StorageWorkspace
 
 
 class PairedWorkspaceTests(unittest.TestCase):
@@ -125,6 +126,51 @@ class PairedContextMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ws.context_menu_open)
         pair.on_menu_state(SimpleNamespace(args={'open': False}))
         self.assertFalse(ws.context_menu_open)
+
+
+class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delayed_selector_event_cannot_reset_the_clicked_parent(self):
+        pane = BrowserPane.__new__(BrowserPane)
+        pane.workspace = SimpleNamespace(open_volume=AsyncMock())
+        pane.volume_id, pane.index = 'copy', 1
+        pane.volume_select = SimpleNamespace(value='copy')
+        await pane.volume_changed(SimpleNamespace(value='previous-volume'))
+        pane.workspace.open_volume.assert_not_awaited()
+        pane.volume_select.value = 'selected-volume'
+        await pane.volume_changed(SimpleNamespace(value='selected-volume'))
+        pane.workspace.open_volume.assert_awaited_once_with('selected-volume', 1)
+
+    async def test_parent_and_volume_root_leave_the_pair_on_the_clicked_side(self):
+        ws = SimpleNamespace(open_volume=AsyncMock())
+        pair = PairedWorkspace(ws)
+        pair.scopes = {'left': {'volume_id': 'main', 'path': 'Private'},
+                       'right': {'volume_id': 'copy', 'path': 'Media-copy03/Private'}}
+        pair.report = {'id': 'saved-report'}
+        pair.navigate = Mock()
+        await pair.navigate_path(1, 'Media-copy03/Private/Sub')
+        pair.navigate.assert_called_once_with('Sub')
+        ws.open_volume.assert_not_awaited()
+        for path in ('Media-copy03', ''):
+            await pair.navigate_path(1, path)
+            ws.open_volume.assert_awaited_with('copy', 1, path=path)
+        self.assertEqual(pair.report['id'], 'saved-report')
+
+    async def test_source_report_parent_opens_normal_browsing(self):
+        ws = SimpleNamespace(pair=SimpleNamespace(active=False), open_volume=AsyncMock())
+        pane = BrowserPane.__new__(BrowserPane)
+        pane.workspace, pane.volume_id, pane.index = ws, 'main', 0
+        pane.scan = {'root_path': 'Private/Album'}
+        await pane.open_path('Private')
+        ws.open_volume.assert_awaited_once_with('main', 0, path='Private')
+
+    async def test_opening_parent_uses_existing_unlink_without_removing_records(self):
+        ws = SimpleNamespace(client=nullcontext(), active_index=0, report=None,
+                             pair=SimpleNamespace(active=True, unlink=AsyncMock()),
+                             panes=[SimpleNamespace(show_volume=AsyncMock()) for _ in range(2)])
+        await StorageWorkspace.open_volume(ws, 'copy', 1, path='Media-copy03')
+        ws.pair.unlink.assert_awaited_once()
+        ws.panes[1].show_volume.assert_awaited_once_with('copy', 'Media-copy03')
+        ws.panes[0].show_volume.assert_not_awaited()
 
 
 class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):

@@ -259,6 +259,8 @@ class PairedWorkspace:
     async def navigate_path(self, index, path):
         relative = self.relative(index, path)
         if relative is None:
+            scope = self.scopes['left' if index == 0 else 'right']
+            await self.ws.open_volume(scope['volume_id'], index, path=path)
             return
         if self.report:
             self.navigate(relative)

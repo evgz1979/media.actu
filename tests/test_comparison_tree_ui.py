@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from comparison_tree_ui import ComparisonTree
 
@@ -9,7 +9,7 @@ from comparison_tree_ui import ComparisonTree
 class ComparisonTreeTests(unittest.IsolatedAsyncioTestCase):
     def navigable_tree(self, request):
         workspace = SimpleNamespace(request=request, job_id='job', active_index=0,
-                                    report={'scans': [{'id': 1, 'side': 'target'}]}, render_volumes=Mock())
+                                    report={'scans': [{'id': 1, 'side': 'target'}]}, render_volumes=Mock(), open_volume=AsyncMock())
         workspace.set_active = lambda index: setattr(workspace, 'active_index', index)
         pane = SimpleNamespace(workspace=workspace, volume_id='disk', render=Mock())
         return ComparisonTree(pane)
@@ -31,6 +31,7 @@ class ComparisonTreeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tree.focus[1]['path'], 'Private/Album/Sub')
         await tree.open_path('Private')
         self.assertEqual(calls, [(1, 'Private/Album'), (1, 'Private/Album/Sub')])
+        tree.workspace.open_volume.assert_awaited_once_with('disk', 1, path='Private')
         tree.show_matches()
         self.assertIsNone(tree.focus)
         self.assertIsNone(tree.selected)

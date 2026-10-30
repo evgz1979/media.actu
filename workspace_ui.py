@@ -194,7 +194,9 @@ class BrowserPane:
         return {'volume_id': self.volume_id, 'path': path}
 
     async def volume_changed(self, event):
-        if event.value and event.value != self.volume_id:
+        # Unlinking restores selectors before opening the requested parent. Ignore
+        # queued events from those older values after the latest value is set.
+        if event.value and event.value == self.volume_select.value and event.value != self.volume_id:
             await self.workspace.open_volume(event.value, self.index)
 
     def activate_heading(self):
@@ -327,10 +329,9 @@ class BrowserPane:
             for i, (name, relative, entry_kind) in enumerate(crumbs):
                 if i:
                     ui.label('/').classes('pane-path-slash').props('aria-hidden=true')
-                permitted = not boundary or relative == boundary or relative.startswith(boundary + '/')
                 current = relative == path
                 classes = 'pane-crumb' + (' current' if current else '')
-                if permitted and entry_kind == 'directory':
+                if entry_kind == 'directory':
                     crumb = ui.button(name, icon='folder_open' if current else 'folder',
                                       on_click=lambda p=relative: navigate(p)).props('flat dense no-caps').classes(classes)
                 else:
@@ -349,6 +350,7 @@ class BrowserPane:
             return
         boundary = self.scan['root_path'] if self.scan else ''
         if boundary and path != boundary and not path.startswith(boundary + '/'):
+            await self.workspace.open_volume(self.volume_id, self.index, path=path)
             return
         with self.workspace.client:
             await self.show_volume(self.volume_id, path, scan=self.scan, job_id=self.job_id)
@@ -867,14 +869,14 @@ class StorageWorkspace:
             for text, handler in extra:
                 ui.menu_item(text, on_click=action(handler))
 
-    async def open_volume(self, volume_id, index=None):
+    async def open_volume(self, volume_id, index=None, *, path=''):
         with self.client:
             index = self.active_index if index is None else index
             if self.pair.active:
                 await self.pair.unlink()
             if self.report:
                 await self.browse()
-            await self.panes[index].show_volume(volume_id)
+            await self.panes[index].show_volume(volume_id, path)
 
     def render_volumes(self):
         self.volume_list.clear()

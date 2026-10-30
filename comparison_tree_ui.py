@@ -142,6 +142,7 @@ class ComparisonTree:
         scope, _ = self.selected
         boundary = scope['path']
         if boundary and path != boundary and not path.startswith(boundary + '/'):
+            await self.workspace.open_volume(scope['volume_id'], 1, path=path)
             return
         entry = {'scan_id': scope['scan_id'], 'path': path, 'kind': 'directory',
                  'name': PurePosixPath(path).name or scope['volume_name']}
