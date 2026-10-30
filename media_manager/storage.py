@@ -374,6 +374,42 @@ class StorageCatalog:
         volume.update(self._volume_details(volume, dict(details) if details else None))
         return volume
 
+    def open_in_finder(self, volume_id: str, path: str = '') -> dict:
+        path = relative_path(path)
+        volume = next((v for v in self.refresh(True)['volumes'] if v['id'] == volume_id), None)
+        if volume is None:
+            raise KeyError('Том не найден')
+        if volume['availability'] != 'online':
+            raise ValueError(volume.get('identity_error') or 'Том недоступен. Подключи его и повтори.')
+        parts = PurePosixPath(path).parts
+        target = Path(volume['mount_path']).joinpath(*parts)
+        with mounted_root(volume['mount_path'], volume.get('device')) as root:
+            verify_identity(root, volume)
+            descriptors = []
+            parent = root
+            device = os.fstat(root).st_dev
+            try:
+                for part in parts[:-1]:
+                    parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                    descriptors.append(parent)
+                    if os.fstat(parent).st_dev != device:
+                        raise OSError('Переход на другой том запрещён')
+                info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False) if parts else os.fstat(root)
+                # Reveal links and nested mounts themselves without following them.
+                reveal = not stat.S_ISDIR(info.st_mode) or info.st_dev != device
+                verify_identity(root, volume)
+                try:
+                    subprocess.run(
+                        ['/usr/bin/open', *(['-R'] if reveal else ['-a', 'Finder']), str(target)],
+                        check=True, capture_output=True, text=True, timeout=8, stdin=subprocess.DEVNULL,
+                    )
+                except subprocess.SubprocessError as error:
+                    raise ValueError('Не удалось открыть Finder') from error
+            finally:
+                for descriptor in reversed(descriptors):
+                    os.close(descriptor)
+        return {'path': str(target)}
+
     def metadata(self, volume_id: str, path: str) -> dict:
         path = relative_path(path)
         self.get_volume(volume_id)

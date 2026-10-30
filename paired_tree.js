@@ -13,8 +13,21 @@ export default {
           :class="['pair-row', 'pair-' + row.status, {ghost: !row[side], selected: selection === row.path, alt: (start+i)%2}]"
           :style="{top: ((start+i)*28)+'px', paddingLeft: (5 + Math.min(row.level,14)*13)+'px'}"
           @click="$emit('select', {path:row.path,side})" @dblclick.prevent="$emit('open', {path:row.path,side})"
-          @contextmenu.prevent="$emit('context', {path:row.path,side})" tabindex="0"
+          tabindex="0"
           @keydown.enter.prevent="$emit('open', {path:row.path,side})" @keydown.space.prevent="$emit('select', {path:row.path,side})">
+          <q-menu touch-position context-menu @before-show="$emit('menu_state', {open:true})" @hide="$emit('menu_state', {open:false})">
+            <q-list dense>
+              <q-item clickable v-close-popup :disable="!row[side]" @click.stop="$emit('context', {path:row.path,side,action:'finder'})">
+                <q-item-section>Открыть в Finder</q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup :disable="!row[side]" @click.stop="$emit('context', {path:row.path,side,action:'properties'})">
+                <q-item-section>Свойства</q-item-section>
+              </q-item>
+              <q-item v-if="row.status === 'extra_copy' && side === 'right'" clickable v-close-popup @click.stop="$emit('context', {path:row.path,side,action:'decide'})">
+                <q-item-section>Только в копии</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
           <button v-if="row.kind === 'directory'" class="pair-toggle" :aria-label="row.collapsed ? 'Раскрыть папку' : 'Свернуть папку'"
             @click.stop="$emit('toggle', {path:row.path,side})" @dblclick.stop><i class="material-icons" aria-hidden="true">{{ row.collapsed ? 'chevron_right' : 'expand_more' }}</i></button>
           <span v-else class="pair-toggle-spacer"></span>
@@ -24,13 +37,13 @@ export default {
           <span v-if="row.decision && side === 'right'" class="pair-decision">{{ decisions[row.decision] }}</span>
           <span v-if="row[side]?.size_text" class="pair-size">{{ row[side].size_text }}</span>
           <button v-if="row.status === 'extra_copy' && side === 'right'" class="pair-row-state pair-decide"
-            @click.stop="$emit('context',{path:row.path,side})">Только в копии</button>
+            @click.stop="$emit('context',{path:row.path,side,action:'decide'})">Только в копии</button>
           <span v-else class="pair-row-state">{{ status(row) }}</span>
         </div>
       </div>
     </div></div>`,
   props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean},
-  emits: ['select','open','toggle','context','toggle_files'],
+  emits: ['select','open','toggle','context','toggle_files','menu_state'],
   data() { return {top:0, height:400, observer:null, selection:this.selected, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
   watch: {selected(value) {this.selection=value;}},
   computed: {

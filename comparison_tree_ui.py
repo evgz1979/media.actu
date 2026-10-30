@@ -70,7 +70,8 @@ class ComparisonTree:
             selected = self.selected and key == (self.selected[1]['scan_id'], self.selected[1]['path'])
             classes = 's-entry match-entry' + (' alt' if next(rows) % 2 else '') + (' selected' if selected else '')
             with ui.element('div').classes(classes).style(f'padding-left:{4 + depth * 14}px'):
-                self.workspace.property_menu('Свойства', lambda e=entry, s=scope: self.workspace.show_properties(s['volume_id'], e))
+                self.workspace.property_menu('Свойства', lambda e=entry, s=scope: self.workspace.show_properties(s['volume_id'], e),
+                                             volume_id=scope['volume_id'], path=entry['path'])
                 if directory:
                     ui.button(icon='expand_more' if key in self.expanded else 'chevron_right',
                               on_click=lambda e=entry, s=scope: self.select(e, s)).props('flat dense color=grey-7 aria-label="Раскрыть найденную папку"').classes('s-tree-toggle')

@@ -154,7 +154,8 @@ class BrowserPane:
             self.container.on('click', lambda: workspace.set_active(index))
             self.container.on('focusin', lambda: workspace.set_active(index))
             with ui.column().classes('s-panel-head w-full gap-2'):
-                workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.volume_id))
+                workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.volume_id),
+                                        volume_id=lambda: self.volume_id)
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
                     with ui.row().classes('gap-0 no-wrap') as self.navigation:
@@ -543,6 +544,7 @@ class BrowserPane:
                         self.rows[entry['path']] = row
                         row.on('contextmenu', lambda e=entry: self.select(e, render=False))
                         self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
+                                                     volume_id=self.volume_id, path=entry['path'],
                                                      extra=self.workspace.copies.context_actions(self.volume_id, entry))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
@@ -693,7 +695,15 @@ class StorageWorkspace:
         if changed:
             self.render_volumes()
 
-    def property_menu(self, label, callback, *, extra=()):
+    async def open_in_finder(self, volume_id, path=''):
+        if not volume_id:
+            return
+        try:
+            await self.request('POST', f'/api/storage/volumes/{volume_id}/open-in-finder', json={'path': path})
+        except Exception as error:
+            self.notice(error)
+
+    def property_menu(self, label, callback, *, volume_id, path='', extra=()):
         client = ui.context.client
 
         def action(callback):
@@ -705,6 +715,8 @@ class StorageWorkspace:
         with ui.context_menu() as menu:
             menu.on('before-show', lambda: setattr(self, 'context_menu_open', True))
             menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
+            ui.menu_item('Открыть в Finder', on_click=action(lambda: self.open_in_finder(
+                volume_id() if callable(volume_id) else volume_id, path)))
             ui.menu_item(label, on_click=action(callback))
             for text, handler in extra:
                 ui.menu_item(text, on_click=action(handler))
@@ -744,7 +756,7 @@ class StorageWorkspace:
                     channel = bool(volume.get('marker_id') and volume.get('share_name'))
                     classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
                     with ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes(classes):
-                        self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']))
+                        self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']), volume_id=volume['id'])
                         ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[volume['availability']])
                         with ui.column().classes('gap-0 flex-1 min-w-0'):
                             with ui.row().classes('w-full items-center no-wrap gap-1'):

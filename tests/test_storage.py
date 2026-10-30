@@ -114,6 +114,46 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(first['scanned_at'], failed['scanned_at'])
         self.assertEqual(first['entries'], failed['entries'])
 
+    def test_finder_opens_volumes_and_folders_and_reveals_files_and_links(self):
+        (self.volume / 'link').symlink_to(self.root / 'absent')
+        (self.volume / 'Example.app').mkdir()
+        for path, options in [('', ['-a', 'Finder']), ('Фотографии', ['-a', 'Finder']),
+                              ('Example.app', ['-a', 'Finder']), ('archive.zip', ['-R']),
+                              ('Фотографии/notes.txt', ['-R']), ('link', ['-R'])]:
+            with self.subTest(path=path), patch('media_manager.storage.subprocess.run') as command:
+                result = self.catalog.open_in_finder('disk-one', path)
+                self.assertEqual(result['path'], str(self.volume / path))
+                self.assertEqual(command.call_args.args[0], ['/usr/bin/open', *options, result['path']])
+                self.assertEqual(command.call_args.kwargs['timeout'], 8)
+
+    def test_finder_rejects_missing_entries_traversal_and_symlink_parents(self):
+        (self.volume / 'link').symlink_to(self.root, target_is_directory=True)
+        with patch('media_manager.storage.subprocess.run') as command:
+            for path in ['../outside', '/etc', 'a/../../outside', '\x00', 'link/volume/archive.zip', 'absent']:
+                with self.subTest(path=path), self.assertRaises((ValueError, OSError)):
+                    self.catalog.open_in_finder('disk-one', path)
+            command.assert_not_called()
+
+    def test_finder_rechecks_volume_identity_and_availability_before_opening(self):
+        for mounted in [[], [{**self.mounted[0], 'id': 'replacement'}], [{**self.mounted[0], 'device': -1}],
+                        [{**self.mounted[0], 'marker_id': 'missing-marker'}],
+                        [{**self.mounted[0], 'identity_status': 'unverified'}]]:
+            with self.subTest(mounted=mounted), patch('media_manager.storage.subprocess.run') as command:
+                self.catalog.discover = lambda: mounted
+                with self.assertRaises((ValueError, OSError)):
+                    self.catalog.open_in_finder('disk-one')
+                command.assert_not_called()
+        self.catalog.discover = lambda: (_ for _ in ()).throw(OSError('discovery failed'))
+        with patch('media_manager.storage.subprocess.run') as command, self.assertRaises(ValueError):
+            self.catalog.open_in_finder('disk-one')
+        command.assert_not_called()
+
+    def test_finder_reports_launch_failure_and_timeout(self):
+        for error in [subprocess.CalledProcessError(1, 'open'), subprocess.TimeoutExpired('open', 8)]:
+            with self.subTest(error=error), patch('media_manager.storage.subprocess.run', side_effect=error):
+                with self.assertRaisesRegex(ValueError, 'Не удалось открыть Finder'):
+                    self.catalog.open_in_finder('disk-one', 'archive.zip')
+
     def test_discovery_failure_is_unknown_not_offline(self):
         self.catalog.discover = lambda: (_ for _ in ()).throw(OSError('mount failed'))
         result = self.catalog.refresh(True)

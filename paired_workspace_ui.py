@@ -315,7 +315,8 @@ class PairedWorkspace:
         if existing is None:
             pane.tree.clear()
             with pane.tree:
-                existing = PairedTree(side, self.on_select, self.on_open, self.on_toggle, self.on_context, self.toggle_root_files)
+                existing = PairedTree(side, self.on_select, self.on_open, self.on_toggle, self.on_context,
+                                      self.toggle_root_files, self.on_menu_state)
             self.views[side] = existing
         self.configure_view(existing)
         existing.set_rows(self.visible_rows(), self.selected)
@@ -680,18 +681,25 @@ class PairedWorkspace:
                 ui.button('Закрыть', on_click=dialog.close).props('flat no-caps color=dark')
             dialog.open()
 
+    def on_menu_state(self, event):
+        self.ws.context_menu_open = event.args['open']
+
     async def on_context(self, event):
         row = self.by_path.get(event.args['path'])
         if not row:
             return
         with self.ws.client:
-            if event.args['side'] == 'right' and row['status'] == 'extra_copy':
+            side = event.args['side']
+            data = row.get(side)
+            if not data:
+                return
+            action = event.args.get('action', 'properties')
+            if action == 'finder':
+                await self.ws.open_in_finder(self.scopes[side]['volume_id'], data['path'])
+            elif action == 'decide' and side == 'right' and row['status'] == 'extra_copy':
                 await self.decide(row)
-            else:
-                side = event.args['side']
-                data = row.get(side)
-                if data:
-                    await self.ws.show_properties(self.scopes[side]['volume_id'], data)
+            elif action == 'properties':
+                await self.ws.show_properties(self.scopes[side]['volume_id'], data)
 
     async def decide(self, row):
         with self.ws.client:

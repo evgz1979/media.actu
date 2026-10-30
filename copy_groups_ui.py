@@ -68,6 +68,7 @@ class CopyGroupsUI:
                         if group['numbering_changes']:
                             actions.insert(0, ('Упорядочить номера копий', lambda g=group: self.renumber(g)))
                         ws.property_menu('Свойства папки', lambda m=main: ws.show_properties(m['volume_id'], dict(m, kind='directory')),
+                                         volume_id=main['volume_id'], path=main['path'],
                                          extra=actions)
                         with ui.row().classes('w-full items-center no-wrap gap-1'):
                             ui.label('00-main').classes('copy-label main')
@@ -80,6 +81,7 @@ class CopyGroupsUI:
                             js_handler='event => { event.preventDefault(); emit(); }',
                         ):
                             ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
+                                             volume_id=location['volume_id'], path=location['path'],
                                              extra=[('Изменить тип копии', lambda c=location: self.edit_kind(c)),
                                                     ('Убрать связь с копией…', lambda c=location: self.remove_copy(c))])
                             ui.label(location['label']).classes('copy-label')

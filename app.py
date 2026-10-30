@@ -297,6 +297,21 @@ async def storage_directory(volume_id: str, path: str = "", refresh: bool = True
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+class StoragePathRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    path: str = Field(default='', max_length=4096)
+
+
+@app.post('/api/storage/volumes/{volume_id}/open-in-finder')
+async def open_storage_path_in_finder(volume_id: str, request: StoragePathRequest) -> dict:
+    try:
+        return await asyncio.to_thread(storage.open_in_finder, volume_id, request.path)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail='Том не найден') from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.patch("/api/storage/volumes/{volume_id}/metadata")
 async def storage_metadata(volume_id: str, request: StorageMetadataRequest) -> dict:
     try:

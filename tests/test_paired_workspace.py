@@ -86,6 +86,47 @@ class ReportExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r['path'] for r in pair.visible_rows()], ['Same', 'Changed'])
 
 
+class PairedContextMenuTests(unittest.IsolatedAsyncioTestCase):
+    def workspace(self):
+        ws = SimpleNamespace(client=nullcontext(), open_in_finder=AsyncMock(), show_properties=AsyncMock(),
+                             context_menu_open=False)
+        pair = PairedWorkspace(ws)
+        pair.scopes = {'left': {'volume_id': 'main'}, 'right': {'volume_id': 'copy'}}
+        pair.by_path = {'photo.jpg': {'path': 'photo.jpg', 'status': 'extra_copy', 'left': None,
+                                      'right': {'path': 'Backup/photo.jpg', 'kind': 'file'}}}
+        pair.decide = AsyncMock()
+        return ws, pair
+
+    async def test_finder_uses_the_clicked_side_and_its_full_volume_path(self):
+        ws, pair = self.workspace()
+        pair.by_path['photo.jpg']['left'] = {'path': 'Original/photo.jpg', 'kind': 'file'}
+        for side, volume, path in [('left', 'main', 'Original/photo.jpg'), ('right', 'copy', 'Backup/photo.jpg')]:
+            await pair.on_context(SimpleNamespace(args={'side': side, 'path': 'photo.jpg', 'action': 'finder'}))
+            ws.open_in_finder.assert_awaited_with(volume, path)
+        pair.decide.assert_not_awaited()
+        ws.show_properties.assert_not_awaited()
+
+    async def test_properties_and_decisions_remain_separate_menu_actions(self):
+        ws, pair = self.workspace()
+        await pair.on_context(SimpleNamespace(args={'side': 'right', 'path': 'photo.jpg', 'action': 'properties'}))
+        ws.show_properties.assert_awaited_once_with('copy', pair.by_path['photo.jpg']['right'])
+        pair.decide.assert_not_awaited()
+        await pair.on_context(SimpleNamespace(args={'side': 'right', 'path': 'photo.jpg', 'action': 'decide'}))
+        pair.decide.assert_awaited_once_with(pair.by_path['photo.jpg'])
+
+    async def test_missing_side_does_not_open_another_sides_file(self):
+        ws, pair = self.workspace()
+        await pair.on_context(SimpleNamespace(args={'side': 'left', 'path': 'photo.jpg', 'action': 'finder'}))
+        ws.open_in_finder.assert_not_awaited()
+
+    async def test_open_menu_blocks_background_refresh_until_closed(self):
+        ws, pair = self.workspace()
+        pair.on_menu_state(SimpleNamespace(args={'open': True}))
+        self.assertTrue(ws.context_menu_open)
+        pair.on_menu_state(SimpleNamespace(args={'open': False}))
+        self.assertFalse(ws.context_menu_open)
+
+
 class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
     def workspace(self, state='completed'):
         panes = [SimpleNamespace(tree=SimpleNamespace(classes=Mock()), restore_browse_state=Mock()) for _ in range(2)]
