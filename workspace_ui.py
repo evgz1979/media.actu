@@ -106,6 +106,13 @@ WORKSPACE_CSS = """
 .copy-link:focus-visible { outline:1px solid #9cb8d5; outline-offset:-1px; }
 .copy-label { flex-shrink:0; font-size:10px; line-height:16px; padding:0 4px; border-radius:3px; background:#edf1f7; color:#536a89; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; }
 .copy-label.main { color:#3f6744; background:#eaf2e6; }
+.copy-folder-tags { gap:3px; flex-wrap:wrap; padding-top:2px; }
+.copy-folder-tag { font-size:10px; line-height:16px; padding:0 5px; border-radius:3px; background:#edf1f7; color:#536a89; }
+.copy-folder-tag.tracking { background:#eaf2e6; color:#3f6744; }
+.copy-folder-tag.temporary { background:#fff2d9; color:#8b631f; }
+.copy-folder-tag.inbox, .copy-folder-tag.changed { background:#e6eefb; color:#3b6097; }
+.copy-folder-tag.archive { background:#eeeeef; color:#656773; }
+.copy-folder-menu .q-item { min-height:32px; padding:5px 12px; }
 .s-tree-role.copy-label { max-width:none; }
 .commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 80px 56px; min-width:468px; }
 @media(max-width:1450px) {
@@ -963,7 +970,7 @@ class StorageWorkspace:
         finally:
             self.sizes_polling = False
 
-    def property_menu(self, label, callback, *, volume_id, path='', extra=()):
+    def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None):
         client = ui.context.client
 
         def action(callback):
@@ -973,11 +980,15 @@ class StorageWorkspace:
             return invoke
 
         with ui.context_menu() as menu:
+            if extra_content:
+                menu.classes('copy-folder-menu')
             menu.on('before-show', lambda: setattr(self, 'context_menu_open', True))
             menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
             ui.menu_item('Открыть в Finder', on_click=action(lambda: self.open_in_finder(
                 volume_id() if callable(volume_id) else volume_id, path)))
             ui.menu_item(label, on_click=action(callback))
+            if extra_content:
+                extra_content(action)
             for text, handler in extra:
                 ui.menu_item(text, on_click=action(handler))
 

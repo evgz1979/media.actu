@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 
 from nicegui import ui
 
-from media_manager.copies import COPY_KINDS, copy_label, inherited_location
+from media_manager.copies import COPY_KINDS, FOLDER_LABELS, copy_label, inherited_location
 
 
 class CopyGroupsUI:
@@ -69,11 +69,12 @@ class CopyGroupsUI:
                             actions.insert(0, ('Упорядочить номера копий', lambda g=group: self.renumber(g)))
                         ws.property_menu('Свойства папки', lambda m=main: ws.show_properties(m['volume_id'], dict(m, kind='directory')),
                                          volume_id=main['volume_id'], path=main['path'],
-                                         extra=actions)
+                                         extra=actions, extra_content=lambda action, g=group: self.folder_menu(g, action))
                         with ui.row().classes('w-full items-center no-wrap gap-1'):
                             ui.label('00-main').classes('copy-label main')
                             ui.label(self.location_name(main)).classes('copy-bookmark-name')
                         ui.label(self.location_path(main)).classes('copy-place')
+                        self.folder_badges(group)
                     for location in group['copies']:
                         selected = panes and panes[1].volume_id == location['volume_id'] and panes[1].path == location['path']
                         with ui.link(target='#').classes('copy-link' + (' chosen' if selected else '')).on(
@@ -88,6 +89,70 @@ class CopyGroupsUI:
                             ui.label(self.location_path(location)).classes('copy-link-name')
                             if location['availability'] != 'online':
                                 ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props('aria-label="Том недоступен"')
+
+    def folder_badges(self, group):
+        if not (group.get('tracking') or group.get('label') or group.get('changed_at')):
+            return
+        with ui.row().classes('copy-folder-tags'):
+            if group.get('tracking'):
+                state = group.get('tracking_state', 'starting')
+                text = {'watching': 'Отслеживается', 'offline': 'Ожидает подключения',
+                        'error': 'Отслеживание недоступно'}.get(state, 'Включение отслеживания…')
+                ui.label(text).classes('copy-folder-tag tracking').tooltip(
+                    group.get('tracking_error') or 'Изменения в основной папке и вложенных папках при работающем Core')
+            if group.get('label'):
+                ui.label(FOLDER_LABELS[group['label']]).classes('copy-folder-tag ' + group['label'])
+            if group.get('changed_at'):
+                ui.label('Есть изменения').classes('copy-folder-tag changed').tooltip(
+                    'Последнее изменение: ' + self.workspace.format_date(group['changed_at']))
+
+    def folder_menu(self, group, action):
+        ui.separator()
+        with ui.menu_item(on_click=action(lambda: self.set_folder_settings(group, tracking=not group.get('tracking', False)))).props(
+            'role=menuitemcheckbox aria-checked=' + str(bool(group.get('tracking'))).lower()
+        ):
+            with ui.item_section().props('side'):
+                ui.icon('check_box' if group.get('tracking') else 'check_box_outline_blank', size='18px')
+            ui.item_section('Отслеживать изменения')
+        if group.get('changed_at'):
+            ui.menu_item('Изменения просмотрены', on_click=action(lambda: self.acknowledge_changes(group)))
+        ui.separator()
+        ui.label('Метка папки').classes('text-xs s-muted px-4 pt-2 pb-1')
+        for value, text in FOLDER_LABELS.items():
+            with ui.menu_item(on_click=action(lambda v=value: self.set_folder_settings(group, label=v))).props(
+                'role=menuitemradio aria-checked=' + str(group.get('label', '') == value).lower()
+            ):
+                with ui.item_section().props('side'):
+                    ui.icon('radio_button_checked' if group.get('label', '') == value else 'radio_button_unchecked', size='18px')
+                ui.item_section(text)
+        ui.separator()
+
+    async def set_folder_settings(self, group, **settings):
+        ws = self.workspace
+        with ws.client:
+            was_editing = ws.editing
+            ws.editing = True
+            try:
+                await ws.request('PATCH', f"/api/storage/copy-groups/{group['id']}", json=settings)
+                await self.refresh()
+            except Exception as error:
+                ws.notice(error)
+            finally:
+                ws.editing = was_editing
+
+    async def acknowledge_changes(self, group):
+        ws = self.workspace
+        with ws.client:
+            was_editing = ws.editing
+            ws.editing = True
+            try:
+                await ws.request('POST', f"/api/storage/copy-groups/{group['id']}/acknowledge",
+                                 json={'changed_at': group['changed_at']})
+                await self.refresh()
+            except Exception as error:
+                ws.notice(error)
+            finally:
+                ws.editing = was_editing
 
     def render_controls(self):
         if self.controls is None:

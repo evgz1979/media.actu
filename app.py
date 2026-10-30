@@ -27,7 +27,8 @@ from media_manager.watcher import SourceWatcher
 from media_manager.storage import StorageCatalog
 from media_manager.network import NetworkCatalog, NetworkError
 from media_manager.comparison import ComparisonCatalog
-from media_manager.copies import CopyCatalog, COPY_KINDS
+from media_manager.copies import CopyCatalog, COPY_KINDS, FOLDER_LABELS
+from media_manager.folder_tracking import FolderTrackingService
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
 from media_manager.directory_sizes import DirectorySizeService
@@ -51,6 +52,7 @@ storage = StorageCatalog(DATA_DIR / "storage.sqlite3")
 network = NetworkCatalog(storage)
 comparison = ComparisonCatalog(storage)
 copies = CopyCatalog(storage)
+folder_tracking = FolderTrackingService(copies)
 paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
 missing_copies = MissingCopyCatalog(paired_comparison)
 directory_sizes = DirectorySizeService(storage)
@@ -106,6 +108,7 @@ watcher = SourceWatcher(schedule_scan)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     watcher.start()
+    folder_tracking.start()
     catalog.reset_stale_source_scans()
     photos_ready = False
     if photos_adapter.supported:
@@ -150,6 +153,7 @@ async def lifespan(_: FastAPI):
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
     yield
+    folder_tracking.close()
     directory_sizes.close()
     missing_copies.close()
     paired_comparison.close()
@@ -368,6 +372,17 @@ class CopyRenumberRequest(BaseModel):
     copies: list[CopyNumberSnapshot]
 
 
+class CopyGroupSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    tracking: bool | None = Field(default=None, strict=True)
+    label: Literal['', 'temporary', 'inbox', 'archive'] | None = None
+
+
+class CopyGroupAcknowledgeRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    changed_at: str = Field(min_length=1, max_length=64)
+
+
 async def copy_catalog_action(action, *args):
     try:
         return await asyncio.to_thread(action, *args)
@@ -379,12 +394,26 @@ async def copy_catalog_action(action, *args):
 
 @app.get('/api/storage/copy-groups')
 async def storage_copy_groups() -> dict:
-    return {'groups': await copy_catalog_action(copies.groups), 'kinds': COPY_KINDS}
+    groups = await copy_catalog_action(copies.groups)
+    return {'groups': [dict(group, **folder_tracking.status(group['id'])) for group in groups],
+            'kinds': COPY_KINDS, 'labels': FOLDER_LABELS}
 
 
 @app.post('/api/storage/copy-groups')
 async def storage_main_folder(request: ComparisonScope) -> dict:
     return await copy_catalog_action(copies.create_main, request.volume_id, request.path)
+
+
+@app.patch('/api/storage/copy-groups/{group_id}')
+async def storage_copy_group_settings(group_id: str, request: CopyGroupSettingsRequest) -> dict:
+    result = await copy_catalog_action(copies.update_group, group_id, request.model_dump(exclude_unset=True))
+    folder_tracking.wake()
+    return result
+
+
+@app.post('/api/storage/copy-groups/{group_id}/acknowledge')
+async def storage_acknowledge_folder_changes(group_id: str, request: CopyGroupAcknowledgeRequest) -> dict:
+    return await copy_catalog_action(copies.acknowledge_changes, group_id, request.changed_at)
 
 
 @app.post('/api/storage/copy-groups/{group_id}/copies')

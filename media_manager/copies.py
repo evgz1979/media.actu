@@ -7,6 +7,7 @@ from uuid import uuid4
 
 
 COPY_KINDS = {'copy': 'Обычная копия', 'cold': 'Сменный носитель', 'cloud': 'Облако'}
+FOLDER_LABELS = {'': 'Без метки', 'temporary': 'Временная', 'inbox': 'На разбор', 'archive': 'Архив'}
 COPY_SCHEMA = '''
 CREATE TABLE IF NOT EXISTS copy_groups (
     id TEXT PRIMARY KEY, next_number INTEGER NOT NULL DEFAULT 1,
@@ -22,6 +23,12 @@ CREATE TABLE IF NOT EXISTS copy_locations (
     CHECK ((kind='main' AND number=0) OR (kind IN ('copy','cold','cloud') AND number>0))
 );
 CREATE INDEX IF NOT EXISTS copy_locations_volume ON copy_locations(volume_id,path);
+CREATE TABLE IF NOT EXISTS copy_group_settings (
+    group_id TEXT PRIMARY KEY REFERENCES copy_groups(id) ON DELETE CASCADE,
+    tracking INTEGER NOT NULL DEFAULT 0 CHECK(tracking IN (0,1)),
+    label TEXT NOT NULL DEFAULT '' CHECK(label IN ('','temporary','inbox','archive')),
+    changed_at TEXT
+);
 '''
 
 
@@ -78,7 +85,10 @@ class CopyCatalog:
     def groups(self):
         volumes = {v['id']: v for v in self.storage.refresh()['volumes']}
         with self.storage.connect() as db:
-            groups = [dict(row, main=None, copies=[]) for row in db.execute('SELECT * FROM copy_groups ORDER BY created_at,id')]
+            groups = [dict(row, main=None, copies=[]) for row in db.execute('''
+                SELECT g.*, COALESCE(s.tracking,0) AS tracking, COALESCE(s.label,'') AS label, s.changed_at
+                FROM copy_groups g LEFT JOIN copy_group_settings s ON s.group_id=g.id
+                ORDER BY g.created_at,g.id''')]
             by_id = {group['id']: group for group in groups}
             for row in db.execute('SELECT * FROM copy_locations ORDER BY number'):
                 location = dict(row)
@@ -91,6 +101,7 @@ class CopyCatalog:
                 else:
                     by_id[location['group_id']]['copies'].append(location)
             for group in groups:
+                group['tracking'] = bool(group['tracking'])
                 group['numbering_changes'] = numbering_changes(group['copies'])
                 # Derive from current links, including catalogs written by older versions.
                 group['next_number'] = None if group['numbering_changes'] else len(group['copies']) + 1
@@ -118,6 +129,36 @@ class CopyCatalog:
                     db.execute('INSERT INTO copy_groups VALUES (?,1,?)', (group_id, timestamp))
                     db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
                                (uuid4().hex, group_id, volume_id, path, 'main', 0, timestamp))
+        return self.group(group_id)
+
+    def update_group(self, group_id, changes):
+        if not changes or set(changes) - {'tracking', 'label'}:
+            raise ValueError('Нужна метка папки или настройка отслеживания')
+        if 'label' in changes and changes['label'] not in FOLDER_LABELS:
+            raise ValueError('Неизвестная метка папки')
+        if 'tracking' in changes and type(changes['tracking']) is not bool:
+            raise ValueError('Отслеживание должно быть включено или выключено')
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
+                raise KeyError('Основная папка не найдена')
+            db.execute('INSERT OR IGNORE INTO copy_group_settings(group_id) VALUES (?)', (group_id,))
+            for key, value in changes.items():
+                db.execute(f'UPDATE copy_group_settings SET {key}=? WHERE group_id=?', (value, group_id))
+        return self.group(group_id)
+
+    def mark_changed(self, group_id):
+        with self.storage.connect() as db:
+            db.execute('UPDATE copy_group_settings SET changed_at=? WHERE group_id=? AND tracking=1',
+                       (datetime.now(timezone.utc).isoformat(), group_id))
+
+    def acknowledge_changes(self, group_id, changed_at):
+        with self.storage.connect() as db:
+            if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
+                raise KeyError('Основная папка не найдена')
+            # A newer event must survive a click from an older sidebar snapshot.
+            db.execute('UPDATE copy_group_settings SET changed_at=NULL WHERE group_id=? AND changed_at=?',
+                       (group_id, changed_at))
         return self.group(group_id)
 
     def add_copy(self, group_id, volume_id, path, kind='copy'):

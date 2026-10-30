@@ -216,6 +216,63 @@ class CopyCatalogTests(unittest.TestCase):
         self.assertEqual(self.copies.groups(), [])
         self.assertIsNone(self.storage.metadata('main-disk', 'Photos')['copy'])
 
+    def test_folder_labels_and_tracking_are_independent_and_survive_restart_and_disconnect(self):
+        main = self.copies.create_main('main-disk', 'Photos')
+        self.copies.add_copy(main['id'], 'usb-disk', 'Cold', 'cold')
+        self.assertEqual((main['label'], main['tracking'], main['changed_at']), ('', False, None))
+        self.copies.update_group(main['id'], {'tracking': True})
+        for label in ('temporary', 'inbox', 'archive', ''):
+            group = self.copies.update_group(main['id'], {'label': label})
+            self.assertEqual((group['label'], group['tracking']), (label, True))
+        self.copies.update_group(main['id'], {'label': 'temporary'})
+        self.mounted.clear()
+        reopened = CopyCatalog(StorageCatalog(self.storage.database, lambda: self.mounted))
+        group = reopened.group(main['id'])
+        self.assertEqual((group['label'], group['tracking']), ('temporary', True))
+        self.assertEqual(group['main']['availability'], 'offline')
+        self.assertEqual(group['copies'][0]['label'], '01-copy-cold')
+        group = reopened.update_group(main['id'], {'tracking': False})
+        self.assertEqual(group['label'], 'temporary')
+        self.assertEqual((self.root / 'main-disk/Photos/Sub/original.txt').read_text(), 'original')
+
+    def test_old_catalog_gets_empty_settings_and_deleted_groups_leave_no_settings(self):
+        main = self.copies.create_main('main-disk', 'Photos')
+        with self.storage.connect() as db:
+            db.execute('DROP TABLE copy_group_settings')
+        reopened = CopyCatalog(StorageCatalog(self.storage.database, lambda: self.mounted))
+        self.assertEqual(reopened.group(main['id'])['label'], '')
+        reopened.update_group(main['id'], {'label': 'archive', 'tracking': True})
+        reopened.remove_group(main['id'])
+        with self.storage.connect() as db:
+            self.assertEqual(db.execute('SELECT * FROM copy_group_settings').fetchall(), [])
+
+    def test_invalid_settings_cannot_modify_a_group_or_create_orphan_records(self):
+        main = self.copies.create_main('main-disk', 'Photos')
+        for changes in ({}, {'label': 'working'}, {'label': None}, {'tracking': None},
+                        {'tracking': 'yes'}, {'tracking': 1}, {'path': 'Other'}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.copies.update_group(main['id'], changes)
+        with self.assertRaises(KeyError):
+            self.copies.update_group('missing', {'label': 'archive'})
+        group = self.copies.group(main['id'])
+        self.assertEqual((group['label'], group['tracking']), ('', False))
+
+    def test_only_tracked_groups_record_changes_and_stale_acknowledgements_preserve_new_changes(self):
+        group = self.copies.create_main('main-disk', 'Photos')
+        self.copies.mark_changed(group['id'])
+        self.assertIsNone(self.copies.group(group['id'])['changed_at'])
+        self.copies.update_group(group['id'], {'tracking': True})
+        self.copies.mark_changed(group['id'])
+        old = self.copies.group(group['id'])['changed_at']
+        self.copies.mark_changed(group['id'])
+        latest = self.copies.group(group['id'])['changed_at']
+        self.assertNotEqual(old, latest)
+        self.assertEqual(self.copies.acknowledge_changes(group['id'], old)['changed_at'], latest)
+        self.assertIsNone(self.copies.acknowledge_changes(group['id'], latest)['changed_at'])
+        self.copies.update_group(group['id'], {'tracking': False})
+        self.copies.mark_changed(group['id'])
+        self.assertIsNone(self.copies.group(group['id'])['changed_at'])
+
 
 if __name__ == '__main__':
     unittest.main()
