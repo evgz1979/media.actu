@@ -131,7 +131,7 @@ class PairedContextMenuTests(unittest.IsolatedAsyncioTestCase):
 class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_delayed_selector_event_cannot_reset_the_clicked_parent(self):
         pane = BrowserPane.__new__(BrowserPane)
-        pane.workspace = SimpleNamespace(open_volume=AsyncMock())
+        pane.workspace = SimpleNamespace(open_volume=AsyncMock(), client=SimpleNamespace(is_deleted=False))
         pane.volume_id, pane.index = 'copy', 1
         pane.volume_select = SimpleNamespace(value='copy')
         await pane.volume_changed(SimpleNamespace(value='previous-volume'))

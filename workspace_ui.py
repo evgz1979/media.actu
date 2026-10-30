@@ -15,6 +15,7 @@ from media_manager.storage import FLAGS, PURPOSES, relative_path
 from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
+from workspace_state import STORAGE_KEY, normalize_state, pane_snapshot
 
 
 STATUS_COLORS = {
@@ -196,6 +197,8 @@ class BrowserPane:
     async def volume_changed(self, event):
         # Unlinking restores selectors before opening the requested parent. Ignore
         # queued events from those older values after the latest value is set.
+        if self.workspace.client.is_deleted:
+            return
         if event.value and event.value == self.volume_select.value and event.value != self.volume_id:
             await self.workspace.open_volume(event.value, self.index)
 
@@ -648,6 +651,8 @@ class StorageWorkspace:
         self.context_menu_open = False
         self.match_generation = 0
         self.current_matches = []
+        self.state_ready = False
+        self.state_payload = None
         self.directory_sizes = {}
         self.size_requested = set()
         self.size_force = set()
@@ -750,6 +755,106 @@ class StorageWorkspace:
             pane.container.classes(add='active-pane' if pane.index == index else '', remove='' if pane.index == index else 'active-pane')
         if changed:
             self.render_volumes()
+        self.persist_workspace()
+
+    def workspace_snapshot(self):
+        state = dict(version=1, active=self.active_index, panes=[pane_snapshot(p) for p in self.panes])
+        if self.pair.active:
+            pair = self.pair
+            state['pair'] = dict(copy_id=pair.copy_id, job_id=pair.report['id'] if pair.report else None,
+                                 root=pair.root if pair.report else pair.relative(0, self.panes[0].root_path) or '',
+                                 selected=pair.selected, hidden=pair.show_hidden,
+                                 differences_only=pair.differences_only, root_files_open=pair.root_files_open,
+                                 expanded=[r['path'] for r in pair.rows if r['kind'] == 'directory' and r['path'] not in pair.closed][:2000] if pair.rows else None,
+                                 pending=pair.pending_start)
+            if pair.saved:
+                state['browse'] = [pane_snapshot(p) for p in pair.saved]
+        elif self.report:
+            state['job_id'] = self.job_id
+            state['target_focus'] = bool(self.panes[1].comparison.focus)
+            if self.browse_state:
+                state['browse'] = [pane_snapshot(p) for p in self.browse_state]
+        return state
+
+    def persist_workspace(self):
+        if not self.state_ready or self.client.is_deleted or not self.client.has_socket_connection:
+            return
+        payload = json.dumps(self.workspace_snapshot(), ensure_ascii=False, sort_keys=True)
+        if payload == self.state_payload:
+            return
+        self.state_payload = payload
+        self.client.run_javascript(f'try {{ sessionStorage.setItem({json.dumps(STORAGE_KEY)}, {json.dumps(payload)}); }} catch (e) {{ console.warn("Не удалось сохранить панели", e); }}')
+
+    async def restore_panes(self, states):
+        restored = False
+        for pane, state in zip(self.panes, states):
+            if not any(v['id'] == state['volume_id'] for v in self.volumes):
+                continue
+            pane.hidden.set_value(state['hidden'])
+            await pane.show_volume(state['volume_id'], state['root_path'], activate=False)
+            directory = state['path'] if state['kind'] == 'directory' else relative_path(str(PurePosixPath(state['path']).parent))
+            for folder in [str(p) for p in reversed(PurePosixPath(directory).parents)] + [directory]:
+                if folder in ('.', state['root_path']) or (state['root_path'] and not folder.startswith(state['root_path'] + '/')):
+                    continue
+                await pane.load_folder(folder, refresh=False)
+                pane.expanded.add(folder)
+            pane.path, pane.kind = state['path'], state['kind']
+            pane.entry = dict(path=pane.path, kind=pane.kind, name=PurePosixPath(pane.path).name)
+            pane.render()
+            restored = True
+        return restored
+
+    async def restore_workspace(self, state):
+        if not await self.restore_panes(state.get('browse', state['panes'])):
+            return False
+        if pair_state := state.get('pair'):
+            report = None
+            job_id = pair_state.get('job_id')
+            if pending := pair_state.get('pending'):
+                jobs = (await self.request('GET', '/api/storage/paired-comparisons', params={'copy_id': pair_state['copy_id']}))['jobs']
+                created = next((job for job in jobs if job['created_at'] >= pending['since']
+                                and job['mode'] == pending['mode'] and job.get('method', 'size') == pending['method']), None)
+                if created:
+                    job_id = created['id']
+            if job_id:
+                report = await self.request('GET', f'/api/storage/paired-comparisons/{job_id}', timeout=45)
+                if report['copy_id'] != pair_state['copy_id']:
+                    raise ValueError('Сохранённая сверка относится к другой паре')
+            match = next(((group, copy) for group in self.copies.groups for copy in group['copies']
+                          if copy['id'] == pair_state['copy_id']), None)
+            if match:
+                await self.pair.link(*match)
+            elif report:
+                await self.pair.link({'main': report['scopes']['left']}, report['scopes']['right'])
+            else:
+                return True
+            if report:
+                await self.pair.apply(report)
+                self.pair.restore_view(pair_state)
+            else:
+                await self.pair.navigate_path(0, self.pair.scopes['left']['path'] + ('/' + pair_state['root'] if pair_state['root'] else ''))
+        elif state.get('job_id'):
+            await self.choose_job(state['job_id'])
+            if self.report:
+                saved = state['panes'][0]
+                source = next(s for s in self.report['scans'] if s['side'] == 'source')
+                if saved['volume_id'] == source['volume_id']:
+                    await self.panes[0].show_volume(saved['volume_id'], saved['root_path'],
+                                                   scan=source, job_id=self.job_id, activate=False)
+                    await self.panes[0].select(dict(path=saved['path'], kind=saved['kind'], name=PurePosixPath(saved['path']).name))
+                saved_right = state['panes'][1]
+                target = next((s for s in self.report['scans'] if s['side'] == 'target' and s['volume_id'] == saved_right['volume_id']
+                               and (not s['root_path'] or saved_right['path'] == s['root_path'] or saved_right['path'].startswith(s['root_path'] + '/'))), None)
+                if target:
+                    scope = dict(scan_id=target['id'], volume_id=target['volume_id'], volume_name=target['volume_name'], path=target['root_path'])
+                    entry = dict(scan_id=target['id'], path=saved_right['path'], kind=saved_right['kind'], name=PurePosixPath(saved_right['path']).name)
+                    if state.get('target_focus') and entry['kind'] == 'directory':
+                        await self.panes[1].comparison.open_folder(entry, scope)
+                    else:
+                        await self.panes[1].comparison.select(entry, scope)
+        self.set_active(state['active'])
+        self.update_scopes()
+        return True
 
     async def open_in_finder(self, volume_id, path=''):
         if not volume_id:
@@ -944,6 +1049,7 @@ class StorageWorkspace:
             self.refresh_button.enable()
 
     def update_scopes(self):
+        self.persist_workspace()
         self.copies.render_sidebar()
         self.copies.render_controls()
         if self.report:
@@ -971,10 +1077,29 @@ class StorageWorkspace:
         self.start_button.set_enabled(bool(valid and not running))
 
     async def load(self, source='', path='', job=''):
+        restore_failed = False
+        try:
+            await self.client.connected(timeout=10)
+            saved = normalize_state(await self.client.run_javascript(
+                f'try {{ return JSON.parse(sessionStorage.getItem({json.dumps(STORAGE_KEY)}) || "null"); }} catch {{ return null; }}', timeout=3))
+        except TimeoutError:
+            saved = None
+            restore_failed = True
         await self.refresh_volumes()
+        restored = False
+        if saved and not source and not job:
+            try:
+                restored = await self.restore_workspace(saved)
+            except Exception as error:
+                self.notice(error)
+                restore_failed = True
+                # Abandon only this failed UI reconstruction, never the Core job.
+                self.pair.active, self.pair.report = False, None
+                self.pair.views.clear()
+                self.report, self.job_id = None, None
         active = [v for v in self.volumes if not archived(v) and v.get('identity_status') != 'unverified']
         candidates = active or self.volumes
-        if candidates:
+        if candidates and not restored:
             requested = next((v for v in self.volumes if v['id'] == source), None)
             left = requested or next((v for v in candidates if v.get('marker_id') and v.get('mounted')), candidates[0])
             right = next((v for v in candidates if v['id'] != left['id']), left)
@@ -986,16 +1111,20 @@ class StorageWorkspace:
             await self.panes[0].show_volume(left['id'], initial_path, activate=False)
             if not self.pair.active:
                 await self.panes[1].show_volume(right['id'], activate=False)
-        else:
+        elif not restored:
             for pane in self.panes:
                 pane.render()
         await self.refresh_history()
         if job and not self.pair.active:
             await self.choose_job(job)
-        self.set_active(0)
+        if not restored:
+            self.set_active(0)
+        self.state_ready = not restore_failed
+        self.persist_workspace()
         ui.timer(30, self.refresh_volumes)
         ui.timer(3, self.poll)
         ui.timer(1.5, self.poll_directory_sizes)
+        ui.timer(1, self.persist_workspace)
 
     async def refresh_history(self):
         try:

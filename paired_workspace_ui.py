@@ -1,5 +1,6 @@
 """Linked main/copy pairs, compact central controls, aligned virtual trees."""
 import asyncio
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from nicegui import ui
@@ -79,6 +80,8 @@ class PairedWorkspace:
         self.root_files_open = False
         self.copy_operation = None
         self.copy_dialog_open = False
+        self.pending_start = None
+        self.pending_view = None
 
     @property
     def copy_running(self):
@@ -182,6 +185,7 @@ class PairedWorkspace:
                 self.saved = [p.save_browse_state() for p in self.ws.panes]
                 self.saved_active = self.ws.active_index
             self.generation += 1
+            self.pending_start = self.pending_view = None
             self.active = True
             self.scopes = {'left': group['main'], 'right': location}
             self.copy_id = location['id']
@@ -210,6 +214,7 @@ class PairedWorkspace:
             if self.report and self.report['state'] in ('running', 'pausing'):
                 await self.stop()
             self.generation += 1
+            self.pending_start = self.pending_view = None
             self.active, self.report = False, None
             self.copy_operation = None
             self.rows, self.by_path = [], {}
@@ -266,6 +271,7 @@ class PairedWorkspace:
             self.navigate(relative)
         else:
             with self.ws.client:
+                self.root = self.selected = relative
                 await asyncio.gather(*(p.show_volume(s['volume_id'], absolute_scope_path(s, relative), activate=False)
                                        for p, s in zip(self.ws.panes, self.scopes.values())))
 
@@ -307,7 +313,7 @@ class PairedWorkspace:
                          and (self.show_hidden or not any(p.startswith('.') for p in PurePosixPath(r['path']).parts))
                          for r in self.rows) if self.report['mode'] == 'files' else 0
         view.props.update(root_file_count=root_files, root_files_open=self.root_files_open)
-        view.props['empty_text'] = ('Идёт сверка…' if self.report['state'] in ('running', 'pausing') else
+        view.props['empty_text'] = ('Выполняется сверка…' if self.report['state'] in ('running', 'pausing') else
                                    self.report['message'] if self.report['state'] == 'failed' else
                                    'Часть данных не проверена. Подробности — в итогах.' if self.report.get('root_errors') else
                                    'Различий нет' if self.differences_only else 'Папок нет')
@@ -411,25 +417,34 @@ class PairedWorkspace:
     async def start(self, mode, method='size'):
         with self.ws.client:
             generation = self.generation
+            self.pending_start = dict(since=datetime.now(timezone.utc).isoformat(), mode=mode, method=method)
+            self.ws.persist_workspace()
             try:
                 data = await self.ws.request('POST', '/api/storage/paired-comparisons',
                                              json={'copy_id': self.copy_id, 'mode': mode, 'method': method,
                                                    'base_job_id': self.report['id'] if mode == 'files' and self.report else None}, timeout=45)
-                if generation != self.generation:
+                if generation != self.generation or self.ws.client.is_deleted:
                     return
+                self.pending_start = None
                 await self.apply(data)
+                self.ws.persist_workspace()
             except Exception as error:
                 self.ws.notice(error)
+            finally:
+                self.pending_start = None
+                self.ws.persist_workspace()
 
     async def apply(self, report):
         previous = self.report
+        changed = not previous or report['id'] != previous['id']
         self.report = report
         self.copy_operation = report.get('copy_operation')
         self.scopes = report['scopes']
         for side, pane in zip(('left', 'right'), self.ws.panes):
             pane.volume_id = self.scopes[side]['volume_id']
             pane.volume_select.set_value(pane.volume_id)
-        if not previous or report['id'] != previous['id']:
+        if changed:
+            self.pending_view = None
             self.root = self.selected = ''
             self.differences_only = report['mode'] == 'files'
             self.root_files_open = False
@@ -452,9 +467,26 @@ class PairedWorkspace:
             await self.load_rows(report['id'])
         else:
             for side, pane in zip(('left', 'right'), self.ws.panes):
-                pane.path = self.scopes[side]['path']
-                pane.kind = 'directory'
+                if changed:
+                    pane.path = self.scopes[side]['path']
+                    pane.kind = 'directory'
                 pane.render()
+
+    def restore_view(self, state):
+        self.differences_only = state['differences_only']
+        self.show_hidden = state['hidden']
+        self.root_files_open = state['root_files_open']
+        for pane in self.ws.panes:
+            pane.hidden.set_value(self.show_hidden)
+        if not self.rows:
+            self.pending_view = state
+            return
+        self.root = state['root'] if state['root'] in self.by_path else ''
+        self.selected = state['selected'] if state['selected'] in self.by_path else self.root
+        if state['expanded'] is not None:
+            self.closed = {row['path'] for row in self.rows if row['kind'] == 'directory'} - set(state['expanded'])
+        self.choose(self.selected)
+        self.redraw()
 
     async def load_rows(self, job):
         generation = self.generation
@@ -492,12 +524,15 @@ class PairedWorkspace:
             self.root_files_open = False
             self.loaded_job = job
         self.choose(self.selected)
+        if self.pending_view:
+            pending, self.pending_view = self.pending_view, None
+            self.restore_view(pending)
         self.rail_signature = None
         self.render_rail()
         self.redraw()
 
     async def poll(self):
-        if not self.active or not self.report:
+        if self.ws.client.is_deleted or not self.active or not self.report:
             return
         generation, job = self.generation, self.report['id']
         try:
