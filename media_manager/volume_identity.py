@@ -12,12 +12,18 @@ from datetime import datetime, timezone
 
 MARKER_NAME = '.media-actu-volume.json'
 MARKER_FILES = frozenset((MARKER_NAME, '._' + MARKER_NAME))
+FOLDER_MARKER_NAME = '.media-actu-folder.json'
+FOLDER_MARKER_FILES = frozenset((FOLDER_MARKER_NAME, '._' + FOLDER_MARKER_NAME))
 MARKER_LIMIT = 4096
 COPY_TEMP_PATTERN = re.compile(r'\.media-actu-copy-[a-f0-9]{32}-[a-f0-9]{32}\.part\Z')
 
 
 def copy_temporary(name: str) -> bool:
     return bool(COPY_TEMP_PATTERN.fullmatch(name))
+
+
+def service_file(name: str, *, volume_root: bool = False) -> bool:
+    return copy_temporary(name) or name in FOLDER_MARKER_FILES or (volume_root and name in MARKER_FILES)
 
 
 def usb_share(name: str) -> bool:

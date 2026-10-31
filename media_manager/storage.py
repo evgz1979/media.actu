@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import os
 import plistlib
@@ -19,8 +20,8 @@ from urllib.parse import quote, unquote, urlsplit
 
 from .copies import COPY_SCHEMA, inherited_location
 from .volume_identity import (
-    MARKER_FILES, canonical_host, copy_temporary, create_marker, mounted_root, read_capacity,
-    read_marker, rename_marker, usb_share, verify_identity,
+    canonical_host, create_marker, mounted_root, read_capacity,
+    read_marker, rename_marker, service_file, usb_share, verify_identity,
 )
 
 
@@ -479,10 +480,10 @@ class StorageCatalog:
         row = db.execute("SELECT * FROM directories WHERE volume_id=? AND path=?", (volume_id, path)).fetchone()
         return {"entries": json.loads(row["entries"]), "scanned_at": row["scanned_at"]} if row else {"entries": [], "scanned_at": None}
 
-    def directory(self, volume_id: str, path: str = "", refresh: bool = True) -> dict:
+    def directory(self, volume_id: str, path: str = "", refresh: bool = True, *, discover: bool = True) -> dict:
         import json
         path = relative_path(path)
-        volumes = self.refresh(force=refresh, cached_only=not refresh)
+        volumes = self.refresh(force=refresh and discover, cached_only=not (refresh and discover))
         volume = next((v for v in volumes["volumes"] if v["id"] == volume_id), None)
         if volume is None:
             raise KeyError("Том не найден")
@@ -490,6 +491,7 @@ class StorageCatalog:
             snapshot = self._snapshot(db, volume_id, path)
         cached = True
         error = volume.get('identity_error')
+        error_code = None
         if refresh and volume["availability"] == "online":
             try:
                 entries = self._read_directory(volume, path)
@@ -499,12 +501,14 @@ class StorageCatalog:
                 cached = False
             except OSError as failure:
                 error = f"Не удалось прочитать папку: {failure.strerror or str(failure)}"
+                error_code = 'missing' if failure.errno in (errno.ENOENT, errno.ENOTDIR) else 'read_failed'
         with self.connect() as db:
             annotations = {r["path"]: dict(r) for r in db.execute("SELECT * FROM annotations WHERE volume_id=?", (volume_id,))}
             locations = [dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE volume_id=?', (volume_id,))]
         for entry in snapshot["entries"]:
             entry["metadata"] = {**self._metadata(entry["path"], annotations), 'copy': inherited_location(entry['path'], locations)}
-        return {**snapshot, "path": path, "volume": volume, "cached": cached, "error": error, "metadata": self.metadata(volume_id, path)}
+        return {**snapshot, "path": path, "volume": volume, "cached": cached, "error": error,
+                "error_code": error_code, "metadata": self.metadata(volume_id, path)}
 
     @staticmethod
     def _read_directory(volume: dict, path: str) -> list[dict]:
@@ -526,7 +530,7 @@ class StorageCatalog:
             entries = []
             with os.scandir(descriptor) as iterator:
                 for item in iterator:
-                    if copy_temporary(item.name) or (item.name in MARKER_FILES and not path):
+                    if service_file(item.name,volume_root=not path):
                         continue
                     kind = "symlink" if item.is_symlink() else "directory" if item.is_dir(follow_symlinks=False) else "file"
                     entry = {"name": item.name, "path": f"{path}/{item.name}".lstrip("/"), "kind": kind, "size": None, "modified_at": None}

@@ -341,7 +341,8 @@ class BrowserPane:
         if not scope:
             return False
         volume_id, path = scope
-        return (scope in self.workspace.size_force
+        return (any(pane.refreshing and pane.size_scope() == scope for pane in getattr(self.workspace, 'panes', ()))
+                or scope in self.workspace.size_force
                 or self.workspace.directory_sizes.get(volume_id, {}).get(path, {}).get('state') in ('queued', 'running'))
 
     def render_path(self, volume_id, path, kind, *, boundary='', navigate=None):
@@ -442,7 +443,7 @@ class BrowserPane:
             if not self.workspace.context_menu_open and not self.workspace.editing:
                 self.render()
 
-    async def load_folder(self, path, *, more=False, refresh=True):
+    async def load_folder(self, path, *, more=False, refresh=True, discover=True):
         generation = self.generation
         volume_id = self.volume_id
         try:
@@ -460,14 +461,16 @@ class BrowserPane:
                         'scanned_at': self.scan.get('finished_at') or self.scan.get('started_at') or True}
             else:
                 data = await self.workspace.request('GET', f'/api/storage/volumes/{volume_id}/directory',
-                                                    params={'path': path, 'refresh': refresh}, timeout=45)
+                                                    params={'path': path, 'refresh': refresh, 'discover': discover}, timeout=45)
             if generation == self.generation:
                 self.folders[path] = data
+                return data
         except Exception as error:
             if generation == self.generation:
                 previous = self.folders.get(path, {})
                 self.folders[path] = {**previous, 'entries': previous.get('entries', []), 'cached': True,
                                       'error': self.workspace.error_text(error)}
+                return self.folders[path]
 
     async def select(self, entry, toggle=False, *, render=True):
         self.workspace.set_active(self.index)
@@ -540,23 +543,74 @@ class BrowserPane:
     async def refresh(self):
         if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
-        scope = self.size_scope()
         self.refreshing = True
-        if scope:
-            self.workspace.size_force.add(scope)
-        self.workspace.update_size_labels()
         generation = self.generation
         try:
+            self.workspace.update_size_labels()
             self.workspace.set_active(self.index)
-            path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
-            await self.load_folder(path)
-            if generation != self.generation:
-                return
+            selected = self.path
+            path = selected if self.kind == 'directory' else relative_path(str(PurePosixPath(selected).parent))
+            base = self.root_path
+            relative = path[len(base):].strip('/') if base else path
+            parts = PurePosixPath(relative).parts
+            chain = [base] + ['/'.join(filter(None, (base, *parts[:i + 1]))) for i in range(len(parts))]
+            last_good = None
+            missing = False
+            for index, current in enumerate(chain):
+                data = await self.load_folder(current,discover=index==0)
+                if generation != self.generation:
+                    return
+                if not data or data.get('cached'):
+                    if data and data.get('error_code') == 'missing':
+                        missing = True
+                        break
+                    ui.notify((data or {}).get('error') or 'Список не удалось обновить. Показан сохранённый снимок.', type='warning')
+                    self.render()
+                    return
+                last_good = current
+                if current != path:
+                    child = chain[index + 1]
+                    if not any(e['path'] == child and e['kind'] == 'directory' for e in data['entries']):
+                        missing = True
+                        break
+            if missing:
+                # Find the nearest readable ancestor without creating paths or
+                # discarding saved snapshots of the old folder.
+                candidate = relative_path(str(PurePosixPath(base).parent))
+                while last_good is None:
+                    data = await self.load_folder(candidate,discover=False)
+                    if generation != self.generation:
+                        return
+                    if data and not data.get('cached'):
+                        last_good = candidate
+                        break
+                    if not candidate or not data or data.get('error_code') != 'missing':
+                        ui.notify((data or {}).get('error') or 'Не удалось обновить родительскую папку.', type='warning')
+                        self.render()
+                        return
+                    candidate = relative_path(str(PurePosixPath(candidate).parent))
+                path = last_good
+                if self.workspace.pair.active:
+                    await self.workspace.open_volume(self.volume_id, self.index, path=path)
+                    ui.notify('Папка перемещена или переименована. Показан родительский каталог.', type='info')
+                    return
+                if base and path != base and not path.startswith(base + '/'):
+                    self.root_path = path
+                self.path, self.kind, self.entry = path, 'directory', None
+                self.expanded.add(path)
+                ui.notify('Папка перемещена или переименована. Показан родительский каталог.', type='info')
+            elif self.kind != 'directory' and not any(e['path'] == selected for e in data['entries']):
+                self.path, self.kind, self.entry = path, 'directory', None
+                self.expanded.add(path)
+                ui.notify('Выбранный файл перемещён или переименован. Список обновлён.', type='info')
+            else:
+                self.workspace.size_force.add((self.volume_id, path))
             for child in list(self.folders):
                 if child != path and (not path or child.startswith(path + '/')):
                     self.folders.pop(child)
                     self.expanded.discard(child)
             self.render()
+            self.workspace.update_scopes()
         finally:
             self.refreshing = False
             self.workspace.update_size_labels()
@@ -1500,6 +1554,12 @@ class StorageWorkspace:
                 ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
                 if not membership['is_root']:
                     ui.label('Унаследовано от /' + membership['path']).classes('s-path s-muted')
+                if membership.get('marker_state'):
+                    marker_state = {'ready':'Записан','pending':'Ожидает записи','error':'Не удалось записать',
+                                    'superseded':'Папка используется новой привязкой'}[membership['marker_state']]
+                    ui.label('Служебный файл папки: ' + marker_state).classes('text-xs s-muted')
+                    if membership.get('marker_error'):
+                        ui.label(membership['marker_error']).classes('s-error text-xs break-words')
             for key, label in FLAGS.items():
                 if values.get(key):
                     ui.label(label).classes('s-tag flag')

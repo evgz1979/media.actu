@@ -255,14 +255,16 @@ class RefreshButtonTests(unittest.IsolatedAsyncioTestCase):
         ws.size_force, ws.size_requested, ws.size_open_scopes = set(), {('disk', p) for p in paths}, {('disk', p) for p in paths}
         ws.sizes_polling = ws.context_menu_open = ws.editing = False
         ws.set_active = Mock()
+        ws.update_scopes = Mock()
         ws.panes = []
         for index, path in enumerate(paths):
             pane = BrowserPane.__new__(BrowserPane)
             pane.workspace, pane.index, pane.volume_id = ws, index, 'disk'
             pane.path, pane.kind, pane.generation = path, 'directory', 1
+            pane.root_path = path
             pane.refreshing, pane.refresh_button, pane.folder_size = False, Mock(), Mock()
             pane.folders, pane.expanded, pane.size_cells = {path: {}}, {path}, {}
-            pane.load_folder, pane.render = AsyncMock(), Mock()
+            pane.load_folder, pane.render = AsyncMock(return_value={'entries': [], 'cached': False}), Mock()
             ws.panes.append(pane)
         return ws
 
@@ -274,6 +276,7 @@ class RefreshButtonTests(unittest.IsolatedAsyncioTestCase):
         async def blocked(*args, **kwargs):
             started.set()
             await release.wait()
+            return {'entries': [], 'cached': False}
 
         first.load_folder.side_effect = blocked
         task = asyncio.create_task(first.refresh())
@@ -320,7 +323,7 @@ class RefreshButtonTests(unittest.IsolatedAsyncioTestCase):
         ws = self.workspace()
         pane = ws.panes[0]
 
-        async def navigate(*args):
+        async def navigate(*args, **kwargs):
             pane.generation += 1
             pane.path = 'Other'
             pane.folders['Album/Nested'] = {'keep': True}

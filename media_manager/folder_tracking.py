@@ -9,7 +9,7 @@ import threading
 from watchdog.observers import Observer
 
 from .comparison import open_readonly
-from .volume_identity import copy_temporary
+from .volume_identity import service_file
 from .watcher import DebouncedHandler
 
 
@@ -18,7 +18,7 @@ class FolderChangeHandler(DebouncedHandler):
         if event.event_type not in {'created', 'deleted', 'modified', 'moved'}:
             return
         paths = [event.src_path, getattr(event, 'dest_path', '')]
-        if all(not path or copy_temporary(Path(path).name) for path in paths):
+        if all(not path or service_file(Path(path).name) for path in paths):
             return
         super().on_any_event(event)
 

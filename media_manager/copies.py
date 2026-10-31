@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from itertools import count
+import json
 from pathlib import PurePosixPath
 from uuid import uuid4
+
+from .folder_markers import FOLDER_MARKER_SCHEMA, queue_marker
 
 
 COPY_KINDS = {'copy': 'Обычная копия', 'cold': 'Сменный носитель', 'cloud': 'Облако'}
@@ -47,7 +50,7 @@ CREATE TABLE IF NOT EXISTS released_copy_locations (
     disconnected_at TEXT NOT NULL, released_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS released_copy_locations_group ON released_copy_locations(group_id,number);
-'''
+''' + FOLDER_MARKER_SCHEMA
 
 
 def copy_label(kind, number):
@@ -84,6 +87,40 @@ class CopyCatalog:
     def __init__(self, storage):
         self.storage = storage
 
+    @staticmethod
+    def _queue_folder_markers(db, group_id=None):
+        mains = {row['group_id']:row for row in db.execute('SELECT id,group_id,path FROM copy_locations WHERE number=0')}
+        rows = [dict(row, released=False) for row in db.execute('''
+            SELECT l.*,d.disconnected_at,g.disconnected_at AS group_disconnected_at FROM copy_locations l
+            LEFT JOIN disconnected_copy_locations d ON d.location_id=l.id
+            LEFT JOIN disconnected_copy_groups g ON g.group_id=l.group_id''')]
+        rows += [dict(row,released=True) for row in db.execute('SELECT * FROM released_copy_locations')]
+        for location in rows:
+            if group_id is not None and location['group_id'] != group_id:
+                continue
+            main = mains[location['group_id']]
+            status = ('released' if location['released'] else 'disconnected'
+                      if location.get('disconnected_at') or location.get('group_disconnected_at') else 'active')
+            queue_marker(db, dict(version=1,group_id=location['group_id'],folder_id=location['id'],
+                                  volume_id=location['volume_id'],path=location['path'],name=PurePosixPath(main['path']).name,
+                                  role='main' if location['number']==0 else 'copy',number=location['number'],
+                                  type=location['kind'],label=copy_label(location['kind'],location['number']),
+                                  status=status,created_at=location['created_at']))
+
+    def queue_folder_markers(self):
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._queue_folder_markers(db)
+
+    @staticmethod
+    def _queue_removed_marker(db, location_id):
+        row = db.execute('SELECT payload FROM folder_marker_jobs WHERE location_id=?',(location_id,)).fetchone()
+        if row:
+            payload = json.loads(row['payload'])
+            payload.pop('updated_at',None)
+            payload['status'] = 'removed'
+            queue_marker(db,payload)
+
     def _folder(self, volume_id, path):
         # metadata validates the relative path and remembered volume without touching files.
         self.storage.metadata(volume_id, path)
@@ -119,9 +156,12 @@ class CopyCatalog:
                 LEFT JOIN disconnected_copy_groups d ON d.group_id=g.id
                 ORDER BY g.created_at,g.id''')]
             by_id = {group['id']: group for group in groups}
+            markers = {row['location_id']:dict(marker_state=row['state'],marker_error=row['error'],marker_synced_at=row['synced_at'])
+                       for row in db.execute('SELECT location_id,state,error,synced_at FROM folder_marker_jobs')}
             for row in db.execute('''SELECT l.*,d.disconnected_at FROM copy_locations l
                                      LEFT JOIN disconnected_copy_locations d ON d.location_id=l.id ORDER BY l.number'''):
                 location = dict(row)
+                location.update(markers.get(location['id'],dict(marker_state='pending',marker_error=None,marker_synced_at=None)))
                 location['connected'] = not (location['disconnected_at'] or by_id[location['group_id']]['disconnected_at'])
                 volume = volumes.get(location['volume_id']) or self.storage.get_volume(location['volume_id'])
                 location.update(label=copy_label(location['kind'], location['number']),
@@ -133,6 +173,7 @@ class CopyCatalog:
                     by_id[location['group_id']]['copies'].append(location)
             for row in db.execute('SELECT * FROM released_copy_locations ORDER BY released_at,id'):
                 location = dict(row)
+                location.update(markers.get(location['id'],dict(marker_state='pending',marker_error=None,marker_synced_at=None)))
                 volume = volumes.get(location['volume_id']) or self.storage.get_volume(location['volume_id'])
                 location.update(connected=False, number_released=True,
                                 label='Прежняя ' + copy_label(location['kind'], location['number']),
@@ -170,6 +211,7 @@ class CopyCatalog:
                     db.execute('INSERT INTO copy_groups VALUES (?,1,?)', (group_id, timestamp))
                     db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
                                (uuid4().hex, group_id, volume_id, path, 'main', 0, timestamp))
+                self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
     def update_group(self, group_id, changes):
@@ -206,6 +248,7 @@ class CopyCatalog:
             else:
                 db.execute('INSERT OR IGNORE INTO disconnected_copy_groups VALUES (?,?)',
                            (group_id, datetime.now(timezone.utc).isoformat()))
+            self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
     def set_copy_connected(self, location_id, connected):
@@ -235,6 +278,7 @@ class CopyCatalog:
             elif not released:
                 db.execute('INSERT OR IGNORE INTO disconnected_copy_locations VALUES (?,?)',
                            (location_id, datetime.now(timezone.utc).isoformat()))
+            self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
     def release_copy_number(self, location_id, number, kind):
@@ -261,6 +305,7 @@ class CopyCatalog:
                            (*tuple(location[key] for key in ('id','group_id','volume_id','path','kind','number','created_at')),
                             location['disconnected_at'] or location['group_disconnected_at'], timestamp))
                 db.execute('DELETE FROM copy_locations WHERE id=?', (location_id,))
+            self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
     def acknowledge_changes(self, group_id, changed_at):
@@ -300,6 +345,7 @@ class CopyCatalog:
                     db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
                                (uuid4().hex, group_id, volume_id, path, kind, number, timestamp))
                     db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (number + 1, group_id))
+                self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
     def change_kind(self, location_id, kind):
@@ -313,6 +359,7 @@ class CopyCatalog:
             if location['number'] == 0:
                 raise ValueError('Основная папка всегда имеет метку 00-main')
             db.execute('UPDATE copy_locations SET kind=? WHERE id=?', (kind, location_id))
+            self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
     def remove_copy(self, location_id):
@@ -323,10 +370,14 @@ class CopyCatalog:
                 archived = db.execute('SELECT * FROM released_copy_locations WHERE id=?', (location_id,)).fetchone()
                 if archived is None:
                     raise KeyError('Ссылка на копию не найдена')
+                self._queue_folder_markers(db,archived['group_id'])
+                self._queue_removed_marker(db,location_id)
                 db.execute('DELETE FROM released_copy_locations WHERE id=?', (location_id,))
                 return
             if location['number'] == 0:
                 raise ValueError('Основную папку убирают вместе с её списком копий')
+            self._queue_folder_markers(db,location['group_id'])
+            self._queue_removed_marker(db,location_id)
             db.execute('DELETE FROM copy_locations WHERE id=?', (location_id,))
             next_number = db.execute('SELECT COALESCE(MAX(number),0)+1 FROM copy_locations WHERE group_id=?',
                                      (location['group_id'],)).fetchone()[0]
@@ -346,10 +397,14 @@ class CopyCatalog:
             for change in numbering_changes(locations, released):
                 db.execute('UPDATE copy_locations SET number=? WHERE id=?', (change['number'], change['id']))
             db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (len(locations) + 1, group_id))
+            self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
     def remove_group(self, group_id):
         with self.storage._lock, self.storage.connect() as db:
             if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
                 raise KeyError('Основная папка не найдена')
+            self._queue_folder_markers(db,group_id)
+            for row in db.execute('SELECT location_id FROM folder_marker_jobs WHERE group_id=?',(group_id,)).fetchall():
+                self._queue_removed_marker(db,row['location_id'])
             db.execute('DELETE FROM copy_groups WHERE id=?', (group_id,))

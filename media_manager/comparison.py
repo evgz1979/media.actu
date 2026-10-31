@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from .storage import StorageCatalog, now, relative_path
-from .volume_identity import MARKER_FILES, copy_temporary, verify_identity
+from .volume_identity import service_file, verify_identity
 
 
 LABELS = {
@@ -322,7 +322,7 @@ class ComparisonCatalog:
                     with os.scandir(descriptor) as iterator:
                         for item in iterator:
                             self._check()
-                            if copy_temporary(item.name) or (not path and item.name in MARKER_FILES):
+                            if service_file(item.name,volume_root=not path):
                                 continue
                             entry = dict(path=(path + '/' + item.name).lstrip('/'), parent=path, name=item.name,
                                          kind='file', size=None, mtime_ns=None, ctime_ns=None, inode=None, device=None, error=None)

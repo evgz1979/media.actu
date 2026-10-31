@@ -9,7 +9,7 @@ import threading
 
 from .comparison import open_readonly
 from .storage import now, relative_path
-from .volume_identity import MARKER_FILES, copy_temporary
+from .volume_identity import service_file
 
 
 def within(path, root):
@@ -128,7 +128,7 @@ class DirectorySizeService:
                             for entry in entries:
                                 if self._stop.is_set():
                                     return
-                                if copy_temporary(entry.name) or (not current and entry.name in MARKER_FILES):
+                                if service_file(entry.name,volume_root=not current):
                                     continue
                                 try:
                                     info = entry.stat(follow_symlinks=False)

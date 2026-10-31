@@ -5,11 +5,41 @@ import sys
 import tempfile
 import unittest
 
-from media_manager.sandbox_rules import copy_write_rules, marker_write_rules
+from media_manager.sandbox_rules import copy_write_rules, folder_marker_write_rules, marker_write_rules
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'macOS sandbox integration')
 class CopySandboxTests(unittest.TestCase):
+    def test_folder_marker_write_exception_covers_only_its_service_filename(self):
+        with tempfile.TemporaryDirectory(prefix='media-actu-folder-marker-sandbox-') as temporary:
+            root = Path(temporary).resolve()
+            folder = root/'volumes/disk/Main/Sub'
+            folder.mkdir(parents=True)
+            (folder/'original').write_bytes(b'keep')
+            profile = ('(version 1) (allow default) (deny file-write* (subpath '
+                       + json.dumps(str(root/'volumes')) + ')) ' + folder_marker_write_rules(str(root/'volumes'))
+                       + ' ' + copy_write_rules(str(root/'volumes')))
+            code = '''
+import sys
+from pathlib import Path
+from uuid import uuid4
+from media_manager.folder_markers import write_folder_marker,read_folder_marker
+from media_manager.volume_identity import mounted_root
+folder=Path(sys.argv[1]); payload=dict(version=1,group_id=uuid4().hex,folder_id=uuid4().hex,volume_id='disk',path='Main/Sub',name='Main',role='main',type='main',number=0,label='00-main',status='active',created_at='now',updated_at='now')
+with mounted_root(str(folder)) as root:
+ write_folder_marker(root,payload)
+ write_folder_marker(root,{**payload,'status':'disconnected'})
+ assert read_folder_marker(root)['status']=='disconnected'
+for action in (lambda:(folder/'original').write_bytes(b'overwrite'), lambda:(folder/'original').unlink()):
+ try:action()
+ except PermissionError:pass
+ else:raise AssertionError('Original was writable')
+'''
+            result = subprocess.run(['/usr/bin/sandbox-exec','-p',profile,sys.executable,'-c',code,str(folder)],capture_output=True,text=True)
+            if 'sandbox_apply: Operation not permitted' in result.stderr:
+                self.skipTest('Host does not allow nested sandbox-exec')
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     def test_marker_rename_is_atomic_and_keeps_originals_protected(self):
         with tempfile.TemporaryDirectory(prefix='media-actu-marker-sandbox-') as temporary:
             root = Path(temporary).resolve()

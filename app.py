@@ -29,6 +29,7 @@ from media_manager.network import NetworkCatalog, NetworkError
 from media_manager.comparison import ComparisonCatalog
 from media_manager.copies import CopyCatalog, COPY_KINDS, FOLDER_LABELS
 from media_manager.folder_tracking import FolderTrackingService
+from media_manager.folder_markers import FolderMarkerService
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
 from media_manager.directory_sizes import DirectorySizeService
@@ -53,6 +54,7 @@ network = NetworkCatalog(storage)
 comparison = ComparisonCatalog(storage)
 copies = CopyCatalog(storage)
 folder_tracking = FolderTrackingService(copies)
+folder_markers = FolderMarkerService(copies)
 paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
 missing_copies = MissingCopyCatalog(paired_comparison)
 directory_sizes = DirectorySizeService(storage)
@@ -109,6 +111,7 @@ watcher = SourceWatcher(schedule_scan)
 async def lifespan(_: FastAPI):
     watcher.start()
     folder_tracking.start()
+    folder_markers.start()
     catalog.reset_stale_source_scans()
     photos_ready = False
     if photos_adapter.supported:
@@ -154,6 +157,7 @@ async def lifespan(_: FastAPI):
     thumbnail_workers.start()
     yield
     folder_tracking.close()
+    folder_markers.close()
     directory_sizes.close()
     missing_copies.close()
     paired_comparison.close()
@@ -303,9 +307,9 @@ async def connect_network_volume(volume_id: str) -> dict:
 
 
 @app.get("/api/storage/volumes/{volume_id}/directory")
-async def storage_directory(volume_id: str, path: str = "", refresh: bool = True) -> dict:
+async def storage_directory(volume_id: str, path: str = "", refresh: bool = True, discover: bool = True) -> dict:
     try:
-        return await asyncio.to_thread(storage.directory, volume_id, path, refresh)
+        return await asyncio.to_thread(storage.directory, volume_id, path, refresh, discover=discover)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Том не найден") from error
     except ValueError as error:
@@ -409,7 +413,9 @@ def set_copy_connection(action, identifier, connected):
 
 async def copy_catalog_action(action, *args):
     try:
-        return await asyncio.to_thread(action, *args)
+        result = await asyncio.to_thread(action, *args)
+        folder_markers.wake()
+        return result
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except (ValueError, OSError) as error:
@@ -421,6 +427,11 @@ async def storage_copy_groups() -> dict:
     groups = await copy_catalog_action(copies.groups)
     return {'groups': [dict(group, **folder_tracking.status(group['id'])) for group in groups],
             'kinds': COPY_KINDS, 'labels': FOLDER_LABELS}
+
+
+@app.get('/api/storage/folder-markers')
+async def storage_folder_markers() -> dict:
+    return await asyncio.to_thread(folder_markers.status)
 
 
 @app.post('/api/storage/copy-groups')

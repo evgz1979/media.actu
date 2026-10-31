@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from .comparison import Paused, fingerprint, open_readonly
 from .storage import now, relative_path
-from .volume_identity import MARKER_FILES, copy_temporary
+from .volume_identity import service_file
 
 
 STATUS_LABELS = {
@@ -207,7 +207,7 @@ class PairedComparisonCatalog:
                     with os.scandir(descriptor) as iterator:
                         for item in iterator:
                             self._check()
-                            if item.name.startswith('._') or item.name == '.DS_Store' or copy_temporary(item.name) or (not actual and item.name in MARKER_FILES):
+                            if item.name.startswith('._') or item.name == '.DS_Store' or service_file(item.name,volume_root=not actual):
                                 continue
                             relative = '/'.join(p for p in (path, item.name) if p)
                             entry = {'path': absolute_scope_path(scope, relative), 'name': item.name, 'error': None}
