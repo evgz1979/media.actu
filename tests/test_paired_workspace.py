@@ -131,6 +131,7 @@ class PairedContextMenuTests(unittest.IsolatedAsyncioTestCase):
 class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_delayed_selector_event_cannot_reset_the_clicked_parent(self):
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace = SimpleNamespace(open_volume=AsyncMock(), client=SimpleNamespace(is_deleted=False))
         pane.volume_id, pane.index = 'copy', 1
         pane.volume_select = SimpleNamespace(value='copy')
@@ -158,6 +159,7 @@ class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_source_report_parent_opens_normal_browsing(self):
         ws = SimpleNamespace(pair=SimpleNamespace(active=False), open_volume=AsyncMock())
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace, pane.volume_id, pane.index = ws, 'main', 0
         pane.scan = {'root_path': 'Private/Album'}
         await pane.open_path('Private')
@@ -166,7 +168,7 @@ class BreadcrumbNavigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_opening_parent_uses_existing_unlink_without_removing_records(self):
         ws = SimpleNamespace(client=nullcontext(), active_index=0, report=None,
                              pair=SimpleNamespace(active=True, unlink=AsyncMock()),
-                             panes=[SimpleNamespace(show_volume=AsyncMock()) for _ in range(2)])
+                             panes=[SimpleNamespace(show_volume=AsyncMock(), view_mode='tree') for _ in range(2)])
         await StorageWorkspace.open_volume(ws, 'copy', 1, path='Media-copy03')
         ws.pair.unlink.assert_awaited_once()
         ws.panes[1].show_volume.assert_awaited_once_with('copy', 'Media-copy03')
@@ -183,6 +185,7 @@ class ComparisonToolbarTests(unittest.IsolatedAsyncioTestCase):
                                          pair=SimpleNamespace(active=mode == 'pair', report=report if mode == 'pair' else None,
                                                               navigate_path=AsyncMock()), request=AsyncMock())
                     pane = BrowserPane.__new__(BrowserPane)
+                    pane.view_mode = 'tree'
                     pane.workspace = ws
                     pane.load_folder, pane.show_volume = AsyncMock(), AsyncMock()
                     await pane.go_parent()
@@ -201,6 +204,7 @@ class ComparisonToolbarTests(unittest.IsolatedAsyncioTestCase):
         ws.pair.scopes = {'left': {'path': 'Original'}}
         ws.pair.navigate_path = AsyncMock()
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace, pane.index, pane.path = ws, 0, 'Original/Sub'
         await pane.go_parent()
         ws.pair.navigate_path.assert_awaited_once_with(0, 'Original')

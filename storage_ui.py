@@ -104,6 +104,6 @@ body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,
 """
 
 
-def register_storage_page(request, format_bytes, format_date):
+def register_storage_page(request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
     from workspace_ui import register_workspace_page
-    register_workspace_page(request, format_bytes, format_date)
+    register_workspace_page(request, format_bytes, format_date, core_url)

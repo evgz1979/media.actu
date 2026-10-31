@@ -24,9 +24,14 @@ def path(value):
 def pane_snapshot(pane):
     data = pane if isinstance(pane, dict) else vars(pane)
     hidden = data.get('hidden', False)
-    return dict(volume_id=data.get('volume_id'), root_path=data.get('root_path', ''),
+    result = dict(volume_id=data.get('volume_id'), root_path=data.get('root_path', ''),
                 path=data.get('path', ''), kind=data.get('kind', 'directory'),
                 hidden=hidden if isinstance(hidden, bool) else bool(hidden.value))
+    result['view_mode'] = data.get('view_mode', 'tree')
+    preview = data.get('preview')
+    if preview is not None:
+        result['preview'] = preview if isinstance(preview, dict) else preview.snapshot()
+    return result
 
 
 def normalize_state(value):
@@ -42,7 +47,11 @@ def normalize_state(value):
                 return None
             result[key] = [dict(volume_id=identifier(p['volume_id']), root_path=path(p.get('root_path', '')),
                                 path=path(p.get('path', '')), kind='directory' if p.get('kind') == 'directory' else 'file',
-                                hidden=bool(p.get('hidden'))) for p in panes]
+                                hidden=bool(p.get('hidden')), view_mode='preview' if p.get('view_mode') == 'preview' else 'tree') for p in panes]
+            for normalized, original in zip(result[key], panes):
+                if isinstance(preview := original.get('preview'), dict):
+                    normalized['preview'] = dict(volume_id=identifier(preview['volume_id']), path=path(preview['path']),
+                                                 kind=preview.get('kind') if preview.get('kind') in ('directory', 'file', 'symlink', 'mount', 'special') else 'file')
         result['job_id'] = identifier(value.get('job_id'))
         result['target_focus'] = bool(value.get('target_focus'))
         if isinstance(pair := value.get('pair'), dict):

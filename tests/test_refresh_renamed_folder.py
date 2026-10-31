@@ -31,6 +31,7 @@ class RefreshRenamedFolderTests(unittest.IsolatedAsyncioTestCase):
             return self.storage.directory('disk',params['path'],refresh=params['refresh'],discover=params.get('discover',True))
         ws.request,ws.error_text = request,str
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace,pane.index,pane.volume_id = ws,1,'disk'
         pane.root_path,pane.path,pane.kind,pane.entry = '','Old','directory',None
         pane.scan,pane.generation,pane.refreshing = None,1,False

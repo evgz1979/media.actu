@@ -16,6 +16,7 @@ from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
+from storage_preview_ui import PREVIEW_CSS, StoragePreview
 from workspace_state import STORAGE_KEY, normalize_state, pane_snapshot
 
 
@@ -170,14 +171,17 @@ class BrowserPane:
         self.filter_value = ''
         self.path_signature = None
         self.refreshing = False
+        self.view_mode = 'tree'
+        self.tree_scroll = None
         with ui.column().classes('s-panel commander-pane w-full gap-0') as self.container:
             self.container.on('click', lambda: workspace.set_active(index))
             self.container.on('focusin', lambda: workspace.set_active(index))
             with ui.column().classes('s-panel-head w-full gap-2'):
-                workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.volume_id),
-                                        volume_id=lambda: self.volume_id)
+                workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.display_volume_id),
+                                        volume_id=lambda: self.display_volume_id)
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
+                    self.mode_switch = ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props(f'aria-label="Режим {self.title.lower()} панели"').classes('pane-mode')
                     with ui.row().classes('gap-0 no-wrap') as self.navigation:
                         self.parent_button = ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props(f'aria-label="На уровень выше {self.title.lower()}"')
                         self.root_button = ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props(f'aria-label="Корень {self.title.lower()} панели"')
@@ -197,6 +201,7 @@ class BrowserPane:
             self.result_filter.set_visibility(False)
             self.tree = ui.column().classes('s-tree gap-0')
             self.tree.on('click', self.folder_clicked, js_handler=FOLDER_CLICK_JS)
+            self.preview = StoragePreview(self)
             self.footer = ui.label('Том не выбран').classes('pane-status w-full')
         self.comparison = ComparisonTree(self) if index == 1 else None
 
@@ -204,7 +209,17 @@ class BrowserPane:
     def volume(self):
         return next((v for v in self.workspace.volumes if v['id'] == self.volume_id), None)
 
+    @property
+    def display_volume_id(self):
+        return self.preview.volume_id if self.view_mode == 'preview' else self.volume_id
+
     def scope(self):
+        if self.view_mode == 'preview':
+            volume = next((v for v in self.workspace.volumes if v['id'] == self.preview.volume_id), None)
+            if not volume or volume.get('identity_status') == 'unverified':
+                return None
+            path = self.preview.path if self.preview.kind == 'directory' else relative_path(str(PurePosixPath(self.preview.path).parent))
+            return dict(volume_id=self.preview.volume_id, path=path)
         if not self.volume or self.volume.get('identity_status') == 'unverified':
             return None
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
@@ -215,15 +230,67 @@ class BrowserPane:
         # queued events from those older values after the latest value is set.
         if self.workspace.client.is_deleted:
             return
+        if self.view_mode == 'preview':
+            if event.value and event.value == self.volume_select.value and event.value != self.preview.volume_id:
+                await self.preview.show(event.value, dict(path='', kind='directory', name=''))
+            return
         if event.value and event.value == self.volume_select.value and event.value != self.volume_id:
             await self.workspace.open_volume(event.value, self.index)
 
+    async def mode_changed(self, event):
+        if event.value == self.mode_switch.value and event.value != self.view_mode:
+            await self.set_mode(event.value)
+
+    async def set_mode(self, mode, *, target=None):
+        if mode not in ('tree', 'preview'):
+            return
+        if mode == 'preview':
+            other = self.workspace.panes[1 - self.index]
+            if other.view_mode == 'preview':
+                await other.set_mode('tree')
+            if self.view_mode == 'tree':
+                try:
+                    self.tree_scroll = await self.workspace.client.run_javascript(
+                        f'const host = getHtmlElement({self.tree.id}); const scroller = host?.querySelector(".pair-virtual") || host; '
+                        'return scroller ? [scroller.scrollTop, scroller.scrollLeft] : null;', timeout=3)
+                except TimeoutError:
+                    self.tree_scroll = None
+        self.view_mode = mode
+        self.mode_switch.set_value(mode)
+        self.tree.set_visibility(mode == 'tree')
+        self.preview.content.set_visibility(mode == 'preview')
+        self.path_signature = None
+        self.workspace.pair.render_rail()
+        if mode == 'preview':
+            if target:
+                volume_id, entry = target['volume_id'], target
+            else:
+                volume_id = other.volume_id
+                entry = other.entry or dict(path=other.path, kind=other.kind, name=PurePosixPath(other.path).name)
+            await self.preview.show(volume_id, entry)
+        else:
+            self.preview.generation += 1
+            self.volume_select.set_value(self.volume_id)
+            self.render()
+            if self.tree_scroll:
+                top, left = self.tree_scroll
+                self.workspace.client.run_javascript(
+                    f'requestAnimationFrame(() => {{ const host = getHtmlElement({self.tree.id}); '
+                    f'const scroller = host?.querySelector(".pair-virtual") || host; if (scroller) {{ scroller.scrollTop = {float(top)}; scroller.scrollLeft = {float(left)}; }} }});')
+        self.workspace.update_scopes()
+        self.workspace.persist_workspace()
+
     def activate_heading(self):
         self.workspace.set_active(self.index)
+        if self.view_mode == 'preview':
+            return
         if self.index == 1 and self.workspace.report and self.comparison.focus:
             self.comparison.show_matches()
 
     def hidden_changed(self, event):
+        if self.view_mode == 'preview':
+            self.preview.render()
+            return
         if self.workspace.pair.active and self.workspace.pair.report:
             self.workspace.pair.set_hidden(event.value)
         else:
@@ -265,14 +332,17 @@ class BrowserPane:
         self.render()
 
     def update_header(self):
-        for button in (self.parent_button, self.root_button):
-            button.set_enabled(not self.comparison_open())
-        self.update_size_header()
         self.volume_select.options = {
             v['id']: volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
             for v in self.workspace.volumes
         }
         self.volume_select.update()
+        if self.view_mode == 'preview':
+            self.preview.update_header()
+            return
+        for button in (self.parent_button, self.root_button):
+            button.set_enabled(not self.comparison_open())
+        self.update_size_header()
         if self.workspace.pair.active:
             self.workspace.pair.update_header(self)
             return
@@ -328,6 +398,8 @@ class BrowserPane:
         return bool(self.workspace.report or (self.workspace.pair.active and self.workspace.pair.report))
 
     def update_size_header(self):
+        if self.view_mode == 'preview':
+            return
         scope = self.size_scope()
         self.folder_size.set_visibility(bool(scope))
         if scope:
@@ -350,7 +422,7 @@ class BrowserPane:
         if not volume:
             return
         base = (volume['mount_path'] or volume.get('network_url') or volume_label(volume)).rstrip('/') or '/'
-        signature = volume_id, base, path, kind, boundary, bool(self.workspace.report)
+        signature = volume_id, base, path, kind, boundary, bool(self.workspace.report), self.view_mode
         if signature == self.path_signature:
             return
         self.path_signature = signature
@@ -429,6 +501,7 @@ class BrowserPane:
         self.render()
         self.workspace.render_volumes()
         self.workspace.update_scopes()
+        await self.workspace.preview_selection(self)
         if live:
             background_tasks.create(self.refresh_open_folder(generation, volume_id, self.root_path))
 
@@ -489,10 +562,15 @@ class BrowserPane:
                 row.classes(add='selected' if path == self.path else '', remove='' if path == self.path else 'selected')
             self.update_header()
         self.workspace.update_scopes()
+        await self.workspace.preview_selection(self)
         if self.index == 0:
             await self.workspace.refresh_matches()
 
     async def go_root(self):
+        if self.view_mode == 'preview':
+            if self.preview.volume_id:
+                await self.preview.open_folder('')
+            return
         if self.comparison_open():
             return
         if self.workspace.pair.active:
@@ -507,10 +585,15 @@ class BrowserPane:
         self.expanded.add(self.root_path)
         self.render()
         self.workspace.update_scopes()
+        await self.workspace.preview_selection(self)
         if self.index == 0:
             await self.workspace.refresh_matches()
 
     async def go_parent(self):
+        if self.view_mode == 'preview':
+            if self.preview.volume_id:
+                await self.preview.parent()
+            return
         if self.comparison_open():
             return
         if self.workspace.pair.active:
@@ -537,10 +620,14 @@ class BrowserPane:
         self.workspace.set_active(self.index)
         self.render()
         self.workspace.update_scopes()
+        await self.workspace.preview_selection(self)
         if self.index == 0:
             await self.workspace.refresh_matches()
 
     async def refresh(self):
+        if self.view_mode == 'preview':
+            await self.preview.refresh()
+            return
         if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
         self.refreshing = True
@@ -736,8 +823,9 @@ class BrowserPane:
 
 
 class StorageWorkspace:
-    def __init__(self, request, format_bytes, format_date):
+    def __init__(self, request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
         self.request, self.format_bytes, self.format_date = request, format_bytes, format_date
+        self.core_url = core_url
         self.client = ui.context.client
         self.volumes = []
         self.active_index = 0
@@ -760,7 +848,7 @@ class StorageWorkspace:
         self.pair = PairedWorkspace(self)
         self.copies = CopyGroupsUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
-        ui.add_css(CSS + WORKSPACE_CSS)
+        ui.add_css(CSS + WORKSPACE_CSS + PREVIEW_CSS)
         with ui.row().classes('s-header w-full items-center justify-between no-wrap'):
             with ui.row().classes('items-center gap-7'):
                 ui.label('media.actu').classes('s-brand')
@@ -873,6 +961,12 @@ class StorageWorkspace:
                 state['browse'] = [pane_snapshot(p) for p in self.browse_state]
         return state
 
+    async def preview_selection(self, source):
+        target = self.panes[1 - source.index]
+        if source.view_mode == 'tree' and target.view_mode == 'preview':
+            entry = source.entry or dict(path=source.path, kind=source.kind, name=PurePosixPath(source.path).name)
+            await target.preview.show(source.volume_id, entry)
+
     def persist_workspace(self):
         if not self.state_ready or self.client.is_deleted or not self.client.has_socket_connection:
             return
@@ -956,6 +1050,9 @@ class StorageWorkspace:
                         await self.panes[1].comparison.open_folder(entry, scope)
                     else:
                         await self.panes[1].comparison.select(entry, scope)
+        for index, saved in enumerate(state['panes']):
+            if saved.get('view_mode') == 'preview':
+                await self.panes[index].set_mode('preview', target=saved.get('preview'))
         self.set_active(state['active'])
         self.update_scopes()
         return True
@@ -1094,6 +1191,9 @@ class StorageWorkspace:
     async def open_volume(self, volume_id, index=None, *, path=''):
         with self.client:
             index = self.active_index if index is None else index
+            if self.panes[index].view_mode == 'preview':
+                await self.panes[index].preview.show(volume_id, dict(path=path, kind='directory', name=PurePosixPath(path).name))
+                return
             if self.pair.active:
                 await self.pair.unlink()
             if self.report:
@@ -1110,7 +1210,7 @@ class StorageWorkspace:
         self.volumes_section.text = f'Тома · {len(active)}'
         self.archive.text = f'Отключённые · {len(offline)}'
         self.archive.set_visibility(bool(offline))
-        selected = self.panes[self.active_index].volume_id if getattr(self, 'panes', []) else None
+        selected = self.panes[self.active_index].display_volume_id if getattr(self, 'panes', []) else None
 
         def groups(items):
             grouped = {}
@@ -1193,7 +1293,8 @@ class StorageWorkspace:
             scope = pane.scope()
             valid = valid and bool(scope)
             if scope:
-                labels.append(volume_label(pane.volume) + (' /' + scope['path'] if scope['path'] else ' /'))
+                volume = next(v for v in self.volumes if v['id'] == scope['volume_id'])
+                labels.append(volume_label(volume) + (' /' + scope['path'] if scope['path'] else ' /'))
             else:
                 labels.append('Выбери том и папку')
         self.scopes_label.text = 'Слева: ' + labels[0] + '\nСправа: ' + labels[1]
@@ -1695,8 +1796,8 @@ class StorageWorkspace:
             self.notice(error)
 
 
-def register_workspace_page(request, format_bytes, format_date):
+def register_workspace_page(request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
     @ui.page('/')
     async def workspace_page(source: str = '', path: str = '', job: str = ''):
-        workspace = StorageWorkspace(request, format_bytes, format_date)
+        workspace = StorageWorkspace(request, format_bytes, format_date, core_url() if callable(core_url) else core_url)
         await workspace.load(source, path, job)

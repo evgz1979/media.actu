@@ -660,7 +660,7 @@ async def index_page() -> None:
 
 from storage_ui import register_storage_page
 
-register_storage_page(core_request, format_bytes, format_date)
+register_storage_page(core_request, format_bytes, format_date, lambda: CORE_URL)
 
 from comparison_ui import register_comparison_page
 

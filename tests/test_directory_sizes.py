@@ -166,6 +166,7 @@ class DirectorySizeDisplayTests(unittest.TestCase):
         ws.pair = SimpleNamespace(active=False)
         ws.report = None
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace, pane.index, pane.volume_id = ws, 0, 'disk'
         pane.path, pane.kind = 'Album', 'directory'
         pane.refreshing, pane.refresh_button = False, Mock()
@@ -198,6 +199,7 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
         ws = SimpleNamespace(request=AsyncMock(return_value={'entries': [{'path': 'Album', 'kind': 'directory'}]}),
                              load_directory_sizes=delayed_sizes)
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace, pane.generation, pane.volume_id, pane.scan, pane.folders = ws, 1, 'disk', None, {}
         await asyncio.wait_for(pane.load_folder(''), timeout=.2)
         self.assertEqual(pane.folders['']['entries'][0]['path'], 'Album')
@@ -216,8 +218,10 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
         client.is_deleted = False
         ws = SimpleNamespace(request=request, client=client, volumes=[{'id': 'disk', 'availability': 'online'}],
                              set_active=Mock(), render_volumes=Mock(), update_scopes=Mock(),
+                             preview_selection=AsyncMock(),
                              context_menu_open=False, editing=False)
         pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode = 'tree'
         pane.workspace, pane.index, pane.generation = ws, 0, 0
         pane.folders, pane.loading_folders, pane.limits, pane.matches, pane.size_cells = {}, set(), {}, set(), {}
         pane.result_filter, pane.volume_select, pane.tree = Mock(), Mock(), MagicMock()
@@ -259,6 +263,7 @@ class RefreshButtonTests(unittest.IsolatedAsyncioTestCase):
         ws.panes = []
         for index, path in enumerate(paths):
             pane = BrowserPane.__new__(BrowserPane)
+            pane.view_mode = 'tree'
             pane.workspace, pane.index, pane.volume_id = ws, index, 'disk'
             pane.path, pane.kind, pane.generation = path, 'directory', 1
             pane.root_path = path

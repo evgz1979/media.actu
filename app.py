@@ -33,6 +33,7 @@ from media_manager.folder_markers import FolderMarkerService
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
 from media_manager.directory_sizes import DirectorySizeService
+from media_manager.storage_previews import StoragePreviewService
 
 
 ROOT = Path(__file__).parent
@@ -61,6 +62,7 @@ directory_sizes = DirectorySizeService(storage)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
+storage_previews = StoragePreviewService(storage, local_thumbnail_cache_directory())
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-scan")
 scan_locks: dict[int, threading.Lock] = {}
@@ -314,6 +316,19 @@ async def storage_directory(volume_id: str, path: str = "", refresh: bool = True
         raise HTTPException(status_code=404, detail="Том не найден") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get('/api/storage/volumes/{volume_id}/preview')
+async def storage_preview(volume_id: str, path: str, large: bool = False) -> FileResponse:
+    try:
+        target = await asyncio.to_thread(storage_previews.get_or_create, volume_id, path, large=large)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail='Том не найден') from error
+    except ThumbnailCacheUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return FileResponse(target, media_type='image/jpeg', headers={'Cache-Control': 'no-cache'})
 
 
 class StoragePathRequest(BaseModel):

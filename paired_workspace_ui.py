@@ -103,8 +103,11 @@ class PairedWorkspace:
     def render_rail(self):
         if not hasattr(self, 'rail') or self.ws.client.is_deleted:
             return
-        linked = self.active or bool(self.ws.report)
+        preview = next((p for p in self.ws.panes if p.view_mode == 'preview'), None)
+        preview_index = preview.index if preview else None
+        linked = self.active or bool(self.ws.report) or preview is not None
         self.ws.trees.classes(add='pair-linked' if linked else '', remove='' if linked else 'pair-linked')
+        self.ws.trees.classes(add='preview-linked' if preview is not None else '', remove='' if preview is not None else 'preview-linked')
         self.rail.set_visibility(linked)
         if not linked:
             return
@@ -113,12 +116,21 @@ class PairedWorkspace:
                      (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'),
                      (self.report or {}).get('method'), bool(self.rows), self.differences_only,
                      tuple((self.copy_operation or {}).get(k) for k in ('id', 'state', 'copied_bytes', 'checked_items', 'message')),
-                     self.copy_dialog_open, self.history_only)
+                     self.copy_dialog_open, self.history_only, preview_index)
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
         self.rail.clear()
         with self.rail:
+            if preview is not None:
+                direction = 'Выбор слева → превью справа' if preview_index == 1 else 'Превью слева ← выбор справа'
+                ui.icon('east' if preview_index == 1 else 'west', size='19px').classes('pair-connection preview-connection').props(f'role=img aria-hidden=false aria-label="{direction}"')
+                ui.label('Превью\nсправа' if preview_index == 1 else 'Превью\nслева').classes('pair-rail-state').style('white-space:pre-line')
+                ui.button('Сменить стороны', icon='swap_horiz', on_click=lambda: self.ws.panes[1 - preview_index].set_mode('preview')).props('flat no-caps color=blue-8')
+                ui.button('Два дерева', icon='account_tree', on_click=lambda: preview.set_mode('tree')).props('flat no-caps color=dark')
+                if not self.active and not self.ws.report:
+                    return
+                ui.separator()
             ui.icon('link', size='19px').classes('pair-connection').props('role=img aria-hidden=false aria-label="Панели связаны"')
             if not self.active:
                 ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props('flat no-caps color=green-9')
@@ -385,12 +397,14 @@ class PairedWorkspace:
             expanded = event.args['path'] in self.closed
             self.closed.discard(event.args['path'])
             self.redraw(rows_changed=expanded)
+            await self.ws.preview_selection(self.ws.panes[0 if event.args['side'] == 'left' else 1])
 
     async def on_open(self, event):
         with self.ws.client:
             row = self.by_path.get(event.args['path'])
             if row and row['kind'] == 'directory':
                 self.navigate(row['path'])
+                await self.ws.preview_selection(self.ws.panes[0 if event.args['side'] == 'left' else 1])
 
     async def on_toggle(self, event):
         with self.ws.client:

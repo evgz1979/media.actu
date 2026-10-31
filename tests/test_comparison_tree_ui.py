@@ -11,6 +11,7 @@ class ComparisonTreeTests(unittest.IsolatedAsyncioTestCase):
         workspace = SimpleNamespace(request=request, job_id='job', active_index=0,
                                     report={'scans': [{'id': 1, 'side': 'target'}]}, render_volumes=Mock(), open_volume=AsyncMock())
         workspace.set_active = lambda index: setattr(workspace, 'active_index', index)
+        workspace.preview_selection = AsyncMock()
         pane = SimpleNamespace(workspace=workspace, volume_id='disk', render=Mock())
         return ComparisonTree(pane)
 

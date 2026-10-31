@@ -180,6 +180,8 @@ class ComparisonTree:
                 self.expanded.add(key)
         pane.render()
 
+        await self.workspace.preview_selection(pane)
+
     async def more(self, entry):
         if await self.load(entry, more=True):
             self.pane.render()
