@@ -698,7 +698,7 @@ class PairedWorkspace:
                 explanation = ('Сравниваются имена, относительные пути и размеры. Содержимое файлов не читается.'
                                if report['mode'] == 'files' and report.get('method') == 'size' else
                                'Совпадает — содержимое файлов проверено по SHA-256.' if report['mode'] == 'files' else
-                               'Есть в обоих — наличие папок. Файлы пока не сравнивались.')
+                               'Есть в обеих — наличие папок. Файлы пока не сравнивались.')
                 ui.label(explanation).classes('text-xs s-muted')
                 if report['errors']:
                     ui.label(f"Не удалось прочитать элементов: {report['errors']}").classes('text-sm text-amber-9')

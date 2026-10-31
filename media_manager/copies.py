@@ -29,6 +29,14 @@ CREATE TABLE IF NOT EXISTS copy_group_settings (
     label TEXT NOT NULL DEFAULT '' CHECK(label IN ('','temporary','inbox','archive')),
     changed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS disconnected_copy_groups (
+    group_id TEXT PRIMARY KEY REFERENCES copy_groups(id) ON DELETE CASCADE,
+    disconnected_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS disconnected_copy_locations (
+    location_id TEXT PRIMARY KEY REFERENCES copy_locations(id) ON DELETE CASCADE,
+    disconnected_at TEXT NOT NULL
+);
 '''
 
 
@@ -86,12 +94,16 @@ class CopyCatalog:
         volumes = {v['id']: v for v in self.storage.refresh()['volumes']}
         with self.storage.connect() as db:
             groups = [dict(row, main=None, copies=[]) for row in db.execute('''
-                SELECT g.*, COALESCE(s.tracking,0) AS tracking, COALESCE(s.label,'') AS label, s.changed_at
+                SELECT g.*, COALESCE(s.tracking,0) AS tracking, COALESCE(s.label,'') AS label, s.changed_at,
+                       d.disconnected_at
                 FROM copy_groups g LEFT JOIN copy_group_settings s ON s.group_id=g.id
+                LEFT JOIN disconnected_copy_groups d ON d.group_id=g.id
                 ORDER BY g.created_at,g.id''')]
             by_id = {group['id']: group for group in groups}
-            for row in db.execute('SELECT * FROM copy_locations ORDER BY number'):
+            for row in db.execute('''SELECT l.*,d.disconnected_at FROM copy_locations l
+                                     LEFT JOIN disconnected_copy_locations d ON d.location_id=l.id ORDER BY l.number'''):
                 location = dict(row)
+                location['connected'] = not (location['disconnected_at'] or by_id[location['group_id']]['disconnected_at'])
                 volume = volumes.get(location['volume_id']) or self.storage.get_volume(location['volume_id'])
                 location.update(label=copy_label(location['kind'], location['number']),
                                 volume_name=volume.get('display_name') or volume['name'],
@@ -101,6 +113,7 @@ class CopyCatalog:
                 else:
                     by_id[location['group_id']]['copies'].append(location)
             for group in groups:
+                group['connected'] = not bool(group['disconnected_at'])
                 group['tracking'] = bool(group['tracking'])
                 group['numbering_changes'] = numbering_changes(group['copies'])
                 # Derive from current links, including catalogs written by older versions.
@@ -149,8 +162,40 @@ class CopyCatalog:
 
     def mark_changed(self, group_id):
         with self.storage.connect() as db:
-            db.execute('UPDATE copy_group_settings SET changed_at=? WHERE group_id=? AND tracking=1',
+            db.execute('''UPDATE copy_group_settings SET changed_at=? WHERE group_id=? AND tracking=1
+                          AND NOT EXISTS (SELECT 1 FROM disconnected_copy_groups WHERE group_id=copy_group_settings.group_id)''',
                        (datetime.now(timezone.utc).isoformat(), group_id))
+
+    def set_group_connected(self, group_id, connected):
+        if type(connected) is not bool:
+            raise ValueError('Нужно включить или отключить связь')
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
+                raise KeyError('Основная папка не найдена')
+            if connected:
+                db.execute('DELETE FROM disconnected_copy_groups WHERE group_id=?', (group_id,))
+            else:
+                db.execute('INSERT OR IGNORE INTO disconnected_copy_groups VALUES (?,?)',
+                           (group_id, datetime.now(timezone.utc).isoformat()))
+        return self.group(group_id)
+
+    def set_copy_connected(self, location_id, connected):
+        if type(connected) is not bool:
+            raise ValueError('Нужно включить или отключить связь')
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            location = db.execute('SELECT group_id,number FROM copy_locations WHERE id=?', (location_id,)).fetchone()
+            if location is None:
+                raise KeyError('Ссылка на копию не найдена')
+            if location['number'] == 0:
+                raise ValueError('Основную папку отключают вместе с её набором')
+            if connected:
+                db.execute('DELETE FROM disconnected_copy_locations WHERE location_id=?', (location_id,))
+            else:
+                db.execute('INSERT OR IGNORE INTO disconnected_copy_locations VALUES (?,?)',
+                           (location_id, datetime.now(timezone.utc).isoformat()))
+        return self.group(location['group_id'])
 
     def acknowledge_changes(self, group_id, changed_at):
         with self.storage.connect() as db:

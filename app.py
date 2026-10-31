@@ -383,6 +383,18 @@ class CopyGroupAcknowledgeRequest(BaseModel):
     changed_at: str = Field(min_length=1, max_length=64)
 
 
+class CopyConnectionRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    connected: bool = Field(strict=True)
+
+
+def set_copy_connection(action, identifier, connected):
+    with comparison_gate:
+        if not connected and missing_copies.busy():
+            raise ValueError('Сначала дождись завершения копирования.')
+        return action(identifier, connected)
+
+
 async def copy_catalog_action(action, *args):
     try:
         return await asyncio.to_thread(action, *args)
@@ -414,6 +426,18 @@ async def storage_copy_group_settings(group_id: str, request: CopyGroupSettingsR
 @app.post('/api/storage/copy-groups/{group_id}/acknowledge')
 async def storage_acknowledge_folder_changes(group_id: str, request: CopyGroupAcknowledgeRequest) -> dict:
     return await copy_catalog_action(copies.acknowledge_changes, group_id, request.changed_at)
+
+
+@app.patch('/api/storage/copy-groups/{group_id}/connection')
+async def storage_copy_group_connection(group_id: str, request: CopyConnectionRequest) -> dict:
+    result = await copy_catalog_action(set_copy_connection, copies.set_group_connected, group_id, request.connected)
+    folder_tracking.wake()
+    return result
+
+
+@app.patch('/api/storage/copy-locations/{location_id}/connection')
+async def storage_copy_location_connection(location_id: str, request: CopyConnectionRequest) -> dict:
+    return await copy_catalog_action(set_copy_connection, copies.set_copy_connected, location_id, request.connected)
 
 
 @app.post('/api/storage/copy-groups/{group_id}/copies')

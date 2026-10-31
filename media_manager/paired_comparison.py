@@ -15,7 +15,7 @@ from .volume_identity import MARKER_FILES, copy_temporary
 
 
 STATUS_LABELS = {
-    'both': 'Есть в обоих', 'missing_copy': 'Нет в копии', 'extra_copy': 'Только в копии',
+    'both': 'Есть в обеих', 'missing_copy': 'Нет в копии', 'extra_copy': 'Только в копии',
     'same': 'Совпадает', 'different': 'Отличается', 'conflict': 'Разный тип',
     'same_size': 'Имя и размер совпали', 'size_different': 'Размер отличается',
     'copy_incomplete': 'Копия не завершена',
@@ -96,6 +96,8 @@ class PairedComparisonCatalog:
         for group in self.copies.groups():
             for copy in group['copies']:
                 if copy['id'] == copy_id:
+                    if not group.get('connected', True) or not copy.get('connected', True):
+                        raise ValueError('Связь отключена. Сначала подключи её в разделе «Отключённые».')
                     return {'left': group['main'], 'right': copy}
         raise KeyError('Связь с копией не найдена')
 
@@ -131,8 +133,10 @@ class PairedComparisonCatalog:
     def resume(self, job):
         with self._lock:
             self._idle()
-            if self.job(job)['state'] not in ('paused', 'failed'):
+            report = self.job(job)
+            if report['state'] not in ('paused', 'failed'):
                 raise ValueError('Эту сверку нельзя продолжить.')
+            self._pair(report['copy_id'])
             self._stop.clear()
             self._update(job, state='running', message='Читаем выбранную пару папок')
             self._thread = threading.Thread(target=self.run, args=(job,), name='paired-compare', daemon=True)

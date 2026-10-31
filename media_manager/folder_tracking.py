@@ -79,14 +79,14 @@ class FolderTrackingService:
     def reconcile(self):
         groups = self.copies.groups()
         volumes = self.copies.storage._mounted.copy()
-        wanted = {g['id'] for g in groups if g['tracking']}
+        wanted = {g['id'] for g in groups if g['tracking'] and g.get('connected', True)}
         with self._lock:
             for group_id in set(self._watches) - wanted:
                 self._remove(group_id)
             for group_id in set(self._states) - wanted:
                 self._states.pop(group_id)
         for group in groups:
-            if self._stop.is_set() or not group['tracking']:
+            if self._stop.is_set() or group['id'] not in wanted:
                 continue
             group_id, main = group['id'], group['main']
             volume = volumes.get(main['volume_id'])

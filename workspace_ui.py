@@ -113,6 +113,7 @@ WORKSPACE_CSS = """
 .copy-folder-tag.inbox, .copy-folder-tag.changed { background:#e6eefb; color:#3b6097; }
 .copy-folder-tag.archive { background:#eeeeef; color:#656773; }
 .copy-folder-menu .q-item { min-height:32px; padding:5px 12px; }
+.copy-bookmark.disconnected, .copy-link.disconnected { color:#858b87; }
 .s-tree-role.copy-label { max-width:none; }
 .commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 80px 56px; min-width:468px; }
 @media(max-width:1450px) {
@@ -260,7 +261,7 @@ class BrowserPane:
             button.set_enabled(not self.comparison_open())
         self.update_size_header()
         self.volume_select.options = {
-            v['id']: volume_label(v) + (' · архив' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
+            v['id']: volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
             for v in self.workspace.volumes
         }
         self.volume_select.update()
@@ -296,7 +297,7 @@ class BrowserPane:
             timestamp = selected.get('scanned_at')
             cached = selected.get('cached') or volume['availability'] != 'online'
             self.snapshot_label.text = (('Сохранённый снимок: ' if cached else 'Папка прочитана: ') + self.workspace.format_date(timestamp)) if timestamp else 'Снимок папки не сохранён'
-        location = 'Архив' if archived(volume) else {'online': 'Подключён', 'unknown': 'Доступность неизвестна', 'offline': 'Отключён'}[volume['availability']]
+        location = 'Отключён' if archived(volume) else {'online': 'Подключён', 'unknown': 'Доступность неизвестна', 'offline': 'Отключён'}[volume['availability']]
         self.footer.text = location + ' · ' + self.workspace.capacity_text(volume)
         self.result_filter.set_visibility(bool(self.scan and self.workspace.report and self.workspace.report['mode'] == 'names'))
         self.result_filter.set_enabled(bool(self.scan and self.scan['side'] == 'source'))
@@ -698,7 +699,7 @@ class StorageWorkspace:
             with ui.column().classes('s-panel commander-sidebar w-full gap-0'):
                 with ui.expansion('Тома', icon='storage', value=True).props('dense').classes('copy-section w-full') as self.volumes_section:
                     self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
-                    with ui.expansion('Архив', icon='archive', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
+                    with ui.expansion('Отключённые', icon='link_off', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
                         self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
                     ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs px-3 py-2')
                 self.copies.build_sidebar()
@@ -1007,9 +1008,9 @@ class StorageWorkspace:
         active = [v for v in self.volumes if not archived(v)]
         offline = [v for v in self.volumes if archived(v)]
         online = sum(v['availability'] == 'online' for v in self.volumes)
-        self.overview.text = f'Томов: {len(self.volumes)} · подключено: {online} · в архиве: {len(offline)}'
+        self.overview.text = f'Томов: {len(self.volumes)} · подключено: {online} · отключено: {len(offline)}'
         self.volumes_section.text = f'Тома · {len(active)}'
-        self.archive.text = f'Архив · {len(offline)}'
+        self.archive.text = f'Отключённые · {len(offline)}'
         self.archive.set_visibility(bool(offline))
         selected = self.panes[self.active_index].volume_id if getattr(self, 'panes', []) else None
 
@@ -1513,7 +1514,7 @@ class StorageWorkspace:
             ui.label(volume.get('network_url') or volume['mount_path']).classes('s-path s-muted')
             name = ui.input('Имя диска', placeholder='Например, Архив фото 2 ТБ').props('outlined dense maxlength=120').classes('w-full')
             ui.label('На диск будет один раз записан файл .media-actu-volume.json с постоянным ID и именем. По нему приложение узнает диск при следующем подключении.').classes('s-note')
-            ui.label('Прежняя история usbshare останется отдельной записью в архиве.').classes('text-xs s-muted')
+            ui.label('Прежняя история usbshare останется отдельной записью в разделе «Отключённые».').classes('text-xs s-muted')
             with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
                 ui.button('Создать ID на диске', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')

@@ -6,6 +6,25 @@ from nicegui import ui
 from media_manager.copies import COPY_KINDS, FOLDER_LABELS, copy_label, inherited_location
 
 
+def disconnected(location):
+    return not location.get('connected', True) or location.get('availability') == 'offline'
+
+
+def sidebar_sections(groups):
+    active, offline, count = [], [], 0
+    for group in groups:
+        disabled = not group.get('connected', True)
+        main_offline = disabled or disconnected(group['main'])
+        available = [c for c in group['copies'] if not disabled and not disconnected(c)]
+        unavailable = [c for c in group['copies'] if disabled or disconnected(c)]
+        if not main_offline or available:
+            active.append((group, available))
+        if main_offline or unavailable:
+            offline.append((group, unavailable))
+            count += int(main_offline) + len(unavailable)
+    return active, offline, count
+
+
 class CopyGroupsUI:
     def __init__(self, workspace):
         self.workspace = workspace
@@ -19,6 +38,8 @@ class CopyGroupsUI:
     def build_sidebar(self):
         with ui.expansion('Основные папки · 0', icon='folder_copy', value=True).props('dense').classes('copy-section w-full') as self.section:
             self.list = ui.column().classes('copy-group-list w-full gap-0')
+            with ui.expansion('Отключённые · 0', icon='link_off', value=False).props('dense').classes('s-volume-archive w-full') as self.disconnected:
+                self.disconnected_list = ui.column().classes('copy-group-list w-full gap-0')
 
     def build_controls(self):
         self.controls = ui.column().classes('w-full gap-2')
@@ -51,44 +72,71 @@ class CopyGroupsUI:
         self.render_controls()
 
     def render_sidebar(self):
-        self.section.text = f'Основные папки · {len(self.groups)}'
+        active, offline, count = sidebar_sections(self.groups)
+        self.section.text = f'Основные папки · {len(active)}'
         self.list.clear()
-        ws = self.workspace
-        panes = getattr(ws, 'panes', [])
-        left_member = self.membership(panes[0].volume_id, panes[0].path) if panes else None
+        self.disconnected_list.clear()
+        self.disconnected.text = f'Отключённые · {count}'
+        self.disconnected.set_visibility(bool(count))
         with self.list:
             if not self.groups:
                 ui.label('Назначь папке 00-main, чтобы учитывать её копии.').classes('s-muted text-xs p-3')
-            for group in self.groups:
-                main = group['main']
-                chosen = left_member and left_member['group_id'] == group['id']
-                with ui.column().classes('copy-bookmark-group w-full gap-0'):
-                    with ui.button(on_click=lambda g=group: self.open_main(g)).props('flat no-caps color=dark').classes('copy-bookmark w-full' + (' chosen' if chosen else '')):
-                        actions = [('Убрать учёт этой папки', lambda g=group: self.remove_group(g))]
-                        if group['numbering_changes']:
-                            actions.insert(0, ('Упорядочить номера копий', lambda g=group: self.renumber(g)))
-                        ws.property_menu('Свойства папки', lambda m=main: ws.show_properties(m['volume_id'], dict(m, kind='directory')),
-                                         volume_id=main['volume_id'], path=main['path'],
-                                         extra=actions, extra_content=lambda action, g=group: self.folder_menu(g, action))
-                        with ui.row().classes('w-full items-center no-wrap gap-1'):
-                            ui.label('00-main').classes('copy-label main')
-                            ui.label(self.location_name(main)).classes('copy-bookmark-name')
-                        ui.label(self.location_path(main)).classes('copy-place')
-                        self.folder_badges(group)
-                    for location in group['copies']:
-                        selected = panes and panes[1].volume_id == location['volume_id'] and panes[1].path == location['path']
-                        with ui.link(target='#').classes('copy-link' + (' chosen' if selected else '')).on(
-                            'click', lambda g=group, c=location: self.open_copy(g, c), args=[],
-                            js_handler='event => { event.preventDefault(); emit(); }',
-                        ):
-                            ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
-                                             volume_id=location['volume_id'], path=location['path'],
-                                             extra=[('Изменить тип копии', lambda c=location: self.edit_kind(c)),
-                                                    ('Убрать связь с копией…', lambda c=location: self.remove_copy(c))])
-                            ui.label(location['label']).classes('copy-label')
-                            ui.label(self.location_path(location)).classes('copy-link-name')
-                            if location['availability'] != 'online':
-                                ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props('aria-label="Том недоступен"')
+            elif not active:
+                ui.label('Все связанные папки отключены.').classes('s-muted text-xs p-3')
+            for group, copies in active:
+                self.render_group(group, copies)
+        with self.disconnected_list:
+            for group, copies in offline:
+                self.render_group(group, copies)
+
+    def render_group(self, group, copies):
+        ws = self.workspace
+        panes = getattr(ws, 'panes', [])
+        left_member = self.membership(panes[0].volume_id, panes[0].path) if panes else None
+        main = group['main']
+        chosen = left_member and left_member['group_id'] == group['id']
+        with ui.column().classes('copy-bookmark-group w-full gap-0'):
+            with ui.button(on_click=lambda: self.open_main(group)).props('flat no-caps color=dark').classes(
+                'copy-bookmark w-full' + (' chosen' if chosen else '') + (' disconnected' if disconnected(main) else '')
+            ):
+                if group.get('connected', True):
+                    actions = [('Отключить набор', lambda: self.set_connection(group, False))]
+                else:
+                    actions = [('Подключить набор', lambda: self.set_connection(group, True)),
+                               ('Удалить набор из учёта…', lambda: self.remove_group(group))]
+                if group['numbering_changes']:
+                    actions.insert(0, ('Упорядочить номера копий', lambda: self.renumber(group)))
+                ws.property_menu('Свойства папки', lambda: ws.show_properties(main['volume_id'], dict(main, kind='directory')),
+                                 volume_id=main['volume_id'], path=main['path'], extra=actions,
+                                 extra_content=lambda action: self.folder_menu(group, action))
+                with ui.row().classes('w-full items-center no-wrap gap-1'):
+                    ui.label('00-main').classes('copy-label main')
+                    ui.label(self.location_name(main)).classes('copy-bookmark-name')
+                    if disconnected(main):
+                        ui.icon('link_off', size='13px').props('aria-label="Основная папка отключена"')
+                ui.label(self.location_path(main)).classes('copy-place')
+                self.folder_badges(group)
+            for location in copies:
+                selected = panes and panes[1].volume_id == location['volume_id'] and panes[1].path == location['path']
+                with ui.link(target='#').classes('copy-link' + (' chosen' if selected else '') + (' disconnected' if disconnected(location) else '')).on(
+                    'click', lambda g=group, c=location: self.open_copy(g, c), args=[],
+                    js_handler='event => { event.preventDefault(); emit(); }',
+                ):
+                    actions = [('Изменить тип копии', lambda c=location: self.edit_kind(c))]
+                    if not group.get('connected', True):
+                        actions.append(('Подключить набор', lambda: self.set_connection(group, True)))
+                    else:
+                        connected = not location.get('connected', True)
+                        actions.append(('Подключить копию' if connected else 'Отключить копию',
+                                        lambda c=location, v=connected: self.set_connection(group, v, c)))
+                    if not location.get('connected', True):
+                        actions.append(('Удалить связь из учёта…', lambda c=location: self.remove_copy(c)))
+                    ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
+                                     volume_id=location['volume_id'], path=location['path'], extra=actions)
+                    ui.label(location['label']).classes('copy-label')
+                    ui.label(self.location_path(location)).classes('copy-link-name')
+                    if disconnected(location):
+                        ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props('aria-label="Копия отключена"')
 
     def folder_badges(self, group):
         if not (group.get('tracking') or group.get('label') or group.get('changed_at')):
@@ -98,6 +146,8 @@ class CopyGroupsUI:
                 state = group.get('tracking_state', 'starting')
                 text = {'watching': 'Отслеживается', 'offline': 'Ожидает подключения',
                         'error': 'Отслеживание недоступно'}.get(state, 'Включение отслеживания…')
+                if not group.get('connected', True):
+                    text = 'Отслеживание приостановлено'
                 ui.label(text).classes('copy-folder-tag tracking').tooltip(
                     group.get('tracking_error') or 'Изменения в основной папке и вложенных папках при работающем Core')
             if group.get('label'):
@@ -154,6 +204,29 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
+    async def set_connection(self, group, connected, location=None):
+        ws = self.workspace
+        with ws.client:
+            was_editing = ws.editing
+            ws.editing = True
+            try:
+                affected = ws.pair.active and ws.pair.copy_id in {
+                    c['id'] for c in ([location] if location else group['copies'])}
+                if not connected and affected and getattr(ws.pair, 'copy_running', False):
+                    raise ValueError('Сначала дождись завершения копирования.')
+                endpoint = (f"/api/storage/copy-locations/{location['id']}" if location else
+                            f"/api/storage/copy-groups/{group['id']}")
+                await ws.request('PATCH', endpoint + '/connection', json={'connected': connected})
+                if not connected and affected:
+                    await ws.pair.unlink()
+                await self.changed()
+                if not connected:
+                    self.disconnected.open()
+            except Exception as error:
+                ws.notice(error)
+            finally:
+                ws.editing = was_editing
+
     def render_controls(self):
         if self.controls is None:
             return
@@ -162,7 +235,8 @@ class CopyGroupsUI:
         if ws.report:
             return
         left, right = ws.panes
-        policy = tuple((g['id'], g['next_number'], tuple((c['id'], c['kind'], c['number']) for c in g['copies'])) for g in self.groups)
+        policy = tuple((g['id'], g['next_number'], g.get('connected', True),
+                        tuple((c['id'], c['kind'], c['number'], c.get('connected', True)) for c in g['copies'])) for g in self.groups)
         signature = (left.volume_id, left.path, left.kind, right.volume_id, right.path, right.kind, policy,
                      (left.volume or {}).get('identity_status'), (right.volume or {}).get('identity_status'))
         if signature == self.control_signature:
@@ -186,6 +260,11 @@ class CopyGroupsUI:
                 ui.separator()
                 return
             ui.label('00-main · ' + self.location_name(group['main'])).classes('text-xs s-muted break-words')
+            if not group.get('connected', True):
+                ui.label('Набор отключён. Связи и история сохранены.').classes('text-xs s-muted')
+                ui.button('Подключить набор', on_click=lambda: self.set_connection(group, True)).props('outline dense no-caps color=green-9')
+                ui.separator()
+                return
             if group['numbering_changes']:
                 ui.label('В нумерации копий есть пропуски. Согласуй новые метки перед добавлением копии.').classes('text-xs s-muted')
                 ui.button('Упорядочить номера копий', on_click=lambda g=group: self.renumber(g)).props('outline dense no-caps color=green-9').classes('w-full')
@@ -258,8 +337,9 @@ class CopyGroupsUI:
     async def open_main(self, group):
         ws = self.workspace
         with ws.client:
+            available = [c for c in group['copies'] if not disconnected(c)]
             if group['copies']:
-                await ws.pair.link(group, min(group['copies'], key=lambda location: location['number']))
+                await ws.pair.link(group, min(available or group['copies'], key=lambda location: location['number']))
                 return
             if ws.pair.active:
                 await ws.pair.unlink()
@@ -291,14 +371,14 @@ class CopyGroupsUI:
             finally:
                 ws.editing = False
 
-    async def confirm_remove(self, title, *, locations=(), button_label='Убрать из учёта'):
+    async def confirm_remove(self, title, *, locations=(), button_label='Удалить из учёта'):
         with ui.dialog() as dialog, ui.card().classes('w-[520px] max-w-full p-5 gap-3'):
             ui.label(title).classes('text-lg font-semibold')
             for location in locations:
                 with ui.column().classes('w-full gap-0'):
                     ui.label(location['label']).classes('text-sm font-semibold')
                     ui.label(self.location_path(location)).classes('text-sm break-all')
-            ui.label('Убирается запись из учёта копий. Папки и файлы на дисках останутся.').classes('text-sm s-muted')
+            ui.label('Запись будет удалена из учёта приложения. Папки и файлы на дисках останутся.').classes('text-sm s-muted')
             with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
                 ui.button(button_label, on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
@@ -341,7 +421,7 @@ class CopyGroupsUI:
     async def remove_group(self, group):
         ws = self.workspace
         with ws.client:
-            if await self.confirm_remove('Убрать основную папку и ссылки на её копии?'):
+            if await self.confirm_remove('Удалить набор и его связи из учёта?'):
                 try:
                     await ws.request('DELETE', f"/api/storage/copy-groups/{group['id']}")
                     await self.changed()

@@ -79,6 +79,17 @@ class FolderTrackingTests(unittest.TestCase):
         self.service.reconcile()
         self.assertFalse(self.service._watches)
 
+    def test_manual_group_disconnect_stops_tracking_until_reconnected(self):
+        handler = self.enable()
+        self.copies.set_group_connected(self.group['id'], False)
+        handler.callback()
+        self.assertIsNone(self.copies.group(self.group['id'])['changed_at'])
+        self.service.reconcile()
+        self.assertFalse(self.service._watches)
+        self.copies.set_group_connected(self.group['id'], True)
+        self.service.reconcile()
+        self.assertEqual(self.service.status(self.group['id'])['tracking_state'], 'watching')
+
     def test_reconnect_restores_tracking_and_replaced_or_symlink_roots_are_rejected(self):
         self.enable()
         volume = self.mounted.pop()
