@@ -146,6 +146,7 @@ class DirectorySizeDisplayTests(unittest.TestCase):
         ws.format_bytes = lambda size: f'{size} Б'
         ws.format_date = lambda date: '30.10.2026 19:00'
         ws.directory_sizes = {'disk': {'Album': dict(bytes=0, complete=True, state='ready')}}
+        ws.size_force = set()
         return ws
 
     def test_zero_partial_refresh_and_offline_values_are_distinct(self):
@@ -167,6 +168,7 @@ class DirectorySizeDisplayTests(unittest.TestCase):
         pane = BrowserPane.__new__(BrowserPane)
         pane.workspace, pane.index, pane.volume_id = ws, 0, 'disk'
         pane.path, pane.kind = 'Album', 'directory'
+        pane.refreshing, pane.refresh_button = False, Mock()
         pane.folder_size = SimpleNamespace(set_visibility=Mock())
         pane.update_size_header()
         self.assertEqual(pane.folder_size.text, 'Размер папки: 0 Б')
@@ -240,3 +242,119 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             for task in tasks:
                 task.cancel()
+
+
+class RefreshButtonTests(unittest.IsolatedAsyncioTestCase):
+    def workspace(self, paths=('Album',)):
+        ws = StorageWorkspace.__new__(StorageWorkspace)
+        ws.client = SimpleNamespace(is_deleted=False)
+        ws.pair = SimpleNamespace(active=False, views={})
+        ws.report = None
+        ws.format_bytes, ws.format_date = str, str
+        ws.directory_sizes = {'disk': {path: dict(bytes=12, complete=True, state='ready') for path in paths}}
+        ws.size_force, ws.size_requested, ws.size_open_scopes = set(), {('disk', p) for p in paths}, {('disk', p) for p in paths}
+        ws.sizes_polling = ws.context_menu_open = ws.editing = False
+        ws.set_active = Mock()
+        ws.panes = []
+        for index, path in enumerate(paths):
+            pane = BrowserPane.__new__(BrowserPane)
+            pane.workspace, pane.index, pane.volume_id = ws, index, 'disk'
+            pane.path, pane.kind, pane.generation = path, 'directory', 1
+            pane.refreshing, pane.refresh_button, pane.folder_size = False, Mock(), Mock()
+            pane.folders, pane.expanded, pane.size_cells = {path: {}}, {path}, {}
+            pane.load_folder, pane.render = AsyncMock(), Mock()
+            ws.panes.append(pane)
+        return ws
+
+    async def test_rapid_clicks_and_second_pane_do_not_repeat_refresh_until_calculation_finishes(self):
+        ws = self.workspace(('Album', 'Album'))
+        first, second = ws.panes
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def blocked(*args, **kwargs):
+            started.set()
+            await release.wait()
+
+        first.load_folder.side_effect = blocked
+        task = asyncio.create_task(first.refresh())
+        try:
+            await asyncio.wait_for(started.wait(), .2)
+            first.refresh_button.set_enabled.assert_called_with(False)
+            second.refresh_button.set_enabled.assert_called_with(False)
+            await first.refresh()
+            await second.refresh()
+            self.assertEqual(first.load_folder.await_count, 1)
+            second.load_folder.assert_not_awaited()
+            release.set()
+            await task
+            # Directory listing finished, but the forced size request is still pending.
+            await first.refresh()
+            self.assertEqual(first.load_folder.await_count, 1)
+            first.refresh_button.set_enabled.assert_called_with(False)
+            ws.size_force.clear()
+            for state in ('queued', 'running'):
+                ws.directory_sizes['disk']['Album']['state'] = state
+                ws.update_size_labels()
+                await first.refresh()
+                self.assertEqual(first.load_folder.await_count, 1)
+                first.refresh_button.set_enabled.assert_called_with(False)
+            ws.directory_sizes['disk']['Album']['state'] = 'ready'
+            ws.update_size_labels()
+            first.refresh_button.set_enabled.assert_called_with(True)
+            second.refresh_button.set_enabled.assert_called_with(True)
+            await first.refresh()
+            self.assertEqual(first.load_folder.await_count, 2)
+        finally:
+            release.set()
+            await task
+
+    async def test_completed_failed_and_offline_calculations_release_the_button(self):
+        ws = self.workspace()
+        for state in ('ready', 'partial', 'error', 'offline'):
+            with self.subTest(state=state):
+                ws.directory_sizes['disk']['Album']['state'] = state
+                ws.update_size_labels()
+                ws.panes[0].refresh_button.set_enabled.assert_called_with(True)
+
+    async def test_navigation_during_refresh_does_not_clear_the_new_folder(self):
+        ws = self.workspace()
+        pane = ws.panes[0]
+
+        async def navigate(*args):
+            pane.generation += 1
+            pane.path = 'Other'
+            pane.folders['Album/Nested'] = {'keep': True}
+
+        pane.load_folder.side_effect = navigate
+        await pane.refresh()
+        self.assertEqual(pane.folders['Album/Nested'], {'keep': True})
+        pane.render.assert_not_called()
+        self.assertFalse(pane.refreshing)
+
+    async def test_forced_refresh_does_not_recalculate_other_visible_folders(self):
+        ws = self.workspace(('', 'Album'))
+        ws.size_force.add(('disk', 'Album'))
+
+        async def response(method, url, *, json, **kwargs):
+            return {'sizes': {path: dict(bytes=12, complete=True, state='running' if json['refresh'] else 'ready')
+                              for path in json['paths']}}
+
+        ws.request = AsyncMock(side_effect=response)
+        await ws.poll_directory_sizes()
+        payloads = [call.kwargs['json'] for call in ws.request.await_args_list]
+        self.assertEqual(payloads, [{'paths': ['Album'], 'start': True, 'refresh': True},
+                                    {'paths': [''], 'start': False, 'refresh': False}])
+        self.assertFalse(ws.size_force)
+        ws.panes[0].refresh_button.set_enabled.assert_called_with(True)
+        ws.panes[1].refresh_button.set_enabled.assert_called_with(False)
+
+    async def test_failed_size_request_releases_the_button_without_queuing_another_request(self):
+        ws = self.workspace()
+        ws.size_force.add(('disk', 'Album'))
+        ws.request = AsyncMock(side_effect=OSError('No response'))
+        ws.error_text = str
+        await ws.poll_directory_sizes()
+        self.assertFalse(ws.size_force)
+        self.assertEqual(ws.request.await_count, 1)
+        self.assertEqual(ws.directory_sizes['disk']['Album']['state'], 'error')
+        ws.panes[0].refresh_button.set_enabled.assert_called_with(True)

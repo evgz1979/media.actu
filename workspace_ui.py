@@ -39,6 +39,11 @@ WORKSPACE_CSS = """
 .commander-trees.linked .commander-pane.active-pane { border-color:#75986c; }
 .commander-pane { border:2px solid var(--s-line); height:calc(100vh - 180px); min-height:440px; }
 .commander-pane.active-pane { border-color:#8ba984; }
+@layer overrides {
+ .commander-layout .q-btn.disabled { color:#a5aaa1 !important; opacity:1 !important; }
+ .commander-layout .disabled, .commander-layout .disabled *,
+ .commander-layout [disabled], .commander-layout [disabled] * { cursor:default !important; }
+}
 .commander-pane .s-panel-head { padding:8px 10px; gap:5px; }
 .commander-pane .s-panel-head, .commander-pane .s-tree-toolbar, .commander-pane .pane-status, .commander-pane .workspace-filter { flex-shrink:0; }
 .commander-pane .s-tree { flex:1; min-height:180px; max-height:none; width:100%; }
@@ -164,6 +169,7 @@ class BrowserPane:
         self.generation = 0
         self.filter_value = ''
         self.path_signature = None
+        self.refreshing = False
         with ui.column().classes('s-panel commander-pane w-full gap-0') as self.container:
             self.container.on('click', lambda: workspace.set_active(index))
             self.container.on('focusin', lambda: workspace.set_active(index))
@@ -259,7 +265,7 @@ class BrowserPane:
         self.render()
 
     def update_header(self):
-        for button in (self.parent_button, self.root_button, self.refresh_button):
+        for button in (self.parent_button, self.root_button):
             button.set_enabled(not self.comparison_open())
         self.update_size_header()
         self.volume_select.options = {
@@ -324,6 +330,17 @@ class BrowserPane:
         self.folder_size.set_visibility(bool(scope))
         if scope:
             self.folder_size.text = 'Размер папки: ' + self.workspace.directory_size_text(*scope, detail=True)
+        self.refresh_button.set_enabled(bool(scope) and not self.comparison_open() and not self.refresh_busy())
+
+    def refresh_busy(self):
+        scope = self.size_scope()
+        if self.refreshing:
+            return True
+        if not scope:
+            return False
+        volume_id, path = scope
+        return (scope in self.workspace.size_force
+                or self.workspace.directory_sizes.get(volume_id, {}).get(path, {}).get('state') in ('queued', 'running'))
 
     def render_path(self, volume_id, path, kind, *, boundary='', navigate=None):
         volume = next((v for v in self.workspace.volumes if v['id'] == volume_id), None)
@@ -519,21 +536,28 @@ class BrowserPane:
             await self.workspace.refresh_matches()
 
     async def refresh(self):
-        if self.comparison_open():
+        if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
         scope = self.size_scope()
+        self.refreshing = True
         if scope:
             self.workspace.size_force.add(scope)
-        if not self.volume_id:
-            return
-        self.workspace.set_active(self.index)
-        path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
-        await self.load_folder(path)
-        for child in list(self.folders):
-            if child != path and (not path or child.startswith(path + '/')):
-                self.folders.pop(child)
-                self.expanded.discard(child)
-        self.render()
+        self.workspace.update_size_labels()
+        generation = self.generation
+        try:
+            self.workspace.set_active(self.index)
+            path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
+            await self.load_folder(path)
+            if generation != self.generation:
+                return
+            for child in list(self.folders):
+                if child != path and (not path or child.startswith(path + '/')):
+                    self.folders.pop(child)
+                    self.expanded.discard(child)
+            self.render()
+        finally:
+            self.refreshing = False
+            self.workspace.update_size_labels()
 
     async def change_filter(self, event):
         if event.value == self.filter_value:
@@ -940,7 +964,9 @@ class StorageWorkspace:
             return
         self.sizes_polling = True
         try:
-            wanted = set()
+            wanted = set(self.size_force)
+            wanted.update((volume_id, path) for volume_id, records in self.directory_sizes.items()
+                          for path, record in records.items() if record.get('state') in ('queued', 'running'))
             open_scopes = set()
             for pane in self.panes:
                 scope = pane.size_scope()
@@ -964,12 +990,19 @@ class StorageWorkspace:
                 paths.sort(key=lambda p: (len(PurePosixPath(p).parts), p))
                 for offset in range(0, len(paths), 500):
                     batch = paths[offset:offset + 500]
+                    forced = self.size_force.intersection((volume_id, path) for path in batch)
+                    if forced:
+                        await self.load_directory_sizes(volume_id, [path for path in batch if (volume_id, path) in forced],
+                                                        start=True, refresh=True)
+                        self.size_force.difference_update(forced)
+                        self.update_size_labels()
+                    batch = [path for path in batch if (volume_id, path) not in forced]
+                    if not batch:
+                        continue
                     start = any((volume_id, path) not in self.size_requested or (volume_id, path) in opened
                                 or self.directory_sizes.get(volume_id, {}).get(path, {}).get('state') == 'stale'
                                 for path in batch)
-                    forced = self.size_force.intersection((volume_id, path) for path in batch)
-                    await self.load_directory_sizes(volume_id, batch, start=start or bool(forced), refresh=bool(forced))
-                    self.size_force.difference_update(forced)
+                    await self.load_directory_sizes(volume_id, batch, start=start)
         finally:
             self.sizes_polling = False
 
