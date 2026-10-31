@@ -238,15 +238,23 @@ async def storage_volumes(refresh: bool = False) -> dict:
     return await asyncio.to_thread(storage.refresh, refresh)
 
 
-class RegisterRemovableRequest(BaseModel):
+class VolumeNameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
 
 
 @app.post("/api/storage/volumes/{volume_id}/register-removable")
-async def register_removable(volume_id: str, request: RegisterRemovableRequest) -> dict:
+async def register_removable(volume_id: str, request: VolumeNameRequest) -> dict:
     try:
         return await asyncio.to_thread(storage.register_removable, volume_id, request.name)
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch('/api/storage/volumes/{volume_id}/name')
+async def rename_removable(volume_id: str, request: VolumeNameRequest) -> dict:
+    try:
+        return await asyncio.to_thread(storage.rename_removable, volume_id, request.name)
     except (ValueError, OSError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

@@ -20,7 +20,7 @@ from urllib.parse import quote, unquote, urlsplit
 from .copies import COPY_SCHEMA, inherited_location
 from .volume_identity import (
     MARKER_FILES, canonical_host, copy_temporary, create_marker, mounted_root, read_capacity,
-    read_marker, usb_share, verify_identity,
+    read_marker, rename_marker, usb_share, verify_identity,
 )
 
 
@@ -285,6 +285,19 @@ class StorageCatalog:
             if registered is None or registered['identity_status'] != 'verified':
                 raise ValueError('Файл ID создан, но подтвердить носитель не удалось. Обнови список томов.')
             return registered
+
+    def rename_removable(self, volume_id: str, name: str) -> dict:
+        with self._lock:
+            volume = next((v for v in self.refresh(True)['volumes'] if v['id'] == volume_id), None)
+            if not volume or not volume['mounted'] or volume['availability'] != 'online':
+                raise ValueError('Диск отключён или недоступен. Подключи его и обнови список томов.')
+            if volume['identity_status'] != 'verified' or not volume.get('marker_id'):
+                raise ValueError('Переименовать можно только зарегистрированный сменный диск')
+            marker = rename_marker(volume['mount_path'], volume['device'], volume['marker_id'], name)
+            renamed = next((v for v in self.refresh(True)['volumes'] if v['id'] == volume_id), None)
+            if not renamed or not renamed['mounted'] or renamed['name'] != marker['name']:
+                raise ValueError('Имя записано на диск, но обновить сведения не удалось. Обнови список томов.')
+            return renamed
 
     @staticmethod
     def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict:

@@ -12,6 +12,7 @@ from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.storage import FLAGS, PURPOSES, relative_path
+from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
@@ -31,7 +32,7 @@ JOB_STATES = {'running': 'Выполняется', 'pausing': 'Останавл�
 WORKSPACE_CSS = """
 .commander-intro { padding:12px 26px 10px; }
 .commander-intro .s-title { font-size:24px; }
-.commander-layout { display:grid; grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 260px; gap:12px; padding:0 26px 26px; width:100%; align-items:start; }
+.commander-layout { display:grid; grid-template-columns:242px minmax(0,1fr) minmax(0,1fr) 286px; gap:12px; padding:0 26px 26px; width:100%; align-items:start; }
 .commander-trees { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-column:2 / span 2; gap:12px; position:relative; min-width:0; }
 .pane-link { position:absolute; z-index:3; top:14px; left:50%; transform:translateX(-50%); width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:1px solid #9bb491; border-radius:50%; background:#edf3e7; color:#427644; }
 .commander-trees.linked .commander-pane { border-color:#b0c4a7; }
@@ -91,6 +92,7 @@ WORKSPACE_CSS = """
 .copy-section > .q-expansion-item__container > .q-item { min-height:48px; padding:10px 14px; font-size:11px; color:#687466; font-weight:650; }
 .copy-section .q-item__section--avatar { min-width:24px; padding-right:7px; }
 .copy-section .q-item__section--avatar .q-icon { font-size:17px; }
+.commander-sidebar .q-expansion-item__container > .q-item > .q-item__section--main { white-space:nowrap; }
 .copy-group-list { max-height:calc(100vh - 300px); overflow:auto; padding:4px; }
 .copy-bookmark-group { padding:3px 0 7px; border-bottom:1px solid var(--s-line); }
 .copy-bookmark { padding:6px; border:1px solid transparent; border-radius:6px; }
@@ -117,12 +119,12 @@ WORKSPACE_CSS = """
 .s-tree-role.copy-label { max-width:none; }
 .commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 80px 56px; min-width:468px; }
 @media(max-width:1450px) {
- .commander-layout { grid-template-columns:220px minmax(0,1fr) minmax(0,1fr) 240px; gap:10px; padding:0 16px 20px; }
+ .commander-layout { grid-template-columns:242px minmax(0,1fr) minmax(0,1fr) 264px; gap:10px; padding:0 16px 20px; }
  .commander-trees { gap:10px; }
  .commander-intro { padding:12px 16px 10px; }
 }
 @media(max-width:1100px) {
- .commander-layout { grid-template-columns:180px minmax(300px,1fr) minmax(300px,1fr) 240px; overflow-x:auto; }
+ .commander-layout { grid-template-columns:198px minmax(300px,1fr) minmax(300px,1fr) 264px; overflow-x:auto; }
 }
 """
 
@@ -1025,10 +1027,17 @@ class StorageWorkspace:
                     ui.label(group['details']['name']).classes('grow truncate')
                     ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
                 for volume in group['volumes']:
+                    def volume_actions(action, v=volume):
+                        if v.get('marker_id'):
+                            rename = ui.menu_item('Переименовать диск', on_click=action(lambda: self.rename_disk(v['id'])))
+                            rename.set_enabled(v.get('mounted') and v['availability'] == 'online'
+                                               and v.get('identity_status') == 'verified')
+
                     channel = bool(volume.get('marker_id') and volume.get('share_name'))
                     classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
                     with ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes(classes):
-                        self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']), volume_id=volume['id'])
+                        self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']),
+                                           volume_id=volume['id'], extra_content=volume_actions)
                         ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[volume['availability']])
                         with ui.column().classes('gap-0 flex-1 min-w-0'):
                             with ui.row().classes('w-full items-center no-wrap gap-1'):
@@ -1502,6 +1511,53 @@ class StorageWorkspace:
             ui.notify('Отметки сохранены', type='positive')
         except Exception as error:
             self.notice(error)
+        finally:
+            self.editing = False
+
+    async def rename_disk(self, volume_id):
+        volume = next((v for v in self.volumes if v['id'] == volume_id), None)
+        if not volume:
+            return
+        self.editing = True
+        saving = False
+
+        async def save():
+            nonlocal saving
+            if saving:
+                return
+            try:
+                validate_name(name.value or '')
+            except ValueError as error:
+                ui.notify(str(error), type='warning')
+                return
+            saving = True
+            save_button.disable()
+            cancel_button.disable()
+            try:
+                await self.request('PATCH', f'/api/storage/volumes/{volume_id}/name',
+                                   json={'name': (name.value or '').strip()}, timeout=45)
+                dialog.submit(True)
+            except Exception as error:
+                self.notice(error)
+            finally:
+                saving = False
+                save_button.enable()
+                cancel_button.enable()
+
+        try:
+            with ui.dialog().props('persistent') as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-4'):
+                ui.label('Имя диска в media.actu').classes('text-lg font-semibold')
+                name = ui.input('Имя диска', value=volume['name']).props('outlined dense maxlength=120 autofocus').classes('w-full')
+                name.on('keydown.enter', save)
+                ui.label('Имя сохранится на диске и будет использоваться при следующих подключениях.').classes('s-note')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    cancel_button = ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                    save_button = ui.button('Сохранить', on_click=save).props('unelevated no-caps color=green-9')
+            if not await dialog:
+                return
+            self.editing = False
+            await self.refresh_volumes(True)
+            ui.notify('Имя диска обновлено', type='positive')
         finally:
             self.editing = False
 

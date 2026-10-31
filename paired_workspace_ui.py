@@ -10,14 +10,14 @@ from paired_tree import PairedTree
 
 
 PAIR_CSS = '''
-.commander-trees.pair-linked { grid-template-columns:minmax(0,1fr) 56px minmax(0,1fr); gap:4px; }
+.commander-trees.pair-linked { grid-template-columns:minmax(0,1fr) 80px minmax(0,1fr); gap:4px; }
 .commander-trees > .commander-pane:first-child { grid-column:1; grid-row:1; }
 .commander-trees.pair-linked > .commander-pane:nth-child(2) { grid-column:3; }
 .commander-trees.pair-linked .commander-pane { border-color:#b0c4a7; }
 .commander-trees.pair-linked .commander-pane.active-pane { border-color:#75986c; }
 .commander-trees.pair-linked .pane-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.pair-rail { grid-column:2; grid-row:1; width:56px; display:flex; align-items:center; gap:7px; padding-top:10px; }
-.pair-rail .q-btn { min-width:0; width:54px; padding:3px 1px; min-height:40px; font-size:10px; line-height:13px; }
+.pair-rail { grid-column:2; grid-row:1; width:80px; display:flex; align-items:center; gap:7px; padding-top:10px; }
+.pair-rail .q-btn { min-width:0; width:78px; padding:3px; min-height:40px; font-size:10px; line-height:13px; }
 .pair-rail .q-btn__content { display:flex; flex-direction:column; gap:2px; flex-wrap:nowrap; }
 .pair-rail .q-icon { font-size:17px; margin:0; }
 .pair-disconnect .block { white-space:normal; }

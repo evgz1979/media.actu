@@ -5,11 +5,41 @@ import sys
 import tempfile
 import unittest
 
-from media_manager.sandbox_rules import copy_write_rules
+from media_manager.sandbox_rules import copy_write_rules, marker_write_rules
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'macOS sandbox integration')
 class CopySandboxTests(unittest.TestCase):
+    def test_marker_rename_is_atomic_and_keeps_originals_protected(self):
+        with tempfile.TemporaryDirectory(prefix='media-actu-marker-sandbox-') as temporary:
+            root = Path(temporary).resolve()
+            volumes = root / 'volumes'
+            disk = volumes / 'disk'
+            disk.mkdir(parents=True)
+            (disk / 'original').write_bytes(b'keep')
+            profile = ('(version 1) (allow default) (deny file-write* (subpath '
+                       + json.dumps(str(volumes)) + ')) ' + marker_write_rules(str(volumes))
+                       + ' ' + copy_write_rules(str(volumes)))
+            code = '''
+import sys
+from pathlib import Path
+from media_manager.volume_identity import create_marker, rename_marker
+disk=Path(sys.argv[1]); device=disk.stat().st_dev
+marker=create_marker(str(disk), device, 'before')
+renamed=rename_marker(str(disk), device, marker['id'], 'after')
+assert renamed == {'id':marker['id'], 'name':'after'}
+assert not list(disk.glob('.media-actu-copy-*.part'))
+for action in (lambda:(disk/'original').write_bytes(b'overwrite'), lambda:(disk/'original').unlink()):
+ try:action()
+ except PermissionError:pass
+ else:raise AssertionError('Original was writable')
+'''
+            result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code, str(disk)],
+                                    capture_output=True, text=True)
+            if 'sandbox_apply: Operation not permitted' in result.stderr:
+                self.skipTest('Host does not allow nested sandbox-exec')
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_atomic_copy_keeps_existing_files_write_protected(self):
         self.exercise('external')
 

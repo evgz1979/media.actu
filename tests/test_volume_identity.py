@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import os
 import shutil
 import subprocess
@@ -11,9 +12,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from media_manager.comparison import ComparisonCatalog, open_readonly
+from media_manager.copies import CopyCatalog
 from media_manager.storage import StorageCatalog, discover_volumes, volume_key
 from media_manager.volume_identity import (
-    MARKER_FILES, MARKER_LIMIT, MARKER_NAME, create_marker, mounted_root, read_capacity, read_marker,
+    MARKER_FILES, MARKER_LIMIT, MARKER_NAME, create_marker, mounted_root, read_capacity, read_marker, rename_marker,
 )
 
 
@@ -82,6 +84,136 @@ class VolumeIdentityTests(unittest.TestCase):
         returned = {v['id']: v for v in self.storage.refresh(True)['volumes']}
         self.assertEqual(returned[first['id']]['availability'], 'online')
         self.assertEqual(returned[first['id']]['metadata']['effective']['role'], 'archive')
+
+    def test_rename_preserves_marker_history_and_folder_connections_after_restart(self):
+        registered = self.register()
+        marker_path = self.disk / MARKER_NAME
+        document = json.loads(marker_path.read_text())
+        document['custom'] = {'keep': True}
+        marker_path.write_text(json.dumps(document))
+        (self.disk / 'Album').mkdir()
+        snapshot = self.storage.directory(registered['id'])
+        self.storage.annotate(registered['id'], '', {'role': 'archive', 'comment': 'keep'})
+        copies = CopyCatalog(self.storage)
+        group = copies.create_main(registered['id'], 'Album')
+        copies.set_group_connected(group['id'], False)
+        original = (self.disk / 'photo.jpg').stat()
+
+        renamed = self.storage.rename_removable(registered['id'], '  WD_old_2Tb  ')
+
+        self.assertEqual(renamed['id'], registered['id'])
+        self.assertEqual(renamed['name'], 'WD_old_2Tb')
+        self.assertEqual(json.loads(marker_path.read_text()), {**document, 'name': 'WD_old_2Tb'})
+        self.assertEqual({p.name for p in self.disk.iterdir()}, {'photo.jpg', 'Album', MARKER_NAME})
+        self.assertEqual((self.disk / 'photo.jpg').stat().st_mtime_ns, original.st_mtime_ns)
+        reopened = StorageCatalog(self.storage.database, lambda: [self.discover(share='usbshare2')])
+        remembered = next(v for v in reopened.refresh(True)['volumes'] if v['id'] == registered['id'])
+        self.assertEqual(remembered['name'], 'WD_old_2Tb')
+        self.assertEqual(remembered['metadata']['effective']['role'], 'archive')
+        self.assertEqual(remembered['metadata']['own']['comment'], 'keep')
+        self.assertEqual(reopened.directory(registered['id'], refresh=False)['scanned_at'], snapshot['scanned_at'])
+        remembered_group = CopyCatalog(reopened).groups()[0]
+        self.assertEqual(remembered_group['id'], group['id'])
+        self.assertEqual(remembered_group['main']['volume_name'], 'WD_old_2Tb')
+        self.assertFalse(remembered_group['connected'])
+        reopened.discover = lambda: []
+        offline = next(v for v in reopened.refresh(True)['volumes'] if v['id'] == registered['id'])
+        self.assertEqual(offline['name'], 'WD_old_2Tb')
+
+    def test_rename_rejects_offline_unregistered_and_duplicate_disks(self):
+        pending = self.discover()
+        self.active = [pending]
+        with self.assertRaises(ValueError):
+            self.storage.rename_removable(pending['id'], 'new name')
+        self.assertFalse((self.disk / MARKER_NAME).exists())
+        registered = self.register()
+        original = (self.disk / MARKER_NAME).read_bytes()
+        self.storage.discover = lambda: []
+        with self.assertRaises(ValueError):
+            self.storage.rename_removable(registered['id'], 'new name')
+        duplicate = self.root / 'duplicate'
+        duplicate.mkdir()
+        shutil.copyfile(self.disk / MARKER_NAME, duplicate / MARKER_NAME)
+        self.storage.discover = lambda: [self.discover(), self.discover(duplicate, share='usbshare2')]
+        with self.assertRaises(ValueError):
+            self.storage.rename_removable(registered['id'], 'new name')
+        self.assertEqual((self.disk / MARKER_NAME).read_bytes(), original)
+
+    def test_failed_rename_leaves_original_marker_intact_and_removes_temporary(self):
+        registered = self.register()
+        original = (self.disk / MARKER_NAME).read_bytes()
+        for operation in ('fsync', 'replace'):
+            with self.subTest(operation=operation), \
+                    patch('media_manager.volume_identity.os.' + operation, side_effect=OSError('write failed')):
+                with self.assertRaises(OSError):
+                    rename_marker(str(self.disk), self.disk.stat().st_dev, registered['marker_id'], 'new name')
+            self.assertEqual((self.disk / MARKER_NAME).read_bytes(), original)
+            self.assertEqual({p.name for p in self.disk.iterdir()}, {'photo.jpg', MARKER_NAME})
+
+    def test_rename_rejects_changed_identity_symlink_and_invalid_names(self):
+        registered = self.register()
+        original = (self.disk / MARKER_NAME).read_bytes()
+        for name in ('', '   ', 'bad\nname', 'x' * 121):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.storage.rename_removable(registered['id'], name)
+        self.assertEqual((self.disk / MARKER_NAME).read_bytes(), original)
+        (self.disk / MARKER_NAME).unlink()
+        replacement = create_marker(str(self.disk), self.disk.stat().st_dev, 'other disk')
+        with self.assertRaises(OSError):
+            rename_marker(str(self.disk), self.disk.stat().st_dev, registered['marker_id'], 'new name')
+        target = self.root / 'private-marker'
+        (self.disk / MARKER_NAME).rename(target)
+        (self.disk / MARKER_NAME).symlink_to(target)
+        with self.assertRaises(OSError):
+            rename_marker(str(self.disk), self.disk.stat().st_dev, replacement['id'], 'new name')
+        self.assertEqual(json.loads(target.read_text())['name'], 'other disk')
+
+    def test_concurrent_marker_change_is_not_overwritten(self):
+        registered = self.register()
+        from media_manager import volume_identity
+        read_document = volume_identity._read_marker_document
+        calls = 0
+
+        def change_before_publication(root):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                marker_path = self.disk / MARKER_NAME
+                document = json.loads(marker_path.read_text())
+                marker_path.write_text(json.dumps({**document, 'name': 'from another client'}))
+            return read_document(root)
+
+        with patch.object(volume_identity, '_read_marker_document', side_effect=change_before_publication):
+            with self.assertRaises(OSError):
+                rename_marker(str(self.disk), self.disk.stat().st_dev, registered['marker_id'], 'new name')
+        self.assertEqual(json.loads((self.disk / MARKER_NAME).read_text())['name'], 'from another client')
+        self.assertEqual({p.name for p in self.disk.iterdir()}, {'photo.jpg', MARKER_NAME})
+
+    def test_rename_api_validates_requests_and_updates_the_same_volume(self):
+        import httpx
+        with patch.dict(os.environ, {'MEDIA_ACTU_DATA_DIR': str(self.root / 'api-data')}):
+            import app as core
+        registered = self.register()
+
+        async def exercise():
+            with patch.object(core, 'storage', self.storage):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=core.app), base_url='http://test') as client:
+                    url = '/api/storage/volumes/' + registered['id'] + '/name'
+                    for payload, status in [({'name': ''}, 422), ({'name': '   '}, 400),
+                                            ({'name': 'new', 'id': 'replace'}, 422)]:
+                        response = await client.patch(url, json=payload)
+                        self.assertEqual(response.status_code, status, response.text)
+                    self.assertEqual(json.loads((self.disk / MARKER_NAME).read_text())['name'], registered['name'])
+                    response = await client.patch(url, json={'name': 'Новое имя'})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(response.json()['id'], registered['id'])
+                    self.assertEqual(response.json()['name'], 'Новое имя')
+                    self.storage.discover = lambda: []
+                    response = await client.patch(url, json={'name': 'Отключён'})
+                    self.assertEqual(response.status_code, 400, response.text)
+                    self.assertEqual(json.loads((self.disk / MARKER_NAME).read_text())['name'], 'Новое имя')
+
+        asyncio.run(exercise())
 
     def test_unregistered_disk_does_not_use_legacy_share_history(self):
         old_id = volume_key('smbfs:tnas-z._smb._tcp.local/usbshare1')

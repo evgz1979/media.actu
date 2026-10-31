@@ -1,4 +1,4 @@
-"""Small volume markers; only explicit registration writes to a source disk."""
+"""Small volume markers; writing requires explicit registration or renaming."""
 from __future__ import annotations
 
 import json
@@ -43,7 +43,7 @@ def mounted_root(path: str, device: int | None = None):
         os.close(descriptor)
 
 
-def read_marker(root: int) -> dict | None:
+def _read_marker_document(root: int) -> dict | None:
     try:
         descriptor = os.open(MARKER_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
     except FileNotFoundError:
@@ -67,9 +67,14 @@ def read_marker(root: int) -> dict | None:
             validate_name(name)
         except (ValueError, TypeError, KeyError, AttributeError) as error:
             raise OSError('Не удалось подтвердить ID в служебном файле носителя') from error
-        return {'id': identifier, 'name': name.strip()}
+        return marker
     finally:
         os.close(descriptor)
+
+
+def read_marker(root: int) -> dict | None:
+    marker = _read_marker_document(root)
+    return {'id': str(uuid.UUID(marker['id'])), 'name': marker['name'].strip()} if marker else None
 
 
 def validate_name(name: str) -> None:
@@ -103,6 +108,41 @@ def create_marker(path: str, device: int | None, name: str) -> dict:
         if confirmed is None or confirmed['id'] != marker['id']:
             raise OSError('Диск изменился во время регистрации')
     return marker
+
+
+def rename_marker(path: str, device: int | None, marker_id: str, name: str) -> dict:
+    validate_name(name)
+    with mounted_root(path, device) as root:
+        original = _read_marker_document(root)
+        if original is None or str(uuid.UUID(original['id'])) != marker_id:
+            raise OSError('Сменный диск был отключён или заменён')
+        updated = {**original, 'name': name.strip()}
+        content = (json.dumps(updated, ensure_ascii=False, indent=2) + '\n').encode()
+        if len(content) > MARKER_LIMIT:
+            raise ValueError('Новое имя не помещается в служебный файл носителя')
+        # Reuse the app's protected, excluded temporary-file namespace. Publish
+        # only a complete JSON document so a failed write cannot destroy the ID.
+        temporary = f'.media-actu-copy-{uuid.uuid4().hex}-{uuid.uuid4().hex}.part'
+        mode = stat.S_IMODE(os.stat(MARKER_NAME, dir_fd=root, follow_symlinks=False).st_mode) & 0o777
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             mode, dir_fd=root)
+        try:
+            with os.fdopen(descriptor, 'wb') as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if _read_marker_document(root) != original:
+                raise OSError('Служебный файл диска изменился во время переименования')
+            os.replace(temporary, MARKER_NAME, src_dir_fd=root, dst_dir_fd=root)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=root)
+            except FileNotFoundError:
+                pass
+        confirmed = read_marker(root)
+        if confirmed != {'id': marker_id, 'name': updated['name']}:
+            raise OSError('Не удалось подтвердить новое имя диска')
+        return confirmed
 
 
 def read_capacity(root: int) -> dict:
