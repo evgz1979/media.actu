@@ -313,6 +313,8 @@ class BrowserPane:
     def size_scope(self):
         if not self.volume_id:
             return None
+        if getattr(self.workspace.pair, 'history_only', False):
+            return None
         if self.workspace.pair.active and self.workspace.pair.report:
             row = self.workspace.pair.by_path.get(self.workspace.pair.selected)
             if row and not row.get('left' if self.index == 0 else 'right'):
@@ -861,10 +863,17 @@ class StorageWorkspace:
                 report = await self.request('GET', f'/api/storage/paired-comparisons/{job_id}', timeout=45)
                 if report['copy_id'] != pair_state['copy_id']:
                     raise ValueError('Сохранённая сверка относится к другой паре')
-            match = next(((group, copy) for group in self.copies.groups for copy in group['copies']
+            match = next(((group, copy) for group in self.copies.groups
+                          for copy in [*group['copies'], *group.get('released_copies', [])]
                           if copy['id'] == pair_state['copy_id']), None)
             if match:
-                await self.pair.link(*match)
+                if match[1].get('number_released'):
+                    if not report:
+                        await self.pair.history(group=match[0], location=match[1])
+                        return True
+                    await self.pair.link(*match, load_folders=False)
+                else:
+                    await self.pair.link(*match)
             elif report:
                 await self.pair.link({'main': report['scopes']['left']}, report['scopes']['right'])
             else:
@@ -976,7 +985,7 @@ class StorageWorkspace:
                 wanted.update(pane.size_cells)
             opened = open_scopes - self.size_open_scopes
             self.size_open_scopes = open_scopes
-            if self.pair.active and self.pair.report:
+            if self.pair.active and self.pair.report and not self.pair.history_only:
                 for side in ('left', 'right'):
                     scope = self.pair.scopes[side]
                     for row in self.pair.visible_rows():

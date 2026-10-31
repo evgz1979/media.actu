@@ -16,7 +16,7 @@ def sidebar_sections(groups):
         disabled = not group.get('connected', True)
         main_offline = disabled or disconnected(group['main'])
         available = [c for c in group['copies'] if not disabled and not disconnected(c)]
-        unavailable = [c for c in group['copies'] if disabled or disconnected(c)]
+        unavailable = [c for c in group['copies'] if disabled or disconnected(c)] + group.get('released_copies', [])
         if not main_offline or available:
             active.append((group, available))
         if main_offline or unavailable:
@@ -122,14 +122,21 @@ class CopyGroupsUI:
                     'click', lambda g=group, c=location: self.open_copy(g, c), args=[],
                     js_handler='event => { event.preventDefault(); emit(); }',
                 ):
-                    actions = [('Изменить тип копии', lambda c=location: self.edit_kind(c))]
-                    if not group.get('connected', True):
-                        actions.append(('Подключить набор', lambda: self.set_connection(group, True)))
+                    released = location.get('number_released', False)
+                    actions = [('История копии', lambda c=location: ws.pair.history(group=group, location=c))]
+                    if released:
+                        actions.append(('Вернуть прежнюю привязку', lambda c=location: self.set_connection(group, True, c)))
                     else:
+                        actions.append(('Изменить тип копии', lambda c=location: self.edit_kind(c)))
+                    if not released and not group.get('connected', True):
+                        actions.append(('Подключить набор', lambda: self.set_connection(group, True)))
+                    elif not released:
                         connected = not location.get('connected', True)
                         actions.append(('Подключить копию' if connected else 'Отключить копию',
                                         lambda c=location, v=connected: self.set_connection(group, v, c)))
                     if not location.get('connected', True):
+                        if not released:
+                            actions.append((f"Освободить номер {location['number']:02d}…", lambda c=location: self.release_number(c)))
                         actions.append(('Удалить связь из учёта…', lambda c=location: self.remove_copy(c)))
                     ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
                                      volume_id=location['volume_id'], path=location['path'], extra=actions)
@@ -231,8 +238,9 @@ class CopyGroupsUI:
         if self.controls is None:
             return
         ws = self.workspace
-        self.controls.set_visibility(not bool(ws.report))
-        if ws.report:
+        history_only = getattr(ws.pair, 'history_only', False)
+        self.controls.set_visibility(not bool(ws.report) and not history_only)
+        if ws.report or history_only:
             return
         left, right = ws.panes
         policy = tuple((g['id'], g['next_number'], g.get('connected', True),
@@ -350,7 +358,37 @@ class CopyGroupsUI:
     async def open_copy(self, group, location):
         ws = self.workspace
         with ws.client:
-            await ws.pair.link(group, location)
+            if location.get('number_released'):
+                await ws.pair.history(group=group, location=location)
+            else:
+                await ws.pair.link(group, location)
+
+    async def release_number(self, location):
+        ws = self.workspace
+        with ws.client:
+            was_editing = ws.editing
+            ws.editing = True
+            try:
+                with ui.dialog() as dialog, ui.card().classes('w-[520px] max-w-full p-5 gap-3'):
+                    ui.label(f"Освободить номер {location['number']:02d}?").classes('text-lg font-semibold')
+                    ui.label(location['label'] + ' · ' + self.location_path(location)).classes('text-sm break-words')
+                    ui.label('Прежняя привязка и её история останутся в «Отключённых». Номер можно будет использовать для новой папки.').classes('text-sm s-muted')
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                        ui.button('Освободить номер', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+                if not await dialog:
+                    return
+                await ws.request('POST', f"/api/storage/copy-locations/{location['id']}/release-number",
+                                 json={'number': location['number'], 'kind': location['kind']})
+                if ws.pair.active and ws.pair.copy_id == location['id']:
+                    await ws.pair.unlink()
+                await self.changed()
+                self.disconnected.open()
+                ui.notify('Номер освобождён, прежняя история сохранена', type='positive')
+            except Exception as error:
+                ws.notice(error)
+            finally:
+                ws.editing = was_editing
 
     async def edit_kind(self, location):
         ws = self.workspace
@@ -436,7 +474,8 @@ class CopyGroupsUI:
             try:
                 await self.refresh()
                 group = next((g for g in self.groups if g['id'] == location['group_id']), None)
-                location = next((c for c in group['copies'] if c['id'] == location['id']), None) if group else None
+                location = next((c for c in [*group['copies'], *group.get('released_copies', [])]
+                                 if c['id'] == location['id']), None) if group else None
                 if location is None:
                     raise ValueError('Эта связь с копией уже убрана из учёта.')
                 if await self.confirm_remove('Убрать связь с копией?', locations=(group['main'], location), button_label='Убрать связь'):

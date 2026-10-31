@@ -60,6 +60,7 @@ class PairedWorkspace:
     def __init__(self, workspace):
         self.ws = workspace
         self.active = False
+        self.history_only = False
         self.scopes = None
         self.copy_id = None
         self.report = None
@@ -112,7 +113,7 @@ class PairedWorkspace:
                      (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'),
                      (self.report or {}).get('method'), bool(self.rows), self.differences_only,
                      tuple((self.copy_operation or {}).get(k) for k in ('id', 'state', 'copied_bytes', 'checked_items', 'message')),
-                     self.copy_dialog_open)
+                     self.copy_dialog_open, self.history_only)
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
@@ -122,6 +123,14 @@ class PairedWorkspace:
             if not self.active:
                 ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props('flat no-caps color=green-9')
                 ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark aria-label="Разомкнуть панели"').classes('pair-disconnect')
+                return
+            if self.history_only:
+                ui.label('Прежняя\nпривязка').classes('pair-rail-state').style('white-space:pre-line')
+                ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props('flat no-caps color=green-9')
+                if self.copy_operation:
+                    ui.button('Копия', icon='assignment', on_click=self.copy_details).props('flat no-caps color=green-9')
+                ui.button('История', icon='history', on_click=self.history).props('flat no-caps color=dark')
+                ui.button('Закрыть', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Закрыть прежнюю привязку"')
                 return
             running = self.copy_running or (self.report and self.report['state'] in ('running', 'pausing'))
             folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
@@ -173,7 +182,7 @@ class PairedWorkspace:
                             ui.menu_item('Сверить содержимое · SHA-256', on_click=lambda: self.start('files', 'sha256'))
             ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes('pair-disconnect')
 
-    async def link(self, group, location):
+    async def link(self, group, location, *, load_folders=True):
         with self.ws.client:
             if self.copy_running:
                 await self.stop_copy()
@@ -187,6 +196,7 @@ class PairedWorkspace:
             self.generation += 1
             self.pending_start = self.pending_view = None
             self.active = True
+            self.history_only = bool(location.get('number_released'))
             self.scopes = {'left': group['main'], 'right': location}
             self.copy_id = location['id']
             self.report, self.rows, self.by_path = None, [], {}
@@ -200,8 +210,9 @@ class PairedWorkspace:
             self.views.clear()
             self.rail_signature = None
             self.render_rail()
-            await asyncio.gather(*(p.show_volume(s['volume_id'], s['path'], activate=False)
-                                   for p, s in zip(self.ws.panes, self.scopes.values())))
+            if load_folders:
+                await asyncio.gather(*(p.show_volume(s['volume_id'], s['path'], activate=False)
+                                       for p, s in zip(self.ws.panes, self.scopes.values())))
             self.ws.set_active(0)
             self.ws.update_scopes()
 
@@ -216,6 +227,7 @@ class PairedWorkspace:
             self.generation += 1
             self.pending_start = self.pending_view = None
             self.active, self.report = False, None
+            self.history_only = False
             self.copy_operation = None
             self.rows, self.by_path = [], {}
             self.views.clear()
@@ -238,7 +250,8 @@ class PairedWorkspace:
         pane.toolbar.set_visibility(True)
         pane.result_filter.set_visibility(False)
         description = 'основная папка' if side == 'left' else f"копия №{scope['number']}"
-        pane.heading.text = f"{scope['label']} ({description})"
+        pane.heading.text = ('Прежняя ' + scope['label'] if self.history_only and side == 'right'
+                             else f"{scope['label']} ({description})")
         boundary = scope['path']
         pane.render_path(scope['volume_id'], pane.path, pane.kind, boundary=boundary)
         if self.report:
@@ -415,6 +428,8 @@ class PairedWorkspace:
             self.redraw()
 
     async def start(self, mode, method='size'):
+        if self.history_only:
+            return
         with self.ws.client:
             generation = self.generation
             self.pending_start = dict(since=datetime.now(timezone.utc).isoformat(), mode=mode, method=method)
@@ -613,7 +628,7 @@ class PairedWorkspace:
         append(page)
 
     async def prepare_copy(self):
-        if self.copy_dialog_open or self.copy_running or not self.report:
+        if self.history_only or self.copy_dialog_open or self.copy_running or not self.report:
             return
         with self.ws.client:
             generation, report_id = self.generation, self.report['id']
@@ -672,6 +687,8 @@ class PairedWorkspace:
             self.render_rail()
 
     async def resume(self):
+        if self.history_only:
+            return
         with self.ws.client:
             try:
                 await self.apply(await self.ws.request('POST', f"/api/storage/paired-comparisons/{self.report['id']}/resume", timeout=30))
@@ -764,18 +781,29 @@ class PairedWorkspace:
             finally:
                 self.ws.editing = False
 
-    async def history(self):
+    async def history(self, *, group=None, location=None):
         with self.ws.client:
             try:
-                jobs = (await self.ws.request('GET', '/api/storage/paired-comparisons', params={'copy_id': self.copy_id}, timeout=30))['jobs']
+                copy_id = location['id'] if location else self.copy_id
+                jobs = (await self.ws.request('GET', '/api/storage/paired-comparisons', params={'copy_id': copy_id}, timeout=30))['jobs']
                 with ui.dialog() as dialog, ui.card().classes('w-[600px] max-w-full p-5 gap-3'):
                     ui.label('История сверок пары').classes('text-lg font-semibold')
+                    if location:
+                        ui.label(location['label'] + ' · ' + location['volume_name'] + ' /' + location['path']).classes('text-sm s-muted break-words')
                     if not jobs:
                         ui.label('Эта пара ещё не проверялась.').classes('s-muted text-sm')
                     async def choose(job):
-                        dialog.close()
-                        self.generation += 1
-                        await self.apply(job)
+                        try:
+                            if self.copy_running:
+                                raise ValueError('Сначала дождись завершения копирования.')
+                            if location:
+                                await self.link(group, location, load_folders=False)
+                            dialog.close()
+                            self.generation += 1
+                            await self.apply(job)
+                            self.ws.persist_workspace()
+                        except Exception as error:
+                            self.ws.notice(error)
                     for job in jobs:
                         label = self.ws.format_date(job['created_at']) + ' · ' + self.report_title(job)
                         label += ' · ' + {'completed': 'Готово', 'paused': 'Пауза', 'running': 'Выполняется', 'pausing': 'Остановка', 'failed': 'Ошибка'}[job['state']]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from itertools import count
 from pathlib import PurePosixPath
 from uuid import uuid4
 
@@ -37,6 +38,15 @@ CREATE TABLE IF NOT EXISTS disconnected_copy_locations (
     location_id TEXT PRIMARY KEY REFERENCES copy_locations(id) ON DELETE CASCADE,
     disconnected_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS released_copy_locations (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES copy_groups(id) ON DELETE CASCADE,
+    volume_id TEXT NOT NULL REFERENCES volumes(id),
+    path TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('copy','cold','cloud')),
+    number INTEGER NOT NULL CHECK(number>0), created_at TEXT NOT NULL,
+    disconnected_at TEXT NOT NULL, released_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS released_copy_locations_group ON released_copy_locations(group_id,number);
 '''
 
 
@@ -45,10 +55,19 @@ def copy_label(kind, number):
     return f'{number:02d}-{suffix}'
 
 
-def numbering_changes(copies):
+def numbering_changes(copies, released_numbers=()):
+    reusable = set(released_numbers) - {location['number'] for location in copies}
+    numbers = (number for number in count(1) if number not in reusable)
     return [{'id': location['id'], 'from_label': copy_label(location['kind'], location['number']),
              'to_label': copy_label(location['kind'], number), 'number': number}
-            for number, location in enumerate(copies, 1) if location['number'] != number]
+            for number, location in zip(numbers, copies) if location['number'] != number]
+
+
+def next_copy_number(copies, released_numbers=()):
+    if numbering_changes(copies, released_numbers):
+        return None
+    occupied = {location['number'] for location in copies}
+    return min((set(released_numbers) - occupied) | {max(occupied, default=0) + 1})
 
 
 def inherited_location(path, locations):
@@ -93,7 +112,7 @@ class CopyCatalog:
     def groups(self):
         volumes = {v['id']: v for v in self.storage.refresh()['volumes']}
         with self.storage.connect() as db:
-            groups = [dict(row, main=None, copies=[]) for row in db.execute('''
+            groups = [dict(row, main=None, copies=[], released_copies=[]) for row in db.execute('''
                 SELECT g.*, COALESCE(s.tracking,0) AS tracking, COALESCE(s.label,'') AS label, s.changed_at,
                        d.disconnected_at
                 FROM copy_groups g LEFT JOIN copy_group_settings s ON s.group_id=g.id
@@ -112,12 +131,21 @@ class CopyCatalog:
                     by_id[location['group_id']]['main'] = location
                 else:
                     by_id[location['group_id']]['copies'].append(location)
+            for row in db.execute('SELECT * FROM released_copy_locations ORDER BY released_at,id'):
+                location = dict(row)
+                volume = volumes.get(location['volume_id']) or self.storage.get_volume(location['volume_id'])
+                location.update(connected=False, number_released=True,
+                                label='Прежняя ' + copy_label(location['kind'], location['number']),
+                                volume_name=volume.get('display_name') or volume['name'],
+                                availability=volume.get('availability', 'unknown'), removable=volume.get('removable', False))
+                by_id[location['group_id']]['released_copies'].append(location)
             for group in groups:
                 group['connected'] = not bool(group['disconnected_at'])
                 group['tracking'] = bool(group['tracking'])
-                group['numbering_changes'] = numbering_changes(group['copies'])
+                released = [copy['number'] for copy in group['released_copies']]
+                group['numbering_changes'] = numbering_changes(group['copies'], released)
                 # Derive from current links, including catalogs written by older versions.
-                group['next_number'] = None if group['numbering_changes'] else len(group['copies']) + 1
+                group['next_number'] = next_copy_number(group['copies'], released)
         return groups
 
     def group(self, group_id):
@@ -186,15 +214,53 @@ class CopyCatalog:
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             location = db.execute('SELECT group_id,number FROM copy_locations WHERE id=?', (location_id,)).fetchone()
+            released = location is None
             if location is None:
-                raise KeyError('Ссылка на копию не найдена')
+                archived = db.execute('SELECT * FROM released_copy_locations WHERE id=?', (location_id,)).fetchone()
+                if archived is None:
+                    raise KeyError('Ссылка на копию не найдена')
+                if connected:
+                    if db.execute('SELECT 1 FROM copy_locations WHERE group_id=? AND number=?',
+                                  (archived['group_id'], archived['number'])).fetchone():
+                        raise ValueError(f"Номер {archived['number']:02d} уже занят другой привязкой. Прежняя история сохранена.")
+                    self._check_overlap(db, archived['volume_id'], archived['path'])
+                    db.execute('INSERT INTO copy_locations(id,group_id,volume_id,path,kind,number,created_at) VALUES (?,?,?,?,?,?,?)',
+                               tuple(archived[key] for key in ('id','group_id','volume_id','path','kind','number','created_at')))
+                    db.execute('DELETE FROM released_copy_locations WHERE id=?', (location_id,))
+                location = archived
             if location['number'] == 0:
                 raise ValueError('Основную папку отключают вместе с её набором')
             if connected:
                 db.execute('DELETE FROM disconnected_copy_locations WHERE location_id=?', (location_id,))
-            else:
+            elif not released:
                 db.execute('INSERT OR IGNORE INTO disconnected_copy_locations VALUES (?,?)',
                            (location_id, datetime.now(timezone.utc).isoformat()))
+        return self.group(location['group_id'])
+
+    def release_copy_number(self, location_id, number, kind):
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            location = db.execute('''SELECT l.*,d.disconnected_at,g.disconnected_at AS group_disconnected_at
+                FROM copy_locations l LEFT JOIN disconnected_copy_locations d ON d.location_id=l.id
+                LEFT JOIN disconnected_copy_groups g ON g.group_id=l.group_id WHERE l.id=?''', (location_id,)).fetchone()
+            if location is None:
+                location = db.execute('SELECT * FROM released_copy_locations WHERE id=?', (location_id,)).fetchone()
+                if location is None:
+                    raise KeyError('Ссылка на копию не найдена')
+                if (location['number'], location['kind']) != (number, kind):
+                    raise ValueError('Метка копии изменилась. Обнови список и повтори действие.')
+            else:
+                if location['number'] == 0:
+                    raise ValueError('Номер основной папки нельзя освобождать')
+                if (location['number'], location['kind']) != (number, kind):
+                    raise ValueError('Метка копии изменилась. Обнови список и повтори действие.')
+                if not (location['disconnected_at'] or location['group_disconnected_at']):
+                    raise ValueError('Сначала отключи эту копию')
+                timestamp = datetime.now(timezone.utc).isoformat()
+                db.execute('INSERT INTO released_copy_locations VALUES (?,?,?,?,?,?,?,?,?)',
+                           (*tuple(location[key] for key in ('id','group_id','volume_id','path','kind','number','created_at')),
+                            location['disconnected_at'] or location['group_disconnected_at'], timestamp))
+                db.execute('DELETE FROM copy_locations WHERE id=?', (location_id,))
         return self.group(location['group_id'])
 
     def acknowledge_changes(self, group_id, changed_at):
@@ -225,10 +291,12 @@ class CopyCatalog:
                 else:
                     locations = db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number',
                                            (group_id,)).fetchall()
-                    if numbering_changes(locations):
+                    released = [row['number'] for row in db.execute('SELECT number FROM released_copy_locations WHERE group_id=?', (group_id,))]
+                    number = next_copy_number(locations, released)
+                    if number is None:
                         raise ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')
                     self._check_overlap(db, volume_id, path)
-                    number, timestamp = len(locations) + 1, datetime.now(timezone.utc).isoformat()
+                    timestamp = datetime.now(timezone.utc).isoformat()
                     db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
                                (uuid4().hex, group_id, volume_id, path, kind, number, timestamp))
                     db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (number + 1, group_id))
@@ -241,7 +309,7 @@ class CopyCatalog:
             db.execute('BEGIN IMMEDIATE')
             location = db.execute('SELECT * FROM copy_locations WHERE id=?', (location_id,)).fetchone()
             if location is None:
-                raise KeyError('Ссылка на копию не найдена')
+                raise KeyError('Действующая ссылка на копию не найдена')
             if location['number'] == 0:
                 raise ValueError('Основная папка всегда имеет метку 00-main')
             db.execute('UPDATE copy_locations SET kind=? WHERE id=?', (kind, location_id))
@@ -252,7 +320,11 @@ class CopyCatalog:
             db.execute('BEGIN IMMEDIATE')
             location = db.execute('SELECT * FROM copy_locations WHERE id=?', (location_id,)).fetchone()
             if location is None:
-                raise KeyError('Ссылка на копию не найдена')
+                archived = db.execute('SELECT * FROM released_copy_locations WHERE id=?', (location_id,)).fetchone()
+                if archived is None:
+                    raise KeyError('Ссылка на копию не найдена')
+                db.execute('DELETE FROM released_copy_locations WHERE id=?', (location_id,))
+                return
             if location['number'] == 0:
                 raise ValueError('Основную папку убирают вместе с её списком копий')
             db.execute('DELETE FROM copy_locations WHERE id=?', (location_id,))
@@ -270,7 +342,8 @@ class CopyCatalog:
             if locations != expected_copies:
                 raise ValueError('Список копий изменился. Проверь и подтверди новое предложение переименования.')
             # Moving numbers down in ascending order cannot collide with an existing number.
-            for change in numbering_changes(locations):
+            released = [row['number'] for row in db.execute('SELECT number FROM released_copy_locations WHERE group_id=?', (group_id,))]
+            for change in numbering_changes(locations, released):
                 db.execute('UPDATE copy_locations SET number=? WHERE id=?', (change['number'], change['id']))
             db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (len(locations) + 1, group_id))
         return self.group(group_id)

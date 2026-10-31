@@ -94,6 +94,8 @@ class PairedComparisonCatalog:
 
     def _pair(self, copy_id):
         for group in self.copies.groups():
+            if any(copy['id'] == copy_id for copy in group.get('released_copies', [])):
+                raise ValueError('Номер прежней привязки освобождён. Для неё доступна только история.')
             for copy in group['copies']:
                 if copy['id'] == copy_id:
                     if not group.get('connected', True) or not copy.get('connected', True):

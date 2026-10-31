@@ -375,6 +375,10 @@ class CopyNumberSnapshot(CopyKindRequest):
     number: int = Field(gt=0)
 
 
+class CopyNumberReleaseRequest(CopyKindRequest):
+    number: int = Field(gt=0, strict=True)
+
+
 class CopyRenumberRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     copies: list[CopyNumberSnapshot]
@@ -451,6 +455,18 @@ async def storage_copy_location_connection(location_id: str, request: CopyConnec
 @app.post('/api/storage/copy-groups/{group_id}/copies')
 async def storage_copy_location(group_id: str, request: CopyLocationRequest) -> dict:
     return await copy_catalog_action(copies.add_copy, group_id, request.volume_id, request.path, request.kind)
+
+
+def release_copy_number(location_id, number, kind):
+    with comparison_gate:
+        if paired_comparison.busy():
+            raise ValueError('Сначала дождись завершения сверки и копирования.')
+        return copies.release_copy_number(location_id, number, kind)
+
+
+@app.post('/api/storage/copy-locations/{location_id}/release-number')
+async def storage_release_copy_number(location_id: str, request: CopyNumberReleaseRequest) -> dict:
+    return await copy_catalog_action(release_copy_number, location_id, request.number, request.kind)
 
 
 @app.patch('/api/storage/copy-locations/{location_id}')
