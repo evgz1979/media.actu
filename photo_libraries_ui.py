@@ -1,0 +1,203 @@
+"""Library bookmarks, per-library thumbnail progress, and copy associations."""
+from pathlib import PurePosixPath
+
+from nicegui import ui
+
+
+LIBRARY_CSS = '''
+.library-list { width:100%; padding:4px; gap:5px; }
+.library-button.q-btn { width:100%; padding:8px; text-align:left; border:1px solid transparent; }
+.library-button .q-btn__content { width:100%; display:flex; flex-direction:column; align-items:stretch; gap:4px; }
+.library-button.connected { background:#edf4e9; border-color:#c5d3bd; }
+.library-name { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-progress { font-size:10px; color:#6c7865; text-transform:none; }
+.library-progress-bar { height:3px; }
+.library-copy { display:block; padding:3px 8px 3px 18px; font-size:10px; color:#637b91; text-decoration:none; overflow-wrap:anywhere; }
+.library-note { font-size:10px; line-height:15px; color:#7b8475; padding:5px 10px; }
+.library-actions .q-btn { font-size:10px; padding:2px 7px; min-height:26px; }
+'''
+
+
+def progress_text(library):
+    done = int(library.get('thumbnail_done') or 0)
+    total = int(library.get('thumbnail_total') or 0)
+    percent = f'{done / total * 100:.1f}%' if total else '0%'
+    return f'Превью {done:,} / {total:,} · {percent}'.replace(',', ' ')
+
+
+def library_state(library):
+    state = library.get('connection_state')
+    if state == 'no_access':
+        return 'Нужно разрешение Фото'
+    if not library.get('active'):
+        return 'Не подключена · сохранённый каталог'
+    if library.get('paused'):
+        return 'Пауза'
+    if library.get('status') == 'scanning':
+        return 'Обновляю каталог…'
+    waiting = int(library.get('waiting') or 0)
+    pending = int(library.get('thumbnail_pending') or 0)
+    if waiting and pending <= waiting and not library.get('thumbnail_running'):
+        return f'Ожидают миниатюру Photos: {waiting}'
+    if pending or library.get('thumbnail_running'):
+        return 'Загружаю превью'
+    return 'Есть ошибки превью' if library.get('thumbnail_error') else 'Превью готовы'
+
+
+class PhotoLibrariesUI:
+    def __init__(self, workspace):
+        self.ws = workspace
+        self.libraries = []
+        self.rows = {}
+        self.signature = None
+        self.busy = self.refreshing = False
+
+    def build(self):
+        ui.add_css(LIBRARY_CSS)
+        with ui.expansion('Медиатеки', icon='photo_library', value=True).props('dense').classes('copy-section w-full') as self.section:
+            self.cards = ui.column().classes('library-list')
+            self.note = ui.label().classes('library-note w-full')
+            with ui.column().classes('library-actions w-full px-2 pb-2 gap-1'):
+                self.permission_button = ui.button('Разрешить доступ Photos', icon='lock_open', on_click=self.authorize).props('flat no-caps color=green-9')
+                self.connect_button = ui.button('Подключить текущую', icon='sync', on_click=self.connect).props('flat no-caps color=dark')
+                self.add_button = ui.button('Добавить текущую медиатеку', icon='add', on_click=self.add).props('flat no-caps color=dark')
+        self.permission_button.set_visibility(False)
+
+    async def refresh(self):
+        if self.refreshing or self.ws.client.is_deleted:
+            return
+        self.refreshing = True
+        try:
+            data = await self.ws.request('GET', '/api/photos/libraries', timeout=20)
+            with self.ws.client:
+                if self.ws.client.is_deleted:
+                    return
+                self.libraries = data['libraries']
+                connection = data.get('connection', {})
+                self.permission_button.set_visibility(connection.get('state') == 'no_access')
+                self.add_button.set_enabled(not self.busy and connection.get('state') != 'no_access')
+                self.connect_button.set_enabled(not self.busy)
+                self.permission_button.set_enabled(not self.busy)
+                self.note.text = connection.get('error') or 'Оригиналы → привязанные копии'
+                self.section.text = f'Медиатеки · {len(self.libraries)}'
+                signature = tuple((s['id'], s.get('label'), s['active'], s['paused'], s['connection_state'],
+                                   tuple((c['id'], c['volume_name'], c['path'], c['availability']) for c in s.get('copies', [])))
+                                  for s in self.libraries)
+                if signature != self.signature and not self.ws.context_menu_open:
+                    self.signature = signature
+                    self.render()
+                for library in self.libraries:
+                    row = self.rows.get(library['id'])
+                    if row:
+                        row['progress'].text = progress_text(library)
+                        total = library.get('thumbnail_total') or 0
+                        row['bar'].value = min(1, library.get('thumbnail_done', 0) / total) if total else 0
+                        row['state'].text = library_state(library)
+        except Exception as error:
+            if not self.ws.client.is_deleted:
+                self.note.text = self.ws.error_text(error)
+        finally:
+            self.refreshing = False
+
+    def menu(self):
+        menu = ui.context_menu()
+        menu.on('show', lambda: setattr(self.ws, 'context_menu_open', True))
+        menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
+        return menu
+
+    def render(self):
+        self.cards.clear()
+        self.rows.clear()
+        with self.cards:
+            for library in self.libraries:
+                source_id = library['id']
+                with ui.column().classes('w-full gap-0'):
+                    with ui.button(on_click=lambda sid=source_id: ui.navigate.to(f'/media?source={sid}')).props('flat no-caps').classes(
+                        'library-button' + (' connected' if library['active'] else '')):
+                        with self.menu():
+                            ui.menu_item('Открыть медиатеку', on_click=lambda sid=source_id: ui.navigate.to(f'/media?source={sid}'))
+                            ui.menu_item('Переименовать', on_click=lambda s=library: self.rename(s))
+                            ui.menu_item('Продолжить превью' if library['paused'] or not library['active'] else 'Пауза превью',
+                                         on_click=lambda s=library: self.toggle(s))
+                            scan = ui.menu_item('Обновить каталог', on_click=lambda sid=source_id: self.scan(sid))
+                            scan.set_enabled(bool(library['active']))
+                            ui.separator()
+                            ui.menu_item('Привязать папку-копию', on_click=lambda s=library: self.bind(s))
+                        ui.label(library.get('label') or 'Photos').classes('library-name')
+                        progress = ui.label(progress_text(library)).classes('library-progress')
+                        bar = ui.linear_progress(value=0).props('color=green-7').classes('library-progress-bar')
+                        state = ui.label(library_state(library)).classes('library-progress')
+                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state)
+                    for copy in library.get('copies', []):
+                        title = f"{copy['number']:02d}-copy · {copy['volume_name']} /{copy['path']}"
+                        with ui.link(title, '#').classes('library-copy').on('click',
+                            lambda c=copy: self.ws.open_volume(c['volume_id'], 1, path=c['path']), js_handler='(event) => { event.preventDefault(); emit(); }'):
+                            with self.menu():
+                                ui.menu_item('Отвязать копию', on_click=lambda sid=source_id, c=copy: self.unbind(sid, c))
+
+    async def action(self, method, path, *, timeout=45, **kwargs):
+        if self.busy:
+            return
+        self.busy = True
+        try:
+            await self.ws.request(method, path, timeout=timeout, **kwargs)
+        except Exception as error:
+            self.ws.notice(error)
+        finally:
+            self.busy = False
+            self.signature = None
+            await self.refresh()
+
+    async def authorize(self):
+        await self.action('POST', '/api/photos/authorize', timeout=700)
+
+    async def connect(self):
+        await self.action('POST', '/api/photos/libraries/connect')
+
+    async def toggle(self, library):
+        action = 'resume' if library['paused'] or not library['active'] else 'pause'
+        await self.action('POST', f"/api/photos/libraries/{library['id']}/{action}")
+
+    async def scan(self, source_id):
+        await self.action('POST', f'/api/sources/{source_id}/scan', timeout=650)
+
+    async def name_dialog(self, title, value):
+        with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
+            ui.label(title).classes('text-lg font-semibold')
+            name = ui.input('Название', value=value).props('outlined dense maxlength=120 autofocus').classes('w-full')
+            if title.startswith('Сохранить'):
+                ui.label('Сначала открой отдельную системную медиатеку нужного Apple ID в Photos на M4.').classes('s-note')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
+                ui.button('Сохранить', on_click=lambda: dialog.submit((name.value or '').strip())).props('unelevated no-caps color=green-9')
+        return await dialog
+
+    async def add(self):
+        name = await self.name_dialog('Сохранить текущую медиатеку Photos', f'Photos {len(self.libraries) + 1}')
+        if name:
+            await self.action('POST', '/api/photos/libraries', json={'label': name})
+
+    async def rename(self, library):
+        name = await self.name_dialog('Название медиатеки', library.get('label') or 'Photos')
+        if name:
+            await self.action('PATCH', f"/api/photos/libraries/{library['id']}", json={'label': name})
+
+    async def bind(self, library):
+        scope = self.ws.panes[1].scope()
+        if not scope or not scope['path']:
+            ui.notify('Сначала открой папку для копии в правой панели.', type='info')
+            return
+        volume = next(v for v in self.ws.volumes if v['id'] == scope['volume_id'])
+        with ui.dialog() as dialog, ui.card().classes('w-[470px] max-w-full p-5 gap-3'):
+            ui.label('Привязать копию медиатеки').classes('text-lg font-semibold')
+            ui.label(library.get('label') or 'Photos').classes('font-semibold')
+            ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
+            ui.label('Оригиналы будут сохраняться сразу в эту папку. Сейчас сохраняется только привязка, загрузка файлов не начинается.').classes('s-note')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                ui.button('Привязать', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+        if await dialog:
+            await self.action('POST', f"/api/photos/libraries/{library['id']}/copies", json=scope)
+
+    async def unbind(self, source_id, copy):
+        await self.action('DELETE', f"/api/photos/libraries/{source_id}/copies/{copy['id']}")

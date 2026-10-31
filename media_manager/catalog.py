@@ -62,6 +62,44 @@ CREATE TABLE IF NOT EXISTS thumbnail_jobs (
 CREATE INDEX IF NOT EXISTS thumbnail_jobs_status_priority
 ON thumbnail_jobs(status, priority DESC, queued_at);
 
+CREATE TABLE IF NOT EXISTS photos_libraries (
+    source_id INTEGER PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL UNIQUE,
+    anchors TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 0,
+    paused INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'unknown',
+    error TEXT,
+    checked_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS photos_one_active ON photos_libraries(active) WHERE active=1;
+CREATE TABLE IF NOT EXISTS thumbnail_waits (
+    media_id INTEGER PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+    retry_at REAL NOT NULL,
+    reason TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS photos_copy_links (
+    id TEXT PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES photos_libraries(source_id),
+    volume_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    number INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    connected INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(volume_id,path),
+    UNIQUE(source_id,number)
+);
+CREATE TABLE IF NOT EXISTS photos_copy_files (
+    link_id TEXT NOT NULL REFERENCES photos_copy_links(id) ON DELETE CASCADE,
+    asset_identifier TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER,
+    sha256 TEXT,
+    verified_at TEXT,
+    PRIMARY KEY(link_id,asset_identifier,resource_id)
+);
+
 INSERT OR IGNORE INTO metadata(key, value) VALUES ('catalog_revision', '0');
 INSERT OR IGNORE INTO metadata(key, value) VALUES ('thumbnail_queue_paused', '0');
 """
@@ -130,6 +168,9 @@ class Catalog:
     def add_system_photos_source(self) -> dict[str, object]:
         now = datetime.now().astimezone().isoformat()
         with self._write_lock, self.connect() as connection:
+            existing = connection.execute("SELECT * FROM sources WHERE kind='photos' ORDER BY id LIMIT 1").fetchone()
+            if existing:
+                return dict(existing)
             connection.execute(
                 """
                 INSERT OR IGNORE INTO sources(
@@ -141,15 +182,6 @@ class Catalog:
                     "Системный адаптер Photos · только чтение",
                     now,
                 ),
-            )
-            connection.execute(
-                """
-                UPDATE sources
-                SET kind = 'photos',
-                    label = 'Системная медиатека Photos',
-                    comment = 'Системный адаптер Photos · только чтение'
-                WHERE path = 'photos://system'
-                """
             )
             row = connection.execute(
                 "SELECT * FROM sources WHERE path = 'photos://system'"
@@ -207,9 +239,10 @@ class Catalog:
 
     def list_sources(self) -> list[dict[str, object]]:
         query = """
-            SELECT sources.*, COUNT(media_files.id) AS media_count,
+            SELECT sources.*, photos_libraries.active AS photos_active,
+                   photos_libraries.paused AS photos_paused, COUNT(media_files.id) AS media_count,
                    COALESCE(SUM(media_files.size), 0) AS total_size,
-                   COALESCE(SUM(media_files.kind = 'photo'), 0) AS thumbnail_total,
+                   COALESCE(SUM(media_files.kind = 'photo' OR sources.kind = 'photos'), 0) AS thumbnail_total,
                    COALESCE(SUM(thumbnail_jobs.status = 'done'), 0) AS thumbnail_done,
                    COALESCE(SUM(thumbnail_jobs.status = 'pending'), 0) AS thumbnail_pending,
                    COALESCE(SUM(thumbnail_jobs.status = 'running'), 0) AS thumbnail_running,
@@ -217,6 +250,7 @@ class Catalog:
             FROM sources
             LEFT JOIN media_files ON media_files.source_id = sources.id
             LEFT JOIN thumbnail_jobs ON thumbnail_jobs.media_id = media_files.id
+            LEFT JOIN photos_libraries ON photos_libraries.source_id=sources.id
             GROUP BY sources.id
             ORDER BY sources.role, sources.path COLLATE NOCASE
         """
@@ -331,7 +365,7 @@ class Catalog:
                     parent_path = excluded.parent_path,
                     name = excluded.name,
                     kind = excluded.kind,
-                    size = excluded.size,
+                    size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE media_files.size END,
                     modified_at = excluded.modified_at,
                     seen_token = excluded.seen_token
                 """,
@@ -374,7 +408,8 @@ class Catalog:
                 SELECT id, CAST(size AS TEXT) || ':' || modified_at,
                        'pending', ?, 0, NULL, ?, NULL, NULL
                 FROM media_files
-                WHERE source_id = ? AND kind = 'photo'
+                WHERE source_id = ? AND (kind = 'photo' OR EXISTS (
+                    SELECT 1 FROM sources WHERE sources.id=media_files.source_id AND sources.kind='photos'))
                 ON CONFLICT(media_id) DO UPDATE SET
                     media_version = excluded.media_version,
                     status = CASE
@@ -427,7 +462,8 @@ class Catalog:
                 SELECT id, CAST(size AS TEXT) || ':' || modified_at,
                        'pending', ?, 0, NULL, ?, NULL, NULL
                 FROM media_files
-                WHERE source_id = ? AND parent_path = ? AND kind = 'photo'
+                WHERE source_id = ? AND parent_path = ? AND (kind = 'photo' OR EXISTS (
+                    SELECT 1 FROM sources WHERE sources.id=media_files.source_id AND sources.kind='photos'))
                 ON CONFLICT(media_id) DO UPDATE SET
                     priority = CASE
                         WHEN thumbnail_jobs.status = 'pending'
@@ -496,9 +532,13 @@ class Catalog:
                 FROM thumbnail_jobs
                 JOIN media_files ON media_files.id = thumbnail_jobs.media_id
                 JOIN sources ON sources.id = media_files.source_id
+                LEFT JOIN photos_libraries ON photos_libraries.source_id=sources.id
+                LEFT JOIN thumbnail_waits ON thumbnail_waits.media_id=media_files.id
                 WHERE thumbnail_jobs.status = 'pending'
                   AND sources.kind = ?
                   AND sources.status != 'scanning'
+                  AND (sources.kind!='photos' OR (photos_libraries.active=1 AND photos_libraries.paused=0 AND photos_libraries.state='ready'))
+                  AND (thumbnail_waits.media_id IS NULL OR thumbnail_waits.retry_at<=unixepoch('now'))
                 ORDER BY thumbnail_jobs.priority DESC,
                          thumbnail_jobs.queued_at,
                          thumbnail_jobs.media_id
@@ -518,7 +558,18 @@ class Catalog:
                 """,
                 (now, media_id),
             )
+            connection.execute('DELETE FROM thumbnail_waits WHERE media_id=?', (media_id,))
         return media_id
+
+    def defer_thumbnail_job(self, media_id: int, reason: str, seconds: int = 3600) -> None:
+        import time
+        with self._write_lock, self.connect() as db:
+            db.execute("UPDATE thumbnail_jobs SET status='pending',started_at=NULL WHERE media_id=?", (media_id,))
+            db.execute('INSERT OR REPLACE INTO thumbnail_waits VALUES (?,?,?)', (media_id, time.time()+seconds, reason))
+
+    def photos_queue_paused(self) -> bool:
+        with self.connect() as db:
+            return db.execute("SELECT 1 FROM photos_libraries WHERE active=1 AND paused=0 AND state='ready'").fetchone() is None
 
     def finish_thumbnail_job(
         self, media_id: int, *, error: str | None = None
@@ -568,6 +619,7 @@ class Catalog:
 
     def set_thumbnail_queue_paused(self, paused: bool) -> None:
         with self._write_lock, self.connect() as connection:
+            connection.execute('UPDATE photos_libraries SET paused=?', (int(paused),))
             connection.execute(
                 """
                 UPDATE metadata SET value = ? WHERE key = 'thumbnail_queue_paused'

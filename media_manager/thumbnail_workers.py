@@ -4,6 +4,7 @@ import threading
 
 from media_manager.catalog import Catalog
 from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
+from media_manager.photos_adapter import PhotosAccessDenied, PhotosLibraryUnavailable, PhotosThumbnailPending
 
 
 class ThumbnailWorkerPool:
@@ -72,6 +73,9 @@ class ThumbnailWorkerPool:
         paused_workers = states.count("paused")
         result.update(
             {
+                'folders_paused': bool(result['paused']),
+                'photos_paused': self.catalog.photos_queue_paused(),
+                'paused': bool(result['paused']) and self.catalog.photos_queue_paused(),
                 "workers_total": self.folder_workers + self.photos_workers,
                 "workers_alive": alive,
                 "workers_working": working,
@@ -96,7 +100,7 @@ class ThumbnailWorkerPool:
     def _work(self, source_kind: str) -> None:
         worker_name = threading.current_thread().name
         while not self._stop.is_set():
-            if self.catalog.thumbnail_queue_paused():
+            if (self.catalog.photos_queue_paused() if source_kind == 'photos' else self.catalog.thumbnail_queue_paused()):
                 self._set_state(worker_name, "paused")
                 self._wait()
                 continue
@@ -110,6 +114,11 @@ class ThumbnailWorkerPool:
                 thumbnail = self.thumbnails.get_or_create(media_id)
                 if thumbnail is None:
                     raise RuntimeError("Превью недоступно")
+            except PhotosThumbnailPending as error:
+                self.catalog.defer_thumbnail_job(media_id, str(error))
+            except (PhotosAccessDenied, PhotosLibraryUnavailable):
+                self.catalog.release_thumbnail_job(media_id)
+                self._wait()
             except ThumbnailCacheUnavailable:
                 self.catalog.release_thumbnail_job(media_id)
                 self._wake.wait(timeout=10)

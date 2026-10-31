@@ -17,6 +17,7 @@ from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
 from storage_preview_ui import PREVIEW_CSS, StoragePreview
+from photo_libraries_ui import PhotoLibrariesUI
 from workspace_state import STORAGE_KEY, normalize_state, pane_snapshot
 
 
@@ -847,6 +848,7 @@ class StorageWorkspace:
         self.browse_active = 0
         self.pair = PairedWorkspace(self)
         self.copies = CopyGroupsUI(self)
+        self.photo_libraries = PhotoLibrariesUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
         ui.add_css(CSS + WORKSPACE_CSS + PREVIEW_CSS)
         with ui.row().classes('s-header w-full items-center justify-between no-wrap'):
@@ -872,9 +874,8 @@ class StorageWorkspace:
                     with ui.expansion('Отключённые', icon='link_off', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
                         self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
                     ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs px-3 py-2')
+                self.photo_libraries.build()
                 self.copies.build_sidebar()
-                with ui.column().classes('px-3 py-3 gap-1'):
-                    ui.link('Системная медиатека Photos →', '/media').classes('text-xs text-green-900 no-underline')
             with ui.element('div').classes('commander-trees') as self.trees:
                 self.panes = [BrowserPane(self, index) for index in range(2)]
                 self.link_badge = ui.element('div').classes('pane-link').props('role="img" aria-label="Панели связаны в режиме сверки"')
@@ -1347,6 +1348,8 @@ class StorageWorkspace:
         self.state_ready = not restore_failed
         self.persist_workspace()
         ui.timer(30, self.refresh_volumes)
+        await self.photo_libraries.refresh()
+        ui.timer(3, self.photo_libraries.refresh)
         ui.timer(3, self.poll)
         ui.timer(1.5, self.poll_directory_sizes)
         ui.timer(1, self.persist_workspace)

@@ -65,7 +65,7 @@ async def core_request(
 
 
 @ui.page("/media")
-async def index_page() -> None:
+async def index_page(source: int | None = None) -> None:
     ui.add_head_html('<meta name="color-scheme" content="light">')
     ui.add_css(
         """
@@ -110,7 +110,7 @@ async def index_page() -> None:
         """
     )
 
-    selected_source_id: int | None = None
+    selected_source_id: int | None = source
     selected_folder = ""
     selected_folders: dict[int, str] = {}
     expanded_folders: dict[int, set[str]] = {}
@@ -235,6 +235,7 @@ async def index_page() -> None:
             )
             source_select.options = {
                 int(source["id"]): (
+                    str(source.get('label') or 'Photos') if source.get('kind') == 'photos' else
                     f"{source.get('label') or source['path']} — {source['path']}"
                 )
                 for source in sources
@@ -253,7 +254,8 @@ async def index_page() -> None:
                                 ui.label(
                                     str(source.get("label") or Path(str(source["path"])).name)
                                 ).classes("source-name truncate w-full")
-                                ui.label(str(source["path"])).classes("path truncate w-full")
+                                if source.get('kind') != 'photos':
+                                    ui.label(str(source["path"])).classes("path truncate w-full")
                                 if source.get("comment"):
                                     ui.label(str(source["comment"])).classes("muted text-xs")
                                 if source.get("error"):
@@ -283,10 +285,11 @@ async def index_page() -> None:
                                     on_click=lambda: authorize_photos(),
                                 ).props("flat dense no-caps color=dark")
                             else:
-                                ui.button(
+                                scan = ui.button(
                                     "Сканировать",
                                     on_click=lambda source_id=int(source["id"]): scan_one(source_id),
                                 ).props("flat dense no-caps color=dark")
+                                scan.set_enabled(source.get('kind') != 'photos' or bool(source.get('photos_active')))
                             if source.get("kind") != "photos":
                                 ui.button(
                                     "Убрать",
@@ -305,8 +308,8 @@ async def index_page() -> None:
             )
             if selected_source_id not in source_select.options:
                 selected_source_id = next(iter(source_select.options), None)
-                source_select.value = selected_source_id
-                source_select.update()
+            source_select.value = selected_source_id
+            source_select.update()
         except Exception as error:
             connection_label.text = f"CORE: недоступен · {CORE_URL.rsplit(':', 1)[-1]}"
             connection_label.classes(add="text-negative", remove="muted text-positive")
@@ -594,7 +597,7 @@ async def index_page() -> None:
                     ui.label("В этой папке нет медиафайлов.").classes("muted")
                 for media in files:
                     with ui.column().classes("media-card gap-0"):
-                        if media["kind"] == "photo":
+                        if media["kind"] == "photo" or source_kinds.get(selected_source_id) == 'photos':
                             thumbnail_version = hashlib.sha256(
                                 (
                                     f"{selected_source_id}\0{media['relative_path']}\0"

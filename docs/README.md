@@ -14,6 +14,7 @@
 - [ADR: два независимых процесса](adr/0001-two-process-architecture.md)
 - [ADR: режим только чтения](adr/0002-read-only-first-version.md)
 - [ADR: M4 и отдельный порт Core](adr/0003-m4-runtime-and-ports.md)
+- [ADR: медиатеки Photos и прямое хранение оригиналов в копиях](adr/0005-photos-libraries.md)
 
 ## Правила версионирования
 

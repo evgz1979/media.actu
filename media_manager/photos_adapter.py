@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
+import selectors
 import shutil
+import socket
+import stat
 import subprocess
 import tempfile
 import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
-
-from PIL import Image, ImageOps
 
 from media_manager.scanner import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 
@@ -19,6 +23,14 @@ class PhotosAdapterError(RuntimeError):
 
 
 class PhotosAccessDenied(PhotosAdapterError):
+    pass
+
+
+class PhotosLibraryUnavailable(PhotosAdapterError):
+    pass
+
+
+class PhotosThumbnailPending(PhotosAdapterError):
     pass
 
 
@@ -33,13 +45,20 @@ class SystemPhotosAdapter:
         self._build_lock = threading.Lock()
         self._operation_lock = threading.RLock()
         self._backend: str | None = None
+        self._process = None
+        self._buffer = b''
+        self.use_gui = os.uname().sysname == 'Darwin'
+        self._socket = None
+        self._socket_path = None
+        self._socket_directory = None
+        self._gui_pid = None
 
     @property
     def supported(self) -> bool:
         return os.uname().sysname == "Darwin" and shutil.which("clang") is not None
 
     def reuse_indexed_backend(self) -> None:
-        self._backend = "applescript"
+        self._backend = None
 
     def ensure_built(self) -> None:
         if not self.supported:
@@ -122,6 +141,10 @@ class SystemPhotosAdapter:
         return payload
 
     def status(self, *, request_authorization: bool = False) -> dict[str, Any]:
+        if self.use_gui:
+            payload = self._request(dict(op='authorize' if request_authorization else 'probe'), timeout=305)
+            self._backend = 'photokit'
+            return dict(payload, backend='photokit')
         payload = self._run("check")
         if payload.get("status") == "not_determined" and request_authorization:
             subprocess.run(
@@ -135,43 +158,148 @@ class SystemPhotosAdapter:
         if payload.get("status") in {"authorized", "limited"}:
             self._backend = "photokit"
             return {**payload, "backend": self._backend}
-        try:
-            fallback = self._applescript_status()
-        except PhotosAdapterError as error:
-            raise PhotosAccessDenied(str(payload.get("status") or "denied")) from error
-        self._backend = "applescript"
-        return {**fallback, "backend": self._backend}
+        raise PhotosAccessDenied('Разреши доступ media.actu Photos adapter в macOS → Конфиденциальность → Фото')
 
-    def scan(self) -> list[dict[str, Any]]:
+    def close(self):
         with self._operation_lock:
-            if self._backend is None:
-                self.status()
-            if self._backend == "applescript":
-                return self._applescript_scan()
-            payload = self._run("scan", timeout=600)
-            return list(payload.get("assets", []))
+            connection, self._socket = self._socket, None
+            if connection is not None:
+                try:
+                    connection.sendall(b'{"op":"quit"}\n')
+                except OSError:
+                    pass
+                connection.close()
+            if self._gui_pid:
+                try:
+                    os.kill(self._gui_pid, 15)
+                except ProcessLookupError:
+                    pass
+                self._gui_pid = None
+            # The helper owns its socket and lock. Never unlink another
+            # connection's endpoint during a reconnect.
+            self._socket_path = None
+            self._socket_directory = None
+            process, self._process = self._process, None
+            self._buffer = b''
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=3)
+                for stream in (process.stdin, process.stdout):
+                    if stream:
+                        stream.close()
+
+    def _ipc_directory(self):
+        return Path('/private/tmp' if os.uname().sysname == 'Darwin' else tempfile.gettempdir()) / f'media-actu-photos-v1-{os.getuid()}'
+
+    def _connect_gui(self):
+        self.close()
+        self.ensure_built()
+        # Launch Services ignores argv from a sandboxed caller. The helper
+        # therefore starts its fixed, read-only service without arguments.
+        directory = self._ipc_directory()
+        directory.mkdir(mode=0o700, exist_ok=True)
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise PhotosAdapterError('Небезопасный каталог связи с PhotoKit')
+        self._socket_directory = directory
+        self._socket_path = directory / 'photos.sock'
+        subprocess.run(['/usr/bin/open', '-g', '-n', str(self.app_directory)],
+                       capture_output=True, timeout=15, check=True)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                connection.connect(str(self._socket_path))
+                self._socket = connection
+                return
+            except (FileNotFoundError, ConnectionRefusedError):
+                connection.close()
+                time.sleep(.05)
+        raise PhotosAdapterError('Не удалось подключить GUI-помощник PhotoKit')
+
+    def _request(self, request, *, timeout=30):
+        """Keep PhotoKit and its image manager alive between thumbnail requests."""
+        with self._operation_lock:
+            try:
+                if self.use_gui:
+                    if self._socket is None:
+                        self._connect_gui()
+                    stream = self._socket
+                    stream.sendall((json.dumps(request) + '\n').encode())
+                elif self._process is None or self._process.poll() is not None:
+                    self.close()
+                    self.ensure_built()
+                    self._process = subprocess.Popen([str(self.executable), 'serve'], stdin=subprocess.PIPE,
+                                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+                if not self.use_gui:
+                    process = self._process
+                    process.stdin.write((json.dumps(request) + '\n').encode())
+                    process.stdin.flush()
+                    stream = process.stdout
+                deadline = time.monotonic() + timeout
+                with selectors.DefaultSelector() as selector:
+                    selector.register(stream, selectors.EVENT_READ)
+                    while b'\n' not in self._buffer:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0 or not selector.select(remaining):
+                            raise PhotosAdapterError('PhotoKit не ответил вовремя')
+                        chunk = os.read(stream.fileno(), 65536)
+                        if not chunk:
+                            raise PhotosAdapterError('PhotoKit завершил соединение')
+                        self._buffer += chunk
+                        if len(self._buffer) > 128 * 1024 * 1024:
+                            raise PhotosAdapterError('Слишком большой ответ PhotoKit')
+                line, self._buffer = self._buffer.split(b'\n', 1)
+                payload = json.loads(line)
+                if self.use_gui:
+                    self._gui_pid = payload.get('pid')
+            except (OSError, ValueError, subprocess.SubprocessError, PhotosAdapterError) as error:
+                self.close()
+                raise PhotosAdapterError(str(error)) from error
+            status = payload.get('status')
+            if status in ('not_determined', 'denied', 'restricted'):
+                raise PhotosAccessDenied('PhotoKit: требуется разрешение macOS на чтение Фото')
+            if status in ('unavailable', 'library_mismatch'):
+                raise PhotosLibraryUnavailable('Открыта другая медиатека Photos. Подключи нужную запись.')
+            if status == 'cloud':
+                raise PhotosThumbnailPending('Миниатюра пока недоступна локально в Photos')
+            if payload.get('error'):
+                raise PhotosAdapterError(str(payload['error']))
+            return payload
+
+    def probe(self, identifiers=(), *, restart=False):
+        with self._operation_lock:
+            if restart:
+                self.close()
+            return self._request(dict(op='probe', identifiers=list(identifiers)))
+
+    def scan(self, anchors=()) -> list[dict[str, Any]]:
+        return list(self._request(dict(op='scan', anchors=list(anchors)), timeout=600).get('assets', []))
 
     def create_thumbnail(
-        self, asset_identifier: str, target: Path, width: int = 640, height: int = 480
+        self, asset_identifier: str, target: Path, width: int = 640, height: int = 480, *, anchors=()
     ) -> Path:
         with self._operation_lock:
-            if self._backend is None:
-                self.status()
-            if self._backend == "applescript":
-                return self._applescript_thumbnail(
-                    asset_identifier, target, width, height
-                )
             target.parent.mkdir(parents=True, exist_ok=True)
-            self._run(
-                "thumbnail",
-                asset_identifier,
-                str(target),
-                str(width),
-                str(height),
-                timeout=600,
-            )
-            if not target.is_file():
-                raise PhotosAdapterError("PhotoKit не создал превью")
+            payload = self._request(dict(op='thumbnail', identifier=asset_identifier,
+                                         width=width, height=height, anchors=list(anchors)))
+            try:
+                jpeg = base64.b64decode(payload['jpeg'], validate=True)
+            except (KeyError, TypeError, ValueError) as error:
+                raise PhotosAdapterError('PhotoKit не вернул JPEG-превью') from error
+            if not jpeg or len(jpeg) > 16 * 1024 * 1024:
+                raise PhotosAdapterError('Некорректный размер JPEG-превью')
+            temporary = target.with_name(target.name + '.' + uuid.uuid4().hex + '.tmp')
+            try:
+                temporary.write_bytes(jpeg)
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
             return target
 
     def open_asset(self, asset_identifier: str) -> None:
@@ -234,39 +362,3 @@ class SystemPhotosAdapter:
                 continue
             assets.append({**asset, "kind": kind})
         return assets
-
-    def _applescript_thumbnail(
-        self, asset_identifier: str, target: Path, width: int, height: int
-    ) -> Path:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(
-            prefix="photos-export-", dir=target.parent
-        ) as directory:
-            result = subprocess.run(
-                [
-                    "osascript",
-                    str(self.source_directory / "export.applescript"),
-                    asset_identifier,
-                    directory,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise PhotosAdapterError(
-                    result.stderr.strip() or "Photos не создал превью"
-                )
-            exported = next(
-                (path for path in Path(directory).iterdir() if path.is_file()), None
-            )
-            if exported is None:
-                raise PhotosAdapterError("Photos не экспортировал изображение")
-            with Image.open(exported) as image:
-                image = ImageOps.exif_transpose(image)
-                image.thumbnail((width, height), Image.Resampling.LANCZOS)
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-                image.save(target, "JPEG", quality=86, optimize=True)
-        return target

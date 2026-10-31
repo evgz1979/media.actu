@@ -24,10 +24,12 @@ class ThumbnailService:
         catalog: Catalog,
         cache_directory: str | Path,
         photos_adapter: SystemPhotosAdapter | None = None,
+        photo_libraries=None,
     ) -> None:
         self.catalog = catalog
         self.cache_directory = Path(cache_directory)
         self.photos_adapter = photos_adapter
+        self.photo_libraries = photo_libraries
         self._folder_slots = threading.Semaphore(2)
         self._photos_slots = threading.Semaphore(1)
         self._locks_guard = threading.Lock()
@@ -41,7 +43,7 @@ class ThumbnailService:
 
     def get_cached(self, media_id: int) -> Path | None:
         media = self.catalog.get_media(media_id)
-        if not media or media["kind"] != "photo":
+        if not media or (media['kind'] != 'photo' and media.get('source_kind') != 'photos'):
             return None
         if media.get("source_kind") == "photos":
             fingerprint = hashlib.sha256(
@@ -79,9 +81,21 @@ class ThumbnailService:
             ) from error
         return directory / f"{media_id}-{fingerprint}.jpg"
 
+    @staticmethod
+    def _usable_photos_preview(target: Path) -> bool:
+        if not target.is_file():
+            return False
+        try:
+            with Image.open(target) as image:
+                # The first PhotoKit pass returned 64px FastFormat images.
+                # Keep them visible through get_cached while jobs upgrade them.
+                return max(image.size) > 64
+        except OSError:
+            return False
+
     def _get_or_create(self, media_id: int) -> Path | None:
         media = self.catalog.get_media(media_id)
-        if not media or media["kind"] != "photo":
+        if not media or (media['kind'] != 'photo' and media.get('source_kind') != 'photos'):
             return None
 
         if media.get("source_kind") == "photos":
@@ -91,11 +105,13 @@ class ThumbnailService:
                 f"{media['relative_path']}\0{media['modified_at']}".encode()
             ).hexdigest()[:20]
             target = self._cache_target(media_id, fingerprint)
-            if target.exists():
+            if self._usable_photos_preview(target):
                 return target
             with self._photos_slots:
-                if target.exists():
+                if self._usable_photos_preview(target):
                     return target
+                if self.photo_libraries is not None:
+                    return self.photo_libraries.create_thumbnail(int(media['source_id']), str(media['relative_path']), target)
                 return self.photos_adapter.create_thumbnail(
                     str(media["relative_path"]), target
                 )

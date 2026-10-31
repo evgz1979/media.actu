@@ -18,6 +18,7 @@ from media_manager.catalog import Catalog
 from media_manager.photos_adapter import (
     PhotosAccessDenied,
     PhotosAdapterError,
+    PhotosLibraryUnavailable,
     SystemPhotosAdapter,
 )
 from media_manager.scanner import scan_sources
@@ -34,6 +35,7 @@ from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
 from media_manager.directory_sizes import DirectorySizeService
 from media_manager.storage_previews import StoragePreviewService
+from media_manager.photo_libraries import PhotoLibraries
 
 
 ROOT = Path(__file__).parent
@@ -61,7 +63,8 @@ missing_copies = MissingCopyCatalog(paired_comparison)
 directory_sizes = DirectorySizeService(storage)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
-thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter)
+photo_libraries = PhotoLibraries(catalog, storage, photos_adapter)
+thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter, photo_libraries)
 storage_previews = StoragePreviewService(storage, local_thumbnail_cache_directory())
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-scan")
@@ -76,12 +79,11 @@ def scan_source(source_id: int) -> dict[str, object]:
     if not lock.acquire(blocking=False):
         return {"source_id": source_id, "status": "already_scanning"}
     try:
+        if source.get('kind') == 'photos':
+            photo_libraries._require_active(source_id)
         catalog.set_source_status(source_id, "scanning")
         if source.get("kind") == "photos":
-            assets = photos_adapter.scan()
-            catalog.replace_photos_scan(source_id, assets)
-            catalog.enqueue_source_thumbnails(source_id)
-            catalog.set_source_status(source_id, "idle")
+            assets = photo_libraries.scan(source_id)
             thumbnail_workers.wake()
             return {"source_id": source_id, "total": len(assets)}
         report = scan_sources([str(source["path"])])
@@ -115,38 +117,12 @@ async def lifespan(_: FastAPI):
     folder_tracking.start()
     folder_markers.start()
     catalog.reset_stale_source_scans()
-    photos_ready = False
     if photos_adapter.supported:
-        photos_source = catalog.add_system_photos_source()
-        indexed_photos = next(
-            (
-                source
-                for source in catalog.list_sources()
-                if source.get("kind") == "photos"
-            ),
-            None,
-        )
-        if indexed_photos and int(indexed_photos.get("media_count") or 0) > 0:
-            photos_adapter.reuse_indexed_backend()
-            catalog.set_source_status(int(photos_source["id"]), "idle")
-            photos_ready = True
-        else:
-            try:
-                await asyncio.to_thread(
-                    photos_adapter.status, request_authorization=True
-                )
-                photos_ready = True
-            except PhotosAccessDenied:
-                catalog.set_source_status(
-                    int(photos_source["id"]), "no_access", "Нет доступа к Photos"
-                )
-            except PhotosAdapterError as error:
-                catalog.set_source_status(
-                    int(photos_source["id"]), "error", str(error)
-                )
+        await asyncio.to_thread(photo_libraries.refresh_connection)
     for source in catalog.list_sources():
         if source.get("kind") == "photos":
-            if photos_ready and (
+            profile = photo_libraries.profile(int(source['id']))
+            if profile['active'] and (
                 int(source.get("media_count") or 0) == 0
                 or not source.get("last_scan_at")
             ):
@@ -157,7 +133,16 @@ async def lifespan(_: FastAPI):
             watcher.watch(int(source["id"]), source_path)
             schedule_scan(int(source["id"]))
     thumbnail_workers.start()
+    async def monitor_libraries():
+        while True:
+            await asyncio.sleep(30)
+            await asyncio.to_thread(photo_libraries.refresh_connection,
+                                    restart=photo_libraries.connection.get('state') != 'ready')
+            thumbnail_workers.wake()
+    photos_monitor = asyncio.create_task(monitor_libraries()) if photos_adapter.supported else None
     yield
+    if photos_monitor:
+        photos_monitor.cancel()
     folder_tracking.close()
     folder_markers.close()
     directory_sizes.close()
@@ -166,6 +151,7 @@ async def lifespan(_: FastAPI):
     comparison.close()
     watcher.stop()
     thumbnail_workers.stop()
+    photos_adapter.close()
     executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -747,6 +733,10 @@ async def scan_one_source(source_id: int) -> dict[str, object]:
         return await asyncio.to_thread(scan_source, source_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Источник не найден") from error
+    except PhotosLibraryUnavailable as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except PhotosAccessDenied as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @app.post("/api/scan")
@@ -756,6 +746,9 @@ async def scan_all_sources() -> dict[str, object]:
         raise HTTPException(status_code=400, detail="Сначала добавь хотя бы один источник")
     results = []
     for source in sources:
+        if source.get('kind') == 'photos' and not photo_libraries.profile(int(source['id']))['active']:
+            results.append({'source_id': source['id'], 'status': 'offline'})
+            continue
         if source.get("kind") == "photos" and source.get("status") == "no_access":
             results.append(
                 {"source_id": int(source["id"]), "status": "no_access"}
@@ -767,32 +760,94 @@ async def scan_all_sources() -> dict[str, object]:
 
 @app.post("/api/photos/authorize")
 async def authorize_system_photos() -> dict[str, object]:
-    source = next(
-        (
-            source
-            for source in catalog.list_sources()
-            if source.get("kind") == "photos"
-        ),
-        None,
-    )
-    if source is None:
-        raise HTTPException(status_code=404, detail="Источник Photos недоступен")
     try:
-        status = await asyncio.to_thread(
-            photos_adapter.status, request_authorization=True
-        )
-        result = await asyncio.to_thread(scan_source, int(source["id"]))
+        status = await asyncio.to_thread(photo_libraries.authorize)
     except PhotosAccessDenied as error:
-        catalog.set_source_status(
-            int(source["id"]), "no_access", "Нет доступа к Photos"
-        )
         raise HTTPException(
             status_code=403,
             detail="Разреши доступ в настройках macOS: Конфиденциальность → Фото",
         ) from error
     except PhotosAdapterError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
-    return {"status": status, "scan": result}
+    if status.get('source_id'):
+        source = catalog.get_source(status['source_id'])
+        if not source.get('last_scan_at'):
+            schedule_scan(status['source_id'])
+    thumbnail_workers.wake()
+    return {'status': status}
+
+
+async def library_call(method, *args):
+    try:
+        return await asyncio.to_thread(method, *args)
+    except PhotosAccessDenied as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except PhotosLibraryUnavailable as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (ValueError, OSError, PhotosAdapterError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+class LibraryNameRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    label: str = Field(min_length=1, max_length=120)
+
+
+class LibraryCopyRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    volume_id: str = Field(min_length=1, max_length=128)
+    path: str = Field(min_length=1, max_length=4096)
+
+
+@app.get('/api/photos/libraries')
+async def list_photo_libraries() -> dict:
+    return await library_call(photo_libraries.list)
+
+
+@app.post('/api/photos/libraries/connect')
+async def connect_photo_library() -> dict:
+    await library_call(photo_libraries.refresh_connection)
+    thumbnail_workers.wake()
+    return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries', status_code=201)
+async def register_photo_library(request: LibraryNameRequest) -> dict:
+    profile = await library_call(photo_libraries.register, request.label)
+    schedule_scan(profile['source_id'])
+    return profile
+
+
+@app.patch('/api/photos/libraries/{source_id}')
+async def rename_photo_library(source_id: int, request: LibraryNameRequest) -> dict:
+    await library_call(photo_libraries.rename, source_id, request.label)
+    return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries/{source_id}/pause')
+async def pause_photo_library(source_id: int) -> dict:
+    await library_call(photo_libraries.set_paused, source_id, True)
+    return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries/{source_id}/resume')
+async def resume_photo_library(source_id: int) -> dict:
+    await library_call(photo_libraries.set_paused, source_id, False)
+    thumbnail_workers.wake()
+    return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries/{source_id}/copies', status_code=201)
+async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -> dict:
+    return await library_call(photo_libraries.bind_copy, source_id, request.volume_id, request.path)
+
+
+@app.delete('/api/photos/libraries/{source_id}/copies/{link_id}')
+async def unbind_photo_library_copy(source_id: int, link_id: str) -> dict:
+    await library_call(photo_libraries.unbind_copy, source_id, link_id)
+    return await list_photo_libraries()
 
 
 @app.get("/api/catalog/summary")
@@ -894,9 +949,9 @@ async def open_media_in_default_app(media_id: int) -> dict[str, str]:
             raise KeyError(media_id)
         if media.get("source_kind") == "photos":
             await asyncio.to_thread(
-                photos_adapter.open_asset, str(media["relative_path"])
+                photo_libraries.open_asset, int(media['source_id']), str(media["relative_path"])
             )
-            return {"path": f"photos://system/{media['relative_path']}"}
+            return {"path": f"{media['source_path']}/{media['relative_path']}"}
         else:
             original = catalog.resolve_media_file(media_id)
         await asyncio.to_thread(
@@ -911,6 +966,10 @@ async def open_media_in_default_app(media_id: int) -> dict[str, str]:
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail="Оригинал файла не найден") from error
     except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except PhotosLibraryUnavailable as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except PhotosAccessDenied as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except PhotosAdapterError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
