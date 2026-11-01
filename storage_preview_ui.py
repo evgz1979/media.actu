@@ -118,7 +118,7 @@ class StoragePreview:
         pane.folder_size.set_visibility(False)
         pane.volume_select.set_visibility(True)
         pane.volume_select.set_enabled(True)
-        pane.volume_select.set_value(self.volume_id)
+        pane.update_volume_select(self.volume_id)
         pane.hidden.set_visibility(not self.ws.is_photos(self.volume_id))
         pane.parent_button.set_enabled(bool(self.volume_id and self.path))
         pane.root_button.set_enabled(bool(self.volume_id and self.path))

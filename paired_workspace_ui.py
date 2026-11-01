@@ -394,8 +394,9 @@ class PairedWorkspace:
                 return
             self.ws.set_active(0 if event.args['side'] == 'left' else 1)
             self.choose(event.args['path'])
-            expanded = event.args['path'] in self.closed
-            self.closed.discard(event.args['path'])
+            expanded = not event.args.get('keyboard') and event.args['path'] in self.closed
+            if not event.args.get('keyboard'):
+                self.closed.discard(event.args['path'])
             self.redraw(rows_changed=expanded)
             await self.ws.preview_selection(self.ws.panes[0 if event.args['side'] == 'left' else 1])
 

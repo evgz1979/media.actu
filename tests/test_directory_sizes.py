@@ -225,12 +225,13 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
         ws.is_photos = StorageWorkspace.is_photos
         ws.resolve_volume = lambda volume_id: next((v for v in ws.volumes if v['id'] == volume_id), None)
         ws.read_directory = lambda *args, **kwargs: StorageWorkspace.read_directory(ws, *args, **kwargs)
+        ws.active_index = 0
         pane = BrowserPane.__new__(BrowserPane)
         pane.view_mode = 'tree'
         pane.workspace, pane.index, pane.generation = ws, 0, 0
         pane.folders, pane.loading_folders, pane.limits, pane.matches, pane.size_cells = {}, set(), {}, set(), {}
         pane.result_filter, pane.volume_select, pane.tree = Mock(), Mock(), MagicMock()
-        pane.render, pane.update_header = Mock(), Mock()
+        pane.render, pane.update_header, pane.focus_tree = Mock(), Mock(), Mock()
         tasks = []
 
         def schedule(coroutine):

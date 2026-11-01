@@ -142,7 +142,7 @@ class PreviewNavigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_modes_restore_without_changing_saved_tree_position(self):
         panes = [SimpleNamespace(view_mode='tree', index=i, volume_id='disk', root_path='Saved', path='Saved/file.jpg',
                                  kind='file', entry=None, mode_switch=Mock(), tree=Mock(), path_signature=None,
-                                 volume_select=Mock(), render=Mock(),
+                                 volume_select=Mock(), render=Mock(), focus_tree=Mock(),
                                  preview=SimpleNamespace(content=Mock(), generation=0, show=AsyncMock())) for i in range(2)]
         ws = SimpleNamespace(panes=panes, pair=SimpleNamespace(render_rail=Mock()), persist_workspace=Mock(), update_scopes=Mock())
         ws.client = SimpleNamespace(run_javascript=AsyncMock(return_value=None))

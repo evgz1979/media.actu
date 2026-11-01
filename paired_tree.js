@@ -5,14 +5,14 @@ export default {
       <i class="material-icons" aria-hidden="true">{{ root_files_open ? 'expand_more' : 'chevron_right' }}</i>
       Файлы в этой папке · различий: {{ root_file_count }}
     </button>
-    <div class="pair-virtual" ref="viewport" @scroll="scrolled" tabindex="0" :aria-label="side === 'left' ? 'Дерево основной папки' : 'Дерево копии'">
+    <div class="pair-virtual" ref="viewport" @scroll="scrolled" @keydown="keyDown" @pointerdown="keyboardCursor=null" tabindex="0" :aria-label="side === 'left' ? 'Дерево основной папки' : 'Дерево копии'">
       <div v-if="!rows.length && !(root_file_count && !root_files_open)" class="pair-empty">{{ empty_text }}</div>
       <div v-else :style="{height: (rows.length * 28) + 'px', position:'relative'}" role="tree">
         <div v-for="(row, i) in visible" :key="row.path" role="treeitem" :aria-selected="selection === row.path"
           :aria-level="row.level + 1" :aria-expanded="row.kind === 'directory' ? !row.collapsed : undefined"
           :class="['pair-row', 'pair-' + row.status, {ghost: !row[side], selected: selection === row.path, alt: (start+i)%2}]"
           :style="{top: ((start+i)*28)+'px', paddingLeft: (5 + Math.min(row.level,14)*13)+'px'}"
-          @click="$emit('select', {path:row.path,side})" @dblclick.prevent="$emit('open', {path:row.path,side})"
+          @click="pick(row)" @dblclick.prevent="$emit('open', {path:row.path,side})"
           tabindex="0"
           @keydown.enter.prevent="$emit('open', {path:row.path,side})" @keydown.space.prevent="$emit('select', {path:row.path,side})">
           <q-menu touch-position context-menu @before-show="$emit('menu_state', {open:true})" @hide="$emit('menu_state', {open:false})">
@@ -44,8 +44,11 @@ export default {
     </div></div>`,
   props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean, sizes:Object},
   emits: ['select','open','toggle','context','toggle_files','menu_state'],
-  data() { return {top:0, height:400, observer:null, selection:this.selected, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
-  watch: {selected(value) {this.selection=value;}},
+  data() { return {top:0, height:400, observer:null, selection:this.selected, keyboardCursor:null, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
+  watch: {rows() {this.keyboardCursor=null;}, selected(value) {
+    this.selection=value;
+    if (!this.$refs.viewport?.contains(document.activeElement)) this.keyboardCursor=null;
+  }},
   computed: {
     start() { return Math.max(0, Math.floor(this.top/28)-8); },
     visible() { return this.rows.slice(this.start, this.start+Math.ceil(this.height/28)+16); },
@@ -60,6 +63,28 @@ export default {
   },
   beforeUnmount() { this.observer?.disconnect(); },
   methods: {
+    pick(row) {
+      this.keyboardCursor=null;
+      this.selection=row.path;
+      this.$emit('select',{path:row.path,side:this.side});
+    },
+    keyDown(event) {
+      if (!['ArrowUp','ArrowDown'].includes(event.key) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing) return;
+      if (event.target.closest('input,textarea,select,[contenteditable="true"],[role="menu"],.q-menu')) return;
+      if (!this.rows.length) return;
+      event.preventDefault(); event.stopPropagation();
+      const current=this.keyboardCursor ?? this.selection;
+      const index=this.rows.findIndex(row=>row.path===current);
+      const next=index<0 ? (event.key==='ArrowDown' ? 0 : this.rows.length-1) : Math.max(0,Math.min(this.rows.length-1,index+(event.key==='ArrowDown' ? 1 : -1)));
+      if (index===next) return;
+      const row=this.rows[next], viewport=this.$refs.viewport;
+      this.keyboardCursor=this.selection=row.path;
+      if (next*28<viewport.scrollTop) viewport.scrollTop=next*28;
+      else if ((next+1)*28>viewport.scrollTop+viewport.clientHeight) viewport.scrollTop=(next+1)*28-viewport.clientHeight;
+      viewport.focus({preventScroll:true});
+      this.scrolled();
+      this.$emit('select',{path:row.path,side:this.side,keyboard:true});
+    },
     setSelection(path) {this.selection=path;},
     resetScroll() { this.$refs.viewport.scrollTop=0; this.scrolled(); },
     scrolled() {

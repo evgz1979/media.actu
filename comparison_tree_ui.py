@@ -69,7 +69,8 @@ class ComparisonTree:
                 self.pane.folder_entries[folder_key] = entry, scope
             selected = self.selected and key == (self.selected[1]['scan_id'], self.selected[1]['path'])
             classes = 's-entry match-entry' + (' alt' if next(rows) % 2 else '') + (' selected' if selected else '')
-            with ui.element('div').classes(classes).style(f'padding-left:{4 + depth * 14}px'):
+            with ui.element('div').classes(classes).style(f'padding-left:{4 + depth * 14}px') as row:
+                self.pane.register_navigation(row, entry, scope, selected=bool(selected))
                 self.workspace.property_menu('Свойства', lambda e=entry, s=scope: self.workspace.show_properties(s['volume_id'], e),
                                              volume_id=scope['volume_id'], path=entry['path'])
                 if directory:
@@ -160,7 +161,7 @@ class ComparisonTree:
             self.focus = scope, entry
             self.pane.render()
 
-    async def select(self, entry, scope, *, expand=False):
+    async def select(self, entry, scope, *, expand=False, toggle=True, render=True):
         previous_volume = self.pane.volume_id
         already_active = self.workspace.active_index == 1
         key = entry['scan_id'], entry['path']
@@ -171,14 +172,18 @@ class ComparisonTree:
         self.workspace.set_active(1)
         if already_active and previous_volume != pane.volume_id:
             self.workspace.render_volumes()
-        if entry['kind'] == 'directory':
+        if entry['kind'] == 'directory' and (toggle or expand):
             if key in self.expanded and not expand:
                 self.expanded.remove(key)
             else:
                 if key not in self.folders and not await self.load(entry):
                     return
                 self.expanded.add(key)
-        pane.render()
+        if render:
+            pane.render()
+        else:
+            pane.update_navigation_selection(entry, scope)
+            pane.update_header()
 
         await self.workspace.preview_selection(pane)
 

@@ -31,6 +31,39 @@ STATUS_ICONS = {'names_found': 'check', 'names_missing': 'remove', 'other_folder
                 'cached': 'history', 'missing': 'remove', 'candidate': 'search'}
 JOB_STATES = {'running': 'Выполняется', 'pausing': 'Останавливается',
               'paused': 'Остановлено', 'completed': 'Завершено', 'failed': 'Ошибка'}
+
+TREE_FOCUS_JS = '''event => {
+    if (event.target.closest('.pair-virtual, input, textarea, select, [contenteditable="true"], [role="combobox"], [role="menu"]')) return;
+    const tree = event.currentTarget;
+    const row = event.target.closest('[data-tree-key]');
+    if (row) tree.dataset.keyboardKey = row.dataset.treeKey;
+    tree.dataset.keyboardRevision = tree.dataset.navigationRevision;
+    tree.focus({preventScroll:true});
+}'''
+
+TREE_KEY_JS = '''event => {
+    if (!['ArrowUp','ArrowDown'].includes(event.key) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing) return;
+    if (event.target.closest('.pair-virtual, input, textarea, select, [contenteditable="true"], [role="combobox"], [role="menu"], .q-menu')) return;
+    const tree = event.currentTarget;
+    const rows = Array.from(tree.querySelectorAll('[data-tree-key]'));
+    if (!rows.length) return;
+    event.preventDefault(); event.stopPropagation();
+    const cursor = tree.dataset.keyboardRevision === tree.dataset.navigationRevision ? tree.dataset.keyboardKey : null;
+    const current = cursor || tree.querySelector('[data-tree-key].selected')?.dataset.treeKey;
+    const index = rows.findIndex(row => row.dataset.treeKey === current);
+    const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : rows.length-1) : Math.max(0,Math.min(rows.length-1,index+(event.key === 'ArrowDown' ? 1 : -1)));
+    if (index === next) return;
+    const row = rows[next];
+    tree.dataset.keyboardKey = row.dataset.treeKey;
+    tree.dataset.keyboardRevision = tree.dataset.navigationRevision;
+    for (const item of rows) {
+        item.classList.toggle('selected',item === row);
+        item.setAttribute('aria-selected',item === row ? 'true' : 'false');
+    }
+    row.scrollIntoView({block:'nearest',inline:'nearest'});
+    emit({key:row.dataset.treeKey});
+}'''
+
 WORKSPACE_CSS = """
 .commander-intro { padding:12px 26px 10px; }
 .commander-intro .s-title { font-size:24px; }
@@ -49,6 +82,7 @@ WORKSPACE_CSS = """
 .commander-pane .s-panel-head { padding:8px 10px; gap:5px; }
 .commander-pane .s-panel-head, .commander-pane .s-tree-toolbar, .commander-pane .pane-status, .commander-pane .workspace-filter { flex-shrink:0; }
 .commander-pane .s-tree { flex:1; min-height:180px; max-height:none; width:100%; }
+.commander-pane .s-tree:focus-visible { outline:1px solid #9cb8d5; outline-offset:-1px; }
 .commander-pane .s-list-grid { grid-template-columns:minmax(150px,1fr) 112px 80px 56px; min-width:398px; }
 .commander-trees.names-comparison .commander-pane:first-child .s-list-grid { grid-template-columns:minmax(0,1fr) 80px; min-width:0; }
 .commander-trees.names-comparison .commander-pane:first-child .s-entry-cell:not(.s-entry-size),
@@ -168,6 +202,8 @@ class BrowserPane:
         self.size_cells = {}
         self.loading_folders = set()
         self.folder_entries = {}
+        self.navigation_entries = {}
+        self.navigation_revision = 0
         self.generation = 0
         self.filter_value = ''
         self.path_signature = None
@@ -200,8 +236,11 @@ class BrowserPane:
             self.result_filter = ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа',
                                           on_change=self.change_filter).props('outlined dense').classes('workspace-filter mx-2 my-1')
             self.result_filter.set_visibility(False)
-            self.tree = ui.column().classes('s-tree gap-0')
+            self.tree = ui.column().classes('s-tree gap-0').props(f'tabindex=0 role=tree aria-label="Дерево {self.title.lower()} панели"')
+            self.tree.on('pointerdown', js_handler=TREE_FOCUS_JS)
+            self.tree.on('click', js_handler=TREE_FOCUS_JS)
             self.tree.on('click', self.folder_clicked, js_handler=FOLDER_CLICK_JS)
+            self.tree.on('keydown', self.keyboard_selected, js_handler=TREE_KEY_JS, throttle=.06)
             self.preview = StoragePreview(self)
             self.footer = ui.label('Том не выбран').classes('pane-status w-full')
         self.comparison = ComparisonTree(self) if index == 1 else None
@@ -275,6 +314,7 @@ class BrowserPane:
             self.preview.generation += 1
             self.volume_select.set_value(self.volume_id)
             self.render()
+            self.focus_tree()
             if self.tree_scroll:
                 top, left = self.tree_scroll
                 self.workspace.client.run_javascript(
@@ -289,6 +329,41 @@ class BrowserPane:
             return
         if self.index == 1 and self.workspace.report and self.comparison.focus:
             self.comparison.show_matches()
+        self.focus_tree()
+
+    def focus_tree(self):
+        ws = self.workspace
+        if self.view_mode != 'tree' or ws.client.is_deleted or ws.editing or ws.context_menu_open:
+            return
+        ws.client.run_javascript(f'requestAnimationFrame(() => {{ const tree = getHtmlElement({self.tree.id}); '
+                                 '(tree?.querySelector(".pair-virtual") || tree)?.focus({preventScroll:true}); });')
+
+    def register_navigation(self, row, entry, scope=None, *, selected=False):
+        key = json.dumps([(scope or {}).get('volume_id', self.volume_id), entry.get('scan_id'), entry['path']], ensure_ascii=False)
+        self.navigation_entries[key] = (entry, scope, row)
+        row.props['data-tree-key'] = key
+        row.props['role'] = 'treeitem'
+        row.props['aria-selected'] = 'true' if selected else 'false'
+
+    def update_navigation_selection(self, entry, scope=None):
+        key = json.dumps([(scope or {}).get('volume_id', self.volume_id), entry.get('scan_id'), entry['path']], ensure_ascii=False)
+        for row_key, (_, _, row) in self.navigation_entries.items():
+            row.classes(add='selected' if row_key == key else '', remove='' if row_key == key else 'selected')
+            row.props['aria-selected'] = 'true' if row_key == key else 'false'
+
+    async def keyboard_selected(self, event):
+        ws = self.workspace
+        if self.view_mode != 'tree' or ws.client.is_deleted or ws.editing or ws.context_menu_open:
+            return
+        record = self.navigation_entries.get(event.args.get('key'))
+        if not record:
+            return
+        entry, scope, _ = record
+        with ws.client:
+            if scope is not None:
+                await self.comparison.select(entry, scope, toggle=False, render=False)
+            else:
+                await self.select(entry, render=False)
 
     def hidden_changed(self, event):
         if self.view_mode == 'preview':
@@ -334,16 +409,23 @@ class BrowserPane:
             self.comparison.reset()
         self.render()
 
-    def update_header(self):
-        self.volume_select.options = {
+    def update_volume_select(self, volume_id):
+        options = {
             v['id']: ('Photos · ' if v['kind'] == 'photos' else '') + volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
-            for v in self.workspace.browse_volumes()
+            for v in self.workspace.selectable_volumes()
         }
-        self.volume_select.update()
+        current = self.workspace.resolve_volume(volume_id)
+        if current and volume_id not in options:
+            self.volume_select.props['display-value'] = ('Photos · ' if current['kind'] == 'photos' else '') + volume_label(current)
+        else:
+            self.volume_select.props.pop('display-value', None)
+        self.volume_select.set_options(options, value=volume_id if volume_id in options else None)
+
+    def update_header(self):
+        self.update_volume_select(self.display_volume_id)
         if self.view_mode == 'preview':
             self.preview.update_header()
             return
-        self.volume_select.set_value(self.volume_id)
         for button in (self.parent_button, self.root_button):
             button.set_enabled(not self.comparison_open())
         self.update_size_header()
@@ -524,6 +606,8 @@ class BrowserPane:
         self.workspace.render_volumes()
         self.workspace.update_scopes()
         await self.workspace.preview_selection(self)
+        if activate and self.workspace.active_index == self.index:
+            self.focus_tree()
         if live:
             background_tasks.create(self.refresh_open_folder(generation, volume_id, self.root_path))
 
@@ -583,8 +667,7 @@ class BrowserPane:
         if render:
             self.render()
         else:
-            for path, row in self.rows.items():
-                row.classes(add='selected' if path == self.path else '', remove='' if path == self.path else 'selected')
+            self.update_navigation_selection(entry)
             self.update_header()
         self.workspace.update_scopes()
         await self.workspace.preview_selection(self)
@@ -751,6 +834,9 @@ class BrowserPane:
 
     def render(self):
         self.size_cells.clear()
+        self.navigation_entries.clear()
+        self.navigation_revision += 1
+        self.tree.props['data-navigation-revision'] = self.navigation_revision
         if self.workspace.pair.active and self.workspace.pair.report:
             self.update_header()
             self.folder_entries.clear()
@@ -807,6 +893,7 @@ class BrowserPane:
                     classes += ' pane-match' if entry['path'] in self.matches else ''
                     with ui.element('div').classes(classes) as row:
                         self.rows[entry['path']] = row
+                        self.register_navigation(row, entry, selected=entry['path'] == self.path)
                         row.on('contextmenu', lambda e=entry: self.select(e, render=False))
                         if self.workspace.is_photos(self.volume_id):
                             if entry.get('media_id'):
@@ -957,6 +1044,9 @@ class StorageWorkspace:
     def browse_volumes(self):
         libraries = getattr(self, 'photo_libraries', None)
         return self.volumes + (libraries.volumes() if libraries else [])
+
+    def selectable_volumes(self):
+        return [v for v in self.browse_volumes() if v.get('availability') != 'offline' and not archived(v)]
 
     def resolve_volume(self, volume_id):
         return next((v for v in self.browse_volumes() if v['id'] == volume_id), None)
@@ -1426,6 +1516,8 @@ class StorageWorkspace:
         ui.timer(3, lambda: self.poll_connected(self.poll))
         ui.timer(1.5, lambda: self.poll_connected(self.poll_directory_sizes))
         ui.timer(1, self.persist_workspace)
+        if self.panes[self.active_index].view_mode == 'tree':
+            self.panes[self.active_index].focus_tree()
 
     async def poll_connected(self, callback):
         if not self.client.is_deleted and self.client.has_socket_connection:
