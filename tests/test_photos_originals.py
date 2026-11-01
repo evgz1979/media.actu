@@ -1,4 +1,3 @@
-import errno
 import json
 import os
 from pathlib import Path
@@ -22,6 +21,8 @@ class StreamingPhotos:
         self.before_write = lambda: None
         self.bad_size = False
         self.version = 'v1'
+        self.chunk_size = 31
+        self.after_chunk = lambda: None
     def probe(self, identifiers=(), **kwargs):
         return dict(sample=['a', 'b', 'c'], matched=list(identifiers), count=2)
     def original_manifest(self, anchors, receive, stopped):
@@ -33,10 +34,11 @@ class StreamingPhotos:
         self.requests.append((asset, resource))
         self.before_write()
         data = self.content[(asset, resource)]
-        for i in range(0, len(data), 31):
+        for i in range(0, len(data), self.chunk_size):
             if stopped():
                 raise PhotosTransferStopped()
-            write(data[i:i+31])
+            write(data[i:i+self.chunk_size])
+            self.after_chunk()
         return dict(size=len(data) + int(self.bad_size))
     def close(self):
         pass
@@ -171,12 +173,22 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual(result['done_resources'], 0)
         self.assertEqual(list(outside.iterdir()), [])
 
-    def test_smb_without_exclusive_rename_uses_exclusive_creation(self):
-        with patch('media_manager.photos_originals.publish_exclusive', side_effect=OSError(errno.ENOTSUP, 'SMB')):
+    def test_copy_writes_once_without_rename_readback_or_temporary_media(self):
+        original_open = os.open
+        created = []
+        def track(path, flags, mode=0o777, *, dir_fd=None):
+            if flags & os.O_CREAT and str(path).startswith('IMG_'):
+                created.append((str(path), flags))
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+        with patch('media_manager.copy_files.publish_exclusive', side_effect=AssertionError('No rename')), \
+             patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media reread')), \
+             patch('media_manager.photos_originals.os.open', side_effect=track):
             result = self.run_copy()
         self.assertEqual(result['state'], 'completed', result)
         self.assertEqual(len(self.receipts()), 3)
         self.assertEqual(list(self.copy.rglob('*.part')), [])
+        self.assertEqual(len(created), 3)
+        self.assertTrue(all(flags & os.O_EXCL and flags & os.O_WRONLY for _,flags in created))
 
     def test_disk_full_does_not_publish_or_count_an_original(self):
         class Full:
@@ -209,52 +221,112 @@ class PhotosOriginalsTests(unittest.TestCase):
         calls = 0
         def fail_final(fd, chunk):
             nonlocal calls
-            # Native stream writes small blocks; local SMB publication uses a larger block.
             if len(chunk) > 1000 and calls == 0:
                 calls += 1
                 os.write(fd, chunk[:17])
-                raise OSError('Disconnected during final publication')
+                raise OSError('Disconnected during direct write')
             original_write(fd, chunk)
-        with patch('media_manager.photos_originals.publish_exclusive', side_effect=OSError(errno.ENOTSUP, 'SMB')):
-            with patch.object(self.service, '_write', side_effect=fail_final):
-                result = self.run_copy()
-            self.assertEqual(result['state'], 'completed_with_errors', result)
-            partial = self.copy / '2020/2020-02/IMG_1.JPG'
-            self.assertEqual(partial.stat().st_size, 17)
+        with patch.object(self.service, '_write', side_effect=fail_final):
             result = self.run_copy()
+        self.assertEqual(result['state'], 'completed_with_errors', result)
+        partial = self.copy / '2020/2020-02/IMG_1.JPG'
+        self.assertEqual(partial.stat().st_size, 17)
+        self.assertIn('2020/2020-02/IMG_1.JPG',self.service.journal(self.link['id'])['incomplete_paths'])
+        result = self.run_copy()
         self.assertEqual(result['state'], 'completed')
         self.assertEqual(partial.stat().st_size, 17)
         self.assertNotIn('2020/2020-02/IMG_1.JPG', [r['path'] for r in self.receipts()])
 
-    def test_file_appearing_during_publication_is_never_replaced(self):
-        from media_manager.copy_files import publish_exclusive
+    def test_file_appearing_before_exclusive_creation_is_never_replaced(self):
+        original_open = os.open
         called = False
-        def race(parent, temporary, name):
+        def race(path, flags, mode=0o777, *, dir_fd=None):
             nonlocal called
-            if not called:
+            if not called and flags & os.O_CREAT and str(path) == 'IMG_1.JPG':
                 called = True
-                fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=parent)
+                fd = original_open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dir_fd)
                 os.write(fd, b'appeared concurrently')
                 os.close(fd)
-            return publish_exclusive(parent, temporary, name)
-        with patch('media_manager.photos_originals.publish_exclusive', side_effect=race):
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+        with patch('media_manager.photos_originals.os.open', side_effect=race):
             result = self.run_copy()
         self.assertEqual(result['state'], 'completed', result)
         self.assertEqual((self.copy / '2020/2020-02/IMG_1.JPG').read_bytes(), b'appeared concurrently')
 
-    def test_changed_staging_size_never_creates_a_receipt(self):
-        stream = self.adapter.stream_original
-        def truncate(*args, **kwargs):
-            result = stream(*args, **kwargs)
-            for path in self.copy.rglob('*.part'):
-                with path.open('r+b') as file:
-                    file.truncate(1)
-            return result
-        with patch.object(self.adapter, 'stream_original', side_effect=truncate):
+    def test_changed_written_size_never_creates_a_receipt(self):
+        original_write = self.service._write
+        def truncate(fd, chunk):
+            original_write(fd, chunk)
+            os.ftruncate(fd, 1)
+        with patch.object(self.service, '_write', side_effect=truncate):
             result = self.run_copy()
         self.assertEqual(result['done_resources'], 0)
         self.assertEqual(self.receipts(), [])
         self.assertEqual(list(self.copy.rglob('*.part')), [])
+        self.assertEqual(result['incomplete_files'], 3)
+
+    def test_chunks_are_combined_into_bounded_blocks_and_tail_is_flushed_once(self):
+        block = 1024 * 1024
+        self.adapter.chunk_size = 256 * 1024
+        self.adapter.content[('a', '1:0')] = b'x' * (2 * block + 113)
+        writes = []
+        write = self.service._write
+        def track(fd, data):
+            writes.append((self.adapter.requests[-1], len(data)))
+            write(fd, data)
+        with patch('media_manager.photos_originals.WRITE_BUFFER_BYTES', block), \
+             patch.object(self.service, '_write', side_effect=track), \
+             patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media read')):
+            result = self.run_copy()
+        self.assertEqual(result['state'], 'completed', result)
+        self.assertEqual([length for resource,length in writes if resource == ('a','1:0')], [block,block,113])
+        self.assertTrue(all(length <= block for _,length in writes))
+        self.assertEqual(sum(length for _,length in writes), sum(map(len,self.adapter.content.values())))
+        self.assertEqual((self.copy/'2020/2020-02/IMG_1.JPG').read_bytes(),self.adapter.content[('a','1:0')])
+
+    def test_pause_before_buffer_flush_creates_no_incomplete_file(self):
+        self.adapter.after_chunk = lambda:self.service.pause(self.link['id'])
+        result = self.run_copy()
+        self.assertEqual(result['state'], 'paused', result)
+        self.assertEqual(result['done_resources'], 0)
+        self.assertFalse(any(p.is_file() for p in self.copy.rglob('*')))
+        self.assertEqual(result['incomplete_files'], 0)
+        self.adapter.after_chunk = lambda:None
+        self.assertEqual(self.run_copy()['done_resources'], 3)
+
+    def test_pause_after_one_block_preserves_partial_file_and_resume_uses_free_name(self):
+        write = self.service._write
+        def pause(fd, data):
+            write(fd, data)
+            self.service.pause(self.link['id'])
+        with patch('media_manager.photos_originals.WRITE_BUFFER_BYTES', 1024), \
+             patch.object(self.service,'_write',side_effect=pause):
+            result = self.run_copy()
+        self.assertEqual(result['state'], 'paused', result)
+        self.assertEqual(result['done_resources'], 0)
+        partial = self.copy/'2020/2020-02/IMG_1.JPG'
+        self.assertEqual(partial.stat().st_size, 1024)
+        self.assertEqual(self.receipts(), [])
+        self.assertEqual(self.run_copy()['done_resources'], 3)
+        self.assertEqual(partial.stat().st_size, 1024)
+        self.assertTrue((self.copy/'2020/2020-02/IMG_1-1.JPG').exists())
+
+    def test_short_os_writes_still_save_every_byte(self):
+        original_write = os.write
+        with patch('media_manager.photos_originals.os.write',side_effect=lambda fd,data:original_write(fd,data[:17])):
+            result = self.run_copy()
+        self.assertEqual(result['state'], 'completed', result)
+        self.assertEqual((self.copy/'2020/2020-02/IMG_1.JPG').read_bytes(),self.adapter.content[('a','1:0')])
+
+    def test_fsync_failure_is_journalled_even_when_size_matches(self):
+        with patch('media_manager.photos_originals.os.fsync',side_effect=OSError('Disconnected on flush')):
+            result = self.run_copy()
+        self.assertEqual(result['done_resources'], 0)
+        self.assertEqual(result['incomplete_files'], 3)
+        self.assertEqual(self.receipts(), [])
+        result = self.run_copy()
+        self.assertEqual(result['done_resources'], 3)
+        self.assertTrue(all('-1.' in r['path'] for r in self.receipts()))
 
     def test_resume_keeps_progress_during_inventory_and_partial_manifest(self):
         self.run_copy()

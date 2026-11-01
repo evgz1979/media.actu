@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
-import errno
 import json
 import os
 from pathlib import PurePosixPath
@@ -17,12 +16,15 @@ import time
 from uuid import uuid4
 
 from .comparison import fingerprint, name_key, open_readonly
-from .copy_files import destination_directory, object_id, publish_exclusive
+from .copy_files import destination_directory, object_id
 from .photo_libraries import now
 from .photos_adapter import PhotosAccessDenied, PhotosAdapterError, PhotosLibraryUnavailable, PhotosTransferStopped
 
 
 ACTIVE = {'manifest', 'inventory', 'saving', 'pausing'}
+WRITE_BUFFER_BYTES = 64 * 1024 * 1024
+SPACE_CHECK_SECONDS = 5
+SPACE_RESERVE_BYTES = 64 * 1024 * 1024
 
 
 def encoded(value):
@@ -187,12 +189,14 @@ class PhotosOriginals:
                 if previous['root'] != root:
                     raise ValueError('Привязанная папка была заменена. Проверь привязку перед сохранением.')
                 self._restore_receipts(job)
-                self._update(job, state='manifest', message='Читаю список оригиналов Photos', current_path='', current_bytes=0, fraction=0, errors=0)
+                self._update(job, state='manifest', message='Читаю список оригиналов Photos', current_path='', current_bytes=0, fraction=0, errors=0,
+                             write_buffer_bytes=WRITE_BUFFER_BYTES, buffered_bytes=0, written_bytes=0, write_batches=0)
             else:
                 job = uuid4().hex
                 data = dict(root=root, done_assets=0, total_assets=0, done_resources=0, total_resources=0,
                             saved=0, reused=0, errors=0, checked_files=0, checked_bytes=0,
                             current_path='', current_bytes=0, fraction=0, message='Читаю список оригиналов Photos')
+                data.update(write_buffer_bytes=WRITE_BUFFER_BYTES, buffered_bytes=0, written_bytes=0, write_batches=0)
                 with self.catalog._write_lock, self._db() as db:
                     db.execute('INSERT INTO photos_original_jobs VALUES (?,?,?,?,?)', (job, link_id, 'manifest', now(), encoded(data)))
             self._stop.clear()
@@ -330,6 +334,7 @@ class PhotosOriginals:
             db.execute('INSERT OR REPLACE INTO photos_copy_files VALUES (?,?,?,?,?,?,?)', (link['id'], asset, resource, path, fp['size'], '', now()))
             db.execute('INSERT OR REPLACE INTO photos_original_versions VALUES (?,?,?,?,?)', (link['id'], asset, resource, version, encoded(fp)))
             db.execute("UPDATE photos_original_resources SET state=? WHERE job_id=? AND asset=? AND resource=?", ('reused' if reused else 'saved', job, asset, resource))
+            db.execute('DELETE FROM photos_original_staging WHERE job_id=? AND path=?', (job, path))
         self._recorded_paths.add(path)
         self._inventory_record(link, path, fp, job)
 
@@ -354,11 +359,7 @@ class PhotosOriginals:
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT OR REPLACE INTO photos_original_staging VALUES (?,?,?)', (job, path, encoded(dict(identity=identity, final=final))))
 
-    def _unstage(self, job, path):
-        with self.catalog._write_lock, self._db() as db:
-            db.execute('DELETE FROM photos_original_staging WHERE job_id=? AND path=?', (job, path))
-
-    def _publish(self, job, link, volume, parent, parent_path, temporary, name, size):
+    def _create_original(self, job, link, volume, parent, parent_path, name):
         # Collision names do not depend on a file's position in an enumeration.
         for index in range(10000):
             candidate = name if index == 0 else f'{os.path.splitext(name)[0]}-{index}{os.path.splitext(name)[1]}'
@@ -368,46 +369,32 @@ class PhotosOriginals:
                 if object_id(os.fstat(current)) != object_id(os.fstat(parent)):
                     raise OSError('Целевая папка заменена')
             try:
-                publish_exclusive(parent, temporary, candidate)
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
             except FileExistsError:
                 continue
-            except OSError as error:
-                if error.errno not in (errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EINVAL):
-                    raise
-                # SMB may lack exclusive rename. Create a new final path only;
-                # interrupted final files are journalled and never overwritten.
-                try:
-                    target = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
-                except FileExistsError:
-                    continue
-                self._stage(job, path, object_id(os.fstat(target)), final=True)
-                try:
-                    source = os.open(temporary, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-                    try:
-                        while chunk := os.read(source, 1024 * 1024):
-                            self._check()
-                            self._write(target, chunk)
-                        os.fsync(target)
-                    finally:
-                        os.close(source)
-                finally:
-                    os.close(target)
-            with self._file(volume, link, path) as fd:
-                fp = fingerprint(os.fstat(fd))
-                self._stage(job, path, object_id(os.fstat(fd)), final=True)
-            if fp['size'] != size:
-                raise OSError('Размер опубликованного оригинала не совпал')
-            return path, fp
+            try:
+                identity = object_id(os.fstat(fd))
+                # The intent is durable before the first byte is written.
+                self._stage(job, path, identity, final=True)
+            except BaseException:
+                os.close(fd)
+                raise
+            return fd, path, identity
         raise OSError('Не удалось выбрать свободное имя оригинала')
 
-    @staticmethod
-    def _write(fd, chunk):
+    def _write(self, fd, chunk):
         view = memoryview(chunk)
-        while view:
-            written = os.write(fd, view)
-            if written <= 0:
-                raise OSError('Не удалось записать оригинал')
-            view = view[written:]
+        try:
+            while view:
+                self._check()
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError('Не удалось записать оригинал')
+                remaining = view[written:]
+                view.release()
+                view = remaining
+        finally:
+            view.release()
 
     def _save(self, job, link, volume, profile, item):
         asset, resource, version = item['asset'], item['resource'], item['version']
@@ -420,37 +407,63 @@ class PhotosOriginals:
         except ValueError:
             parent_path = 'Без даты'
         name = safe_name(item['name'])
-        temporary = '.media-actu-copy-' + job + '-' + uuid4().hex + '.part'
-        stage_path = str(PurePosixPath(parent_path) / temporary)
         with destination_directory(volume, link, parent_path, create=True) as parent:
-            fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-            identity = object_id(os.fstat(fd))
-            self._stage(job, stage_path, identity)
-            count = 0
+            fd, path, identity = None, None, None
+            buffer = bytearray()
+            count = written = batches = 0
+            space_at, space_left = None, 0
+
+            def flush():
+                nonlocal fd, path, identity, written, batches, space_at, space_left
+                if not buffer:
+                    return
+                self._validate(job, link, volume)
+                instant = time.monotonic()
+                if space_at is None or instant - space_at >= SPACE_CHECK_SECONDS or space_left < len(buffer) + SPACE_RESERVE_BYTES:
+                    capacity = os.fstatvfs(parent)
+                    space_left = capacity.f_bavail * (capacity.f_frsize or capacity.f_bsize)
+                    space_at = instant
+                if space_left < len(buffer) + SPACE_RESERVE_BYTES:
+                    raise PhotosLibraryUnavailable('Недостаточно свободного места в папке копии. Освободи место и продолжи.')
+                if fd is None:
+                    fd, path, identity = self._create_original(job, link, volume, parent, parent_path, name)
+                self._write(fd, buffer)
+                written += len(buffer)
+                space_left -= len(buffer)
+                batches += 1
+                buffer.clear()
+                self._progress(job, current_bytes=count, buffered_bytes=0, written_bytes=written, write_batches=batches)
+
             def write(chunk):
                 nonlocal count
                 self._validate(job, link, volume)
-                capacity = os.fstatvfs(parent)
-                if capacity.f_bavail * (capacity.f_frsize or capacity.f_bsize) < len(chunk) + 64 * 1024 * 1024:
-                    raise PhotosLibraryUnavailable('Недостаточно свободного места в папке копии. Освободи место и продолжи.')
-                self._write(fd, chunk)
-                count += len(chunk)
-                self._progress(job, current_bytes=count)
+                view = memoryview(chunk)
+                try:
+                    while view:
+                        self._check()
+                        take = min(len(view), WRITE_BUFFER_BYTES - len(buffer))
+                        buffer.extend(view[:take])
+                        count += take
+                        remaining = view[take:]
+                        view.release()
+                        view = remaining
+                        if len(buffer) == WRITE_BUFFER_BYTES:
+                            flush()
+                finally:
+                    view.release()
+                self._progress(job, current_bytes=count, buffered_bytes=len(buffer), written_bytes=written, write_batches=batches)
             try:
                 trailer = self.adapter.stream_original(asset, resource, version, profile['anchors'], write,
                     lambda fraction: self._progress(job, fraction=fraction, current_bytes=count), self._stopped)
                 if trailer.get('size') != count or count == 0:
                     raise PhotosAdapterError('Размер переданного оригинала не совпал')
-                os.fsync(fd)
-                if os.fstat(fd).st_size != count:
-                    raise OSError('Размер записанного оригинала не совпал')
-                self._validate(job, link, volume, force=True)
-                if object_id(os.stat(temporary, dir_fd=parent, follow_symlinks=False)) != identity:
-                    raise OSError('Промежуточный файл заменён')
+                self._check()
+                # A small manual copy can be adopted before any destination is
+                # created. Once writing starts, that new file is the result.
                 candidates = [path for path in self._inventory_names.get(name_key(item['name']), [])
                               if path not in self._recorded_paths and self._inventory_files[path]['size'] == count]
                 # Ambiguous manually exported names are left untouched.
-                if len(candidates) != 1:
+                if fd is not None or len(candidates) != 1:
                     candidates = []
                 for candidate in candidates:
                     try:
@@ -461,21 +474,27 @@ class PhotosOriginals:
                             return 'reused'
                     except FileNotFoundError:
                         continue
-                os.fchmod(fd, 0o644)
-                path, final_fp = self._publish(job, link, volume, parent, parent_path, temporary, name, count)
+                flush()
+                os.fsync(fd)
+                if os.fstat(fd).st_size != count:
+                    raise OSError('Размер записанного оригинала не совпал')
+                completed_fd, fd = fd, None
+                os.close(completed_fd)
+                self._validate(job, link, volume, force=True)
+                with self._file(volume, link, path) as metadata:
+                    info = os.fstat(metadata)
+                    if object_id(info) != identity or info.st_size != count:
+                        raise OSError('Записанный оригинал заменён или изменился')
+                    final_fp = fingerprint(info)
                 self._receipt(job, link, asset, resource, version, path, final_fp, False)
-                self._unstage(job, path)
+                self._update(job, current_bytes=count, buffered_bytes=0, written_bytes=written, write_batches=batches)
                 return 'saved'
             finally:
-                os.close(fd)
-                try:
-                    if object_id(os.stat(temporary, dir_fd=parent, follow_symlinks=False)) == identity:
-                        os.unlink(temporary, dir_fd=parent)
-                    else:
-                        raise OSError('Промежуточный файл заменён; он оставлен на диске')
-                except FileNotFoundError:
-                    pass
-                self._unstage(job, stage_path)
+                # Interrupted final files remain journalled and are never
+                # deleted, adopted by inventory, or opened for another write.
+                if fd is not None:
+                    os.close(fd)
+                buffer.clear()
 
     def _counts(self, job):
         with self._db() as db:
@@ -542,7 +561,8 @@ class PhotosOriginals:
                     break
                 position = (row['asset'], row['resource'])
                 item = json.loads(row['data'])
-                self._update(job, current_path=item['name'], current_bytes=0, fraction=0)
+                self._update(job, current_path=item['name'], current_bytes=0, fraction=0,
+                             buffered_bytes=0, written_bytes=0, write_batches=0)
                 try:
                     if item.get('error'):
                         raise PhotosAdapterError(item['error'])
@@ -577,5 +597,5 @@ class PhotosOriginals:
             if incomplete:
                 message += f' · Незавершённых файлов в копии: {incomplete}; пути — в журнале.'
             counts = self._counts(job) if manifest_ready else {}
-            self._update(job, state=state, message=message, current_path='', current_bytes=0, fraction=0, **counts)
+            self._update(job, state=state, message=message, current_path='', current_bytes=0, fraction=0, buffered_bytes=0, **counts)
             self._log(job, 'error' if state in ('failed', 'waiting', 'completed_with_errors') else 'info', '', message)
