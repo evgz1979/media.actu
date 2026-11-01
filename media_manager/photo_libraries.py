@@ -26,6 +26,7 @@ class PhotoLibraries:
         self._lock = threading.RLock()
         self.connection = dict(state='unknown')
         self.polling = False
+        self.originals = None
         self._migrate()
 
     def _migrate(self):
@@ -195,7 +196,8 @@ class PhotoLibraries:
                     continue
                 volume = volumes.get(link['volume_id'], {})
                 copies.append(dict(link, volume_name=volume.get('display_name') or volume.get('name') or 'Том недоступен',
-                                   availability=volume.get('availability', 'unknown')))
+                                   availability=volume.get('availability', 'unknown'),
+                                   originals=self.originals.summary(link['id']) if self.originals else None))
             result.append(dict(source, library_id=profile['library_id'], active=bool(profile['active']),
                                paused=bool(profile['paused']), connection_state=profile['state'],
                                connection_error=profile['error'], waiting=waits.get(source['id'], 0), copies=copies))

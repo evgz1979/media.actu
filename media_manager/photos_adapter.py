@@ -34,6 +34,14 @@ class PhotosThumbnailPending(PhotosAdapterError):
     pass
 
 
+class PhotosTransferStopped(PhotosAdapterError):
+    pass
+
+
+class PhotosResponseTimeout(PhotosAdapterError):
+    pass
+
+
 class SystemPhotosAdapter:
     BUNDLE_IDENTIFIER = "actu.media.photos-adapter"
 
@@ -169,12 +177,9 @@ class SystemPhotosAdapter:
                 except OSError:
                     pass
                 connection.close()
-            if self._gui_pid:
-                try:
-                    os.kill(self._gui_pid, 15)
-                except ProcessLookupError:
-                    pass
-                self._gui_pid = None
+            # Each socket is an independent client of the GUI service. Closing
+            # an originals stream must not terminate the preview connection.
+            self._gui_pid = None
             # The helper owns its socket and lock. Never unlink another
             # connection's endpoint during a reconnect.
             self._socket_path = None
@@ -194,7 +199,7 @@ class SystemPhotosAdapter:
                         stream.close()
 
     def _ipc_directory(self):
-        return Path('/private/tmp' if os.uname().sysname == 'Darwin' else tempfile.gettempdir()) / f'media-actu-photos-v1-{os.getuid()}'
+        return Path('/private/tmp' if os.uname().sysname == 'Darwin' else tempfile.gettempdir()) / f'media-actu-photos-v2-{os.getuid()}'
 
     def _connect_gui(self):
         self.close()
@@ -222,55 +227,123 @@ class SystemPhotosAdapter:
                 time.sleep(.05)
         raise PhotosAdapterError('Не удалось подключить GUI-помощник PhotoKit')
 
+    def _begin(self, request):
+        if self.use_gui:
+            if self._socket is None:
+                self._connect_gui()
+        elif self._process is None or self._process.poll() is not None:
+            self.close()
+            self.ensure_built()
+            self._process = subprocess.Popen([str(self.executable), 'serve'], stdin=subprocess.PIPE,
+                                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        self._send(request)
+
+    def _send(self, request):
+        data = (json.dumps(request) + '\n').encode()
+        if self.use_gui:
+            self._socket.sendall(data)
+        else:
+            self._process.stdin.write(data)
+            self._process.stdin.flush()
+
+    def _receive(self, timeout, *, limit=128 * 1024 * 1024):
+        stream = self._socket if self.use_gui else self._process.stdout
+        deadline = time.monotonic() + timeout
+        with selectors.DefaultSelector() as selector:
+            selector.register(stream, selectors.EVENT_READ)
+            while b'\n' not in self._buffer:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise PhotosResponseTimeout('PhotoKit не ответил вовремя')
+                chunk = os.read(stream.fileno(), 65536)
+                if not chunk:
+                    raise PhotosAdapterError('PhotoKit завершил соединение')
+                self._buffer += chunk
+                if len(self._buffer) > limit:
+                    raise PhotosAdapterError('Слишком большой ответ PhotoKit')
+        line, self._buffer = self._buffer.split(b'\n', 1)
+        if len(line) > limit:
+            raise PhotosAdapterError('Слишком большой ответ PhotoKit')
+        payload = json.loads(line)
+        if payload.get('pid'):
+            self._gui_pid = payload['pid']
+        return payload
+
+    @staticmethod
+    def _check_response(payload):
+        status = payload.get('status')
+        if status in ('not_determined', 'denied', 'restricted'):
+            raise PhotosAccessDenied('PhotoKit: требуется разрешение macOS на чтение Фото')
+        if status in ('unavailable', 'library_mismatch'):
+            raise PhotosLibraryUnavailable('Открыта другая медиатека Photos. Подключи нужную запись.')
+        if status == 'cloud':
+            raise PhotosThumbnailPending('Миниатюра пока недоступна локально в Photos')
+        if status == 'cancelled':
+            raise PhotosTransferStopped('Сохранение приостановлено')
+        if payload.get('error'):
+            raise PhotosAdapterError(str(payload['error']))
+
     def _request(self, request, *, timeout=30):
-        """Keep PhotoKit and its image manager alive between thumbnail requests."""
         with self._operation_lock:
             try:
-                if self.use_gui:
-                    if self._socket is None:
-                        self._connect_gui()
-                    stream = self._socket
-                    stream.sendall((json.dumps(request) + '\n').encode())
-                elif self._process is None or self._process.poll() is not None:
-                    self.close()
-                    self.ensure_built()
-                    self._process = subprocess.Popen([str(self.executable), 'serve'], stdin=subprocess.PIPE,
-                                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-                if not self.use_gui:
-                    process = self._process
-                    process.stdin.write((json.dumps(request) + '\n').encode())
-                    process.stdin.flush()
-                    stream = process.stdout
-                deadline = time.monotonic() + timeout
-                with selectors.DefaultSelector() as selector:
-                    selector.register(stream, selectors.EVENT_READ)
-                    while b'\n' not in self._buffer:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0 or not selector.select(remaining):
-                            raise PhotosAdapterError('PhotoKit не ответил вовремя')
-                        chunk = os.read(stream.fileno(), 65536)
-                        if not chunk:
-                            raise PhotosAdapterError('PhotoKit завершил соединение')
-                        self._buffer += chunk
-                        if len(self._buffer) > 128 * 1024 * 1024:
-                            raise PhotosAdapterError('Слишком большой ответ PhotoKit')
-                line, self._buffer = self._buffer.split(b'\n', 1)
-                payload = json.loads(line)
-                if self.use_gui:
-                    self._gui_pid = payload.get('pid')
+                self._begin(request)
+                payload = self._receive(timeout)
             except (OSError, ValueError, subprocess.SubprocessError, PhotosAdapterError) as error:
                 self.close()
                 raise PhotosAdapterError(str(error)) from error
-            status = payload.get('status')
-            if status in ('not_determined', 'denied', 'restricted'):
-                raise PhotosAccessDenied('PhotoKit: требуется разрешение macOS на чтение Фото')
-            if status in ('unavailable', 'library_mismatch'):
-                raise PhotosLibraryUnavailable('Открыта другая медиатека Photos. Подключи нужную запись.')
-            if status == 'cloud':
-                raise PhotosThumbnailPending('Миниатюра пока недоступна локально в Photos')
-            if payload.get('error'):
-                raise PhotosAdapterError(str(payload['error']))
+            self._check_response(payload)
             return payload
+
+    def _stream_request(self, request, receive, stopped):
+        with self._operation_lock:
+            token = uuid.uuid4().hex
+            cancel_at = None
+            try:
+                self._begin(dict(request, token=token))
+                activity = time.monotonic()
+                while True:
+                    if stopped() and cancel_at is None:
+                        self._send(dict(op='cancel', token=token))
+                        cancel_at = time.monotonic()
+                    if cancel_at and time.monotonic() - cancel_at > 5:
+                        raise PhotosTransferStopped('Сохранение приостановлено')
+                    try:
+                        payload = self._receive(.25, limit=2 * 1024 * 1024)
+                    except PhotosResponseTimeout:
+                        if time.monotonic() - activity > 300:
+                            raise PhotosAdapterError('Photos долго не передаёт данные. Повтори сохранение позже.')
+                        continue
+                    activity = time.monotonic()
+                    self._check_response(payload)
+                    if payload.get('event') == 'complete':
+                        if cancel_at:
+                            raise PhotosTransferStopped('Сохранение приостановлено')
+                        return payload
+                    if not cancel_at:
+                        receive(payload)
+            except BaseException:
+                # Closing only this channel also cancels a producer whose consumer
+                # failed (disk full, disconnected destination, invalid data).
+                self.close()
+                raise
+
+    def original_manifest(self, anchors, receive_asset, stopped):
+        def receive(payload):
+            if payload.get('event') == 'asset':
+                receive_asset(payload['asset'])
+        return self._stream_request(dict(op='original_manifest', anchors=list(anchors)), receive, stopped)
+
+    def stream_original(self, identifier, resource_id, version, anchors, write, progress, stopped):
+        def receive(payload):
+            if payload.get('event') == 'chunk':
+                chunk = base64.b64decode(payload['data'], validate=True)
+                if not chunk or len(chunk) > 256 * 1024:
+                    raise PhotosAdapterError('Некорректный блок оригинала')
+                write(chunk)
+            elif payload.get('event') == 'progress':
+                progress(max(0, min(1, float(payload.get('fraction', 0)))))
+        return self._stream_request(dict(op='original_resource', identifier=identifier,
+            resource_id=resource_id, version=version, anchors=list(anchors)), receive, stopped)
 
     def probe(self, identifiers=(), *, restart=False):
         with self._operation_lock:

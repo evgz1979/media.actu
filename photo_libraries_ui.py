@@ -10,7 +10,7 @@ LIBRARY_CSS = '''
 .library-button .q-btn__content { width:100%; display:flex; flex-direction:column; align-items:stretch; gap:4px; }
 .library-button.connected { background:#edf4e9; border-color:#c5d3bd; }
 .library-name { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.library-progress { font-size:10px; color:#6c7865; text-transform:none; }
+.library-progress { font-size:10px; color:#6c7865; text-transform:none; overflow-wrap:anywhere; line-height:14px; }
 .library-progress-bar { height:3px; }
 .library-copy { display:block; padding:3px 8px 3px 18px; font-size:10px; color:#637b91; text-decoration:none; overflow-wrap:anywhere; }
 .library-note { font-size:10px; line-height:15px; color:#7b8475; padding:5px 10px; }
@@ -23,6 +23,26 @@ def progress_text(library):
     total = int(library.get('thumbnail_total') or 0)
     percent = f'{done / total * 100:.1f}%' if total else '0%'
     return f'Превью {done:,} / {total:,} · {percent}'.replace(',', ' ')
+
+
+def originals_text(copy):
+    job = copy.get('originals') or {}
+    title = f"Сохранение оригиналов · {copy['number']:02d}-copy"
+    if job.get('state', 'idle') == 'idle':
+        return title + ' · не запускалось'
+    total, done = job.get('total_assets', 0), job.get('done_assets', 0)
+    return title + f' · {done:,} / {total:,}'.replace(',', ' ')
+
+
+def originals_state(copy):
+    job = copy.get('originals') or {}
+    state = job.get('state', 'idle')
+    if state == 'inventory':
+        return f"Проверка файлов: {job.get('checked_files', 0):,}".replace(',', ' ')
+    if state == 'saving':
+        size = job.get('current_bytes', 0) / (1024 * 1024)
+        return f"{job.get('current_path', '')} · {size:.1f} МБ" + (f" · iCloud {job['fraction']:.0%}" if 0 < job.get('fraction', 0) < 1 else '')
+    return job.get('message', 'Сохранение ещё не запускалось')
 
 
 def library_state(library):
@@ -87,7 +107,7 @@ class PhotoLibrariesUI:
                 self.note.text = connection.get('error') or 'Оригиналы → привязанные копии'
                 self.section.text = f'Медиатеки · {len(self.libraries)}'
                 signature = tuple((s['id'], s.get('label'), s['active'], s['paused'], s['connection_state'],
-                                   tuple((c['id'], c['volume_name'], c['path'], c['availability']) for c in s.get('copies', [])))
+                                   tuple((c['id'], c['volume_name'], c['path'], c['availability'], (c.get('originals') or {}).get('state')) for c in s.get('copies', [])))
                                   for s in self.libraries)
                 if signature != self.signature and not self.ws.context_menu_open:
                     self.signature = signature
@@ -103,6 +123,13 @@ class PhotoLibrariesUI:
                         total = library.get('thumbnail_total') or 0
                         row['bar'].value = min(1, library.get('thumbnail_done', 0) / total) if total else 0
                         row['state'].text = library_state(library)
+                        for copy in library.get('copies', []):
+                            refs = row.get('copies', {}).get(copy['id'])
+                            if refs:
+                                job = copy.get('originals') or {}
+                                refs['progress'].text = originals_text(copy)
+                                refs['state'].text = originals_state(copy)
+                                refs['bar'].value = min(1, job.get('done_assets', 0) / job['total_assets']) if job.get('total_assets') else 0
                     for pane in self.ws.panes:
                         if pane.view_mode == 'preview' and pane.preview.volume_id == f"photos-{library['id']}":
                             await pane.preview.refresh_pending(library.get('thumbnail_done', 0))
@@ -135,17 +162,30 @@ class PhotoLibrariesUI:
                             scan = ui.menu_item('Обновить каталог', on_click=lambda sid=source_id: self.scan(sid))
                             scan.set_enabled(bool(library['active']))
                             ui.separator()
-                            ui.menu_item('Привязать папку-копию', on_click=lambda s=library: self.bind(s))
+                            ui.menu_item('Привязать папку для копий оригиналов', on_click=lambda s=library: self.bind(s))
                         ui.label(library.get('label') or 'Photos').classes('library-name')
                         progress = ui.label(progress_text(library)).classes('library-progress')
                         bar = ui.linear_progress(value=0).props('color=green-7').classes('library-progress-bar')
                         state = ui.label(library_state(library)).classes('library-progress')
-                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state)
+                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state, copies={})
+                        for copy in library.get('copies', []):
+                            refs = dict(progress=ui.label(originals_text(copy)).classes('library-progress'))
+                            refs['bar'] = ui.linear_progress(value=0).props('color=blue-7').classes('library-progress-bar')
+                            refs['state'] = ui.label(originals_state(copy)).classes('library-progress')
+                            self.rows[source_id]['copies'][copy['id']] = refs
+                        if library.get('copies'):
+                            ui.label('Управление: правой кнопкой по папке копии').classes('library-progress')
                     for copy in library.get('copies', []):
                         title = f"{copy['number']:02d}-copy · {copy['volume_name']} /{copy['path']}"
                         with ui.link(title, '#').classes('library-copy').on('click',
                             lambda c=copy: self.ws.open_volume(c['volume_id'], 1, path=c['path']), js_handler='(event) => { event.preventDefault(); emit(); }'):
                             with self.menu():
+                                job_state = (copy.get('originals') or {}).get('state', 'idle')
+                                running = job_state in ('manifest', 'inventory', 'saving', 'pausing')
+                                ui.menu_item('Пауза сохранения' if running else ('Сохранить оригиналы' if job_state == 'idle' else 'Продолжить / проверить оригиналы'),
+                                             on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
+                                ui.menu_item('Журнал сохранения', on_click=lambda sid=source_id, c=copy: self.originals_journal(sid, c))
+                                ui.separator()
                                 ui.menu_item('Отвязать копию', on_click=lambda sid=source_id, c=copy: self.unbind(sid, c))
 
     async def action(self, method, path, *, timeout=45, **kwargs):
@@ -202,10 +242,10 @@ class PhotoLibrariesUI:
             return
         volume = next(v for v in self.ws.volumes if v['id'] == scope['volume_id'])
         with ui.dialog() as dialog, ui.card().classes('w-[470px] max-w-full p-5 gap-3'):
-            ui.label('Привязать копию медиатеки').classes('text-lg font-semibold')
+            ui.label('Привязать папку для копий оригиналов').classes('text-lg font-semibold')
             ui.label(library.get('label') or 'Photos').classes('font-semibold')
             ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
-            ui.label('Оригиналы будут сохраняться сразу в эту папку. Сейчас сохраняется только привязка, загрузка файлов не начинается.').classes('s-note')
+            ui.label('Оригиналы будут сохраняться сразу в эту папку. Для запуска выбери «Сохранить оригиналы» в меню папки копии. Уже лежащие в ней файлы будут проверены по содержимому.').classes('s-note')
             with ui.row().classes('w-full justify-end'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
                 ui.button('Привязать', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
@@ -214,3 +254,26 @@ class PhotoLibrariesUI:
 
     async def unbind(self, source_id, copy):
         await self.action('DELETE', f"/api/photos/libraries/{source_id}/copies/{copy['id']}")
+
+
+    async def originals_action(self, source_id, copy, running):
+        action = 'pause' if running else 'start'
+        await self.action('POST', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/{action}")
+
+    async def originals_journal(self, source_id, copy):
+        try:
+            data = await self.ws.request('GET', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/journal")
+            with ui.dialog() as dialog, ui.card().classes('w-[720px] max-w-full p-5 gap-3'):
+                ui.label('Сохранение оригиналов · журнал').classes('text-lg font-semibold')
+                ui.label(data['job'].get('message', '')).classes('s-note')
+                with ui.column().classes('w-full max-h-[60vh] overflow-auto gap-2'):
+                    for path in data.get('incomplete_paths', []):
+                        ui.label('Незавершённый файл оставлен в копии: ' + path).classes('text-xs text-red-8 break-all')
+                    for item in data['items']:
+                        ui.label(f"{item['created_at'][:19]} · {item['path']} · {item['message']}").classes('text-xs break-all')
+                    if not data['items']:
+                        ui.label('Записей пока нет').classes('s-note')
+                ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
+            dialog.open()
+        except Exception as error:
+            self.ws.notice(error)

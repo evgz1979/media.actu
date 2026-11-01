@@ -37,6 +37,7 @@ from media_manager.directory_sizes import DirectorySizeService
 from media_manager.storage_previews import StoragePreviewService
 from media_manager.photo_libraries import PhotoLibraries
 from media_manager.photos_browser import PhotosBrowser
+from media_manager.photos_originals import PhotosOriginals
 
 
 ROOT = Path(__file__).parent
@@ -66,6 +67,9 @@ comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 photo_libraries = PhotoLibraries(catalog, storage, photos_adapter)
 photos_browser = PhotosBrowser(photo_libraries)
+photos_originals_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
+photos_originals = PhotosOriginals(photo_libraries, photos_originals_adapter)
+photo_libraries.originals = photos_originals
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter, photo_libraries)
 storage_previews = StoragePreviewService(storage, local_thumbnail_cache_directory())
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -148,6 +152,7 @@ async def lifespan(_: FastAPI):
     folder_tracking.close()
     folder_markers.close()
     directory_sizes.close()
+    photos_originals.close()
     missing_copies.close()
     paired_comparison.close()
     comparison.close()
@@ -866,6 +871,27 @@ async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -
 async def unbind_photo_library_copy(source_id: int, link_id: str) -> dict:
     await library_call(photo_libraries.unbind_copy, source_id, link_id)
     return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries/{source_id}/copies/{link_id}/originals/start')
+async def start_photo_originals(source_id: int, link_id: str) -> dict:
+    return await library_call(photos_originals.start, link_id, source_id)
+
+
+@app.post('/api/photos/libraries/{source_id}/copies/{link_id}/originals/pause')
+async def pause_photo_originals(source_id: int, link_id: str) -> dict:
+    return await library_call(photos_originals.pause, link_id, source_id)
+
+
+@app.get('/api/photos/libraries/{source_id}/copies/{link_id}/originals')
+async def photo_originals_status(source_id: int, link_id: str) -> dict:
+    await library_call(photos_originals._link, link_id, source_id)
+    return await library_call(photos_originals.summary, link_id)
+
+
+@app.get('/api/photos/libraries/{source_id}/copies/{link_id}/originals/journal')
+async def photo_originals_journal(source_id: int, link_id: str) -> dict:
+    return await library_call(photos_originals.journal, link_id, source_id)
 
 
 @app.get("/api/catalog/summary")

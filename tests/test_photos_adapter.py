@@ -109,3 +109,47 @@ for line in lines:
                 adapter.executable.write_text(adapter.executable.read_text().replace("'status':'authorized'", "'status':"+repr(status)))
                 with self.assertRaises(error):
                     adapter.probe()
+
+    def test_original_stream_decodes_bounded_chunks_and_verifies_protocol_trailer(self):
+        import base64
+        adapter, root = self.adapter()
+        adapter._begin = Mock()
+        adapter._receive = Mock(side_effect=[
+            dict(event='begin'), dict(event='progress', fraction=.4),
+            dict(event='chunk', data=base64.b64encode(b'original bytes').decode()),
+            dict(event='complete', size=14, sha256='source hash')])
+        chunks, progress = [], []
+        result = adapter.stream_original('asset', '1:0', 'v1', ['anchor'], chunks.append, progress.append, lambda: False)
+        self.assertEqual(chunks, [b'original bytes'])
+        self.assertEqual(progress, [.4])
+        self.assertEqual(result['size'], 14)
+        self.assertEqual(adapter._begin.call_args.args[0]['op'], 'original_resource')
+        self.assertEqual(list(root.iterdir()), [adapter.executable])
+
+    def test_stream_cancellation_sends_matching_token_and_stops_consumer(self):
+        from media_manager.photos_adapter import PhotosTransferStopped
+        adapter, _ = self.adapter()
+        adapter._begin = Mock()
+        adapter._send = Mock()
+        adapter._receive = Mock(return_value=dict(status='cancelled'))
+        with self.assertRaises(PhotosTransferStopped):
+            adapter.stream_original('asset', '1:0', 'v1', [], Mock(), Mock(), lambda: True)
+        start = adapter._begin.call_args.args[0]
+        adapter._send.assert_called_once_with(dict(op='cancel', token=start['token']))
+
+    def test_consumer_error_closes_only_its_transport_and_rejects_oversized_chunks(self):
+        import base64
+        adapter, _ = self.adapter()
+        adapter._begin = Mock()
+        adapter._receive = Mock(return_value=dict(event='chunk', data=base64.b64encode(b'x' * (256*1024+1)).decode()))
+        writer = Mock()
+        with patch.object(adapter, 'close') as close:
+            with self.assertRaisesRegex(RuntimeError, 'Некорректный блок'):
+                adapter.stream_original('asset', '1:0', 'v1', [], writer, Mock(), lambda: False)
+            close.assert_called_once()
+        writer.assert_not_called()
+        adapter._receive = Mock(return_value=dict(event='chunk', data=base64.b64encode(b'bytes').decode()))
+        with patch.object(adapter, 'close') as close:
+            with self.assertRaisesRegex(OSError, 'Disk full'):
+                adapter.stream_original('asset', '1:0', 'v1', [], Mock(side_effect=OSError('Disk full')), Mock(), lambda: False)
+            close.assert_called_once()

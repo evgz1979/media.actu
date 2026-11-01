@@ -9,6 +9,8 @@
 #include <poll.h>
 #include <errno.h>
 #include <unistd.h>
+#include <signal.h>
+#import <CommonCrypto/CommonDigest.h>
 
 static NSString *statusName(PHAuthorizationStatus status) {
     switch (status) {
@@ -26,7 +28,7 @@ static PHAuthorizationStatus authorization(BOOL request) {
         [PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite];
     if (request && status == PHAuthorizationStatusNotDetermined) {
         __block BOOL finished = NO;
-        [NSApp activateIgnoringOtherApps:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{ [NSApp activateIgnoringOtherApps:YES]; });
         [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelReadWrite
                                                    handler:^(PHAuthorizationStatus newStatus) {
             status = newStatus;
@@ -45,11 +47,13 @@ static BOOL canRead(PHAuthorizationStatus status) {
            status == PHAuthorizationStatusLimited;
 }
 
-static void writeJSON(id value, FILE *stream) {
+static BOOL writeJSON(id value, FILE *stream) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:value options:0 error:nil];
-    fwrite(data.bytes, 1, data.length, stream);
-    fputc('\n', stream);
-    fflush(stream);
+    flockfile(stream);
+    BOOL ok = data && fwrite(data.bytes, 1, data.length, stream) == data.length &&
+        fputc('\n', stream) != EOF && fflush(stream) == 0;
+    funlockfile(stream);
+    return ok;
 }
 
 @interface LibraryState : NSObject <PHPhotoLibraryAvailabilityObserver>
@@ -208,6 +212,7 @@ static NSDictionary *handleRequest(NSDictionary *request, LibraryState *state) {
             return @{ @"status": @"unavailable" };
         return @{ @"status": @"authorized", @"assets": result };
     }
+    if ([operation isEqualToString:@"guard"]) return @{ @"status": @"authorized" };
     if (![operation isEqualToString:@"thumbnail"]) return @{ @"error": @"Unknown request" };
     PHAsset *asset = [PHAsset fetchAssetsWithLocalIdentifiers:@[request[@"identifier"]] options:nil].firstObject;
     if (!asset) return @{ @"error": @"Объект отсутствует в текущей медиатеке" };
@@ -250,24 +255,152 @@ static NSDictionary *handleRequest(NSDictionary *request, LibraryState *state) {
     return @{ @"status": @"ready", @"jpeg": [jpeg base64EncodedStringWithOptions:0] };
 }
 
-static int serve(void) {
+static NSString *assetVersion(PHAsset *asset) {
+    return [NSString stringWithFormat:@"%.6f", (asset.modificationDate ?: asset.creationDate).timeIntervalSince1970];
+}
+
+static NSArray<PHAssetResource *> *originalResources(PHAsset *asset) {
+    NSMutableArray *resources = [NSMutableArray array];
+    for (PHAssetResource *r in [PHAssetResource assetResourcesForAsset:asset]) {
+        // Unmodified photo/video/audio, RAW alternate, and Live Photo motion.
+        if (r.type == 1 || r.type == 2 || r.type == 3 || r.type == 4 || r.type == 9) [resources addObject:r];
+    }
+    return [resources sortedArrayUsingComparator:^NSComparisonResult(PHAssetResource *a, PHAssetResource *b) {
+        if (a.type != b.type) return a.type < b.type ? NSOrderedAscending : NSOrderedDescending;
+        NSComparisonResult result = [a.originalFilename compare:b.originalFilename];
+        return result == NSOrderedSame ? [a.uniformTypeIdentifier compare:b.uniformTypeIdentifier] : result;
+    }];
+}
+
+static NSString *resourceID(PHAssetResource *resource, NSArray *resources, NSUInteger index) {
+    NSUInteger ordinal = 0;
+    for (NSUInteger i = 0; i < index; i++) if (((PHAssetResource *)resources[i]).type == resource.type) ordinal++;
+    return [NSString stringWithFormat:@"%ld:%lu", (long)resource.type, (unsigned long)ordinal];
+}
+
+static BOOL cancelled(FILE *input, NSString *token) {
+    struct pollfd fd = { .fd = fileno(input), .events = POLLIN };
+    if (poll(&fd, 1, 0) <= 0) return NO;
+    char *line = NULL; size_t capacity = 0;
+    if (getline(&line, &capacity, input) <= 0) { free(line); return YES; }
+    NSData *data = [[NSString stringWithUTF8String:line] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    free(line);
+    return [request[@"op"] isEqualToString:@"quit"] ||
+        ([request[@"op"] isEqualToString:@"cancel"] && [request[@"token"] isEqual:token]);
+}
+
+static void originalRequest(NSDictionary *request, LibraryState *state, FILE *input, FILE *output) {
+    NSDictionary *guard = handleRequest(@{ @"op": @"guard", @"anchors": request[@"anchors"] ?: @[] }, state);
+    if (![guard[@"status"] isEqualToString:@"authorized"]) { writeJSON(guard, output); return; }
+    if (!writeJSON(@{ @"event": @"begin", @"pid": @(getpid()), @"protocol": @2 }, output)) return;
+    NSString *token = request[@"token"];
+    if ([request[@"op"] isEqualToString:@"original_manifest"]) {
+        PHFetchOptions *options = [PHFetchOptions new];
+        options.includeHiddenAssets = YES;
+        options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:YES]];
+        NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
+        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+        NSUInteger count = 0;
+        for (PHAsset *asset in [PHAsset fetchAssetsWithOptions:options]) {
+            @autoreleasepool {
+                if (cancelled(input, token)) { writeJSON(@{ @"status": @"cancelled" }, output); return; }
+                if (state.unavailable || [PHPhotoLibrary sharedPhotoLibrary].unavailabilityReason) {
+                    writeJSON(@{ @"status": @"unavailable" }, output); return;
+                }
+                if (asset.mediaType != PHAssetMediaTypeImage && asset.mediaType != PHAssetMediaTypeVideo) continue;
+                NSArray *originals = originalResources(asset);
+                NSMutableArray *resources = [NSMutableArray array];
+                for (NSUInteger i = 0; i < originals.count; i++) {
+                    PHAssetResource *r = originals[i];
+                    [resources addObject:@{ @"id": resourceID(r, originals, i), @"type": @(r.type),
+                        @"name": r.originalFilename, @"uti": r.uniformTypeIdentifier }];
+                }
+                if (!writeJSON(@{ @"event": @"asset", @"asset": @{ @"id": asset.localIdentifier,
+                    @"version": assetVersion(asset), @"name": assetName(asset),
+                    @"created_at": asset.creationDate ? [formatter stringFromDate:asset.creationDate] : @"",
+                    @"resources": resources } }, output)) return;
+                count++;
+            }
+        }
+        writeJSON(@{ @"event": @"complete", @"count": @(count) }, output);
+        return;
+    }
+    PHAsset *asset = [PHAsset fetchAssetsWithLocalIdentifiers:@[request[@"identifier"]] options:nil].firstObject;
+    if (!asset || ![assetVersion(asset) isEqual:request[@"version"]]) {
+        writeJSON(@{ @"error": @"Объект Photos изменился или отсутствует. Повтори сохранение." }, output); return;
+    }
+    PHAssetResource *resource = nil;
+    NSArray *resources = originalResources(asset);
+    for (NSUInteger i = 0; i < resources.count; i++)
+        if ([resourceID(resources[i], resources, i) isEqual:request[@"resource_id"]]) resource = resources[i];
+    if (!resource) { writeJSON(@{ @"error": @"Оригинальный ресурс Photos отсутствует" }, output); return; }
+    PHAssetResourceRequestOptions *options = [PHAssetResourceRequestOptions new];
+    options.networkAccessAllowed = YES;
+    __block double progressAt = 0;
+    options.progressHandler = ^(double fraction) {
+        double timestamp = NSDate.timeIntervalSinceReferenceDate;
+        if (timestamp - progressAt > .5) {
+            progressAt = timestamp;
+            writeJSON(@{ @"event": @"progress", @"fraction": @(fraction) }, output);
+        }
+    };
+    __block CC_SHA256_CTX hash; CC_SHA256_Init(&hash);
+    __block unsigned long long size = 0;
+    __block BOOL broken = NO;
+    __block NSError *failure = nil;
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    PHAssetResourceManager *manager = [PHAssetResourceManager defaultManager];
+    PHAssetResourceDataRequestID identifier = [manager requestDataForAssetResource:resource options:options
+        dataReceivedHandler:^(NSData *data) {
+            for (NSUInteger offset = 0; offset < data.length && !broken; offset += 256 * 1024) {
+                NSData *chunk = [data subdataWithRange:NSMakeRange(offset, MIN(256 * 1024, data.length - offset))];
+                CC_SHA256_Update(&hash, chunk.bytes, (CC_LONG)chunk.length); size += chunk.length;
+                if (!writeJSON(@{ @"event": @"chunk", @"data": [chunk base64EncodedStringWithOptions:0] }, output)) broken = YES;
+            }
+        } completionHandler:^(NSError *error) { failure = error; dispatch_semaphore_signal(finished); }];
+    BOOL stopped = NO;
+    while (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_MSEC * 100))) {
+        if (!stopped && (broken || cancelled(input, token) || state.unavailable)) {
+            stopped = YES; [manager cancelDataRequest:identifier];
+        }
+    }
+    if (stopped) { writeJSON(@{ @"status": state.unavailable ? @"unavailable" : @"cancelled" }, output); return; }
+    if (failure) { writeJSON(@{ @"error": failure.localizedDescription }, output); return; }
+    PHAsset *current = [PHAsset fetchAssetsWithLocalIdentifiers:@[asset.localIdentifier] options:nil].firstObject;
+    if (!current || ![assetVersion(current) isEqual:request[@"version"]] || state.unavailable) {
+        writeJSON(@{ @"error": @"Объект Photos изменился во время передачи" }, output); return;
+    }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH]; CC_SHA256_Final(digest, &hash);
+    NSMutableString *hex = [NSMutableString string];
+    for (NSUInteger i = 0; i < sizeof(digest); i++) [hex appendFormat:@"%02x", digest[i]];
+    writeJSON(@{ @"event": @"complete", @"size": @(size), @"sha256": hex }, output);
+}
+
+static int serve(FILE *input, FILE *output) {
+    setvbuf(input, NULL, _IONBF, 0); // cancellation poll must see every queued line
     LibraryState *state = [LibraryState new];
-    BOOL watching = canRead(authorization(NO));
-    if (watching) [[PHPhotoLibrary sharedPhotoLibrary] registerAvailabilityObserver:state];
-    char *line = NULL;
-    size_t capacity = 0;
-    while (getline(&line, &capacity, stdin) > 0) {
+    BOOL watching = NO;
+    char *line = NULL; size_t capacity = 0;
+    while (getline(&line, &capacity, input) > 0) {
         @autoreleasepool {
             NSData *data = [[NSString stringWithUTF8String:line] dataUsingEncoding:NSUTF8StringEncoding];
             NSDictionary *request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if (![request isKindOfClass:NSDictionary.class]) { writeJSON(@{ @"error": @"Invalid JSON request" }, stdout); continue; }
+            if (![request isKindOfClass:NSDictionary.class]) { writeJSON(@{ @"error": @"Invalid JSON request" }, output); continue; }
             if ([request[@"op"] isEqualToString:@"quit"]) break;
-            @try {
-                NSMutableDictionary *response = [handleRequest(request, state) mutableCopy];
-                response[@"pid"] = @(getpid());
-                writeJSON(response, stdout);
+            if ([request[@"op"] isEqualToString:@"cancel"]) continue;
+            if (!watching && canRead(authorization(NO))) {
+                [[PHPhotoLibrary sharedPhotoLibrary] registerAvailabilityObserver:state]; watching = YES;
             }
-            @catch (NSException *error) { writeJSON(@{ @"error": error.reason ?: @"PhotoKit exception" }, stdout); }
+            @try {
+                if ([request[@"op"] hasPrefix:@"original_"]) originalRequest(request, state, input, output);
+                else {
+                    NSMutableDictionary *response = [handleRequest(request, state) mutableCopy];
+                    response[@"pid"] = @(getpid());
+                    if (!writeJSON(response, output)) break;
+                }
+            }
+            @catch (NSException *error) { writeJSON(@{ @"error": error.reason ?: @"PhotoKit exception" }, output); }
         }
     }
     free(line);
@@ -276,38 +409,52 @@ static int serve(void) {
 }
 
 static int serveSocket(NSString *path) {
-    struct sockaddr_un address = {0};
-    address.sun_family = AF_UNIX;
+    struct sockaddr_un address = {0}; address.sun_family = AF_UNIX;
     if (strlen(path.fileSystemRepresentation) >= sizeof(address.sun_path)) return 65;
     strlcpy(address.sun_path, path.fileSystemRepresentation, sizeof(address.sun_path));
     umask(0077);
     int listener = socket(AF_UNIX, SOCK_STREAM, 0);
     if (listener < 0) return 66;
-    if (bind(listener, (struct sockaddr *)&address, sizeof(address)) || listen(listener, 1)) {
-        close(listener); return 67;
+    if (bind(listener, (struct sockaddr *)&address, sizeof(address)) || listen(listener, 8)) { close(listener); return 67; }
+    NSLock *lock = [NSLock new];
+    __block NSUInteger clients = 0;
+    __block double activity = NSDate.timeIntervalSinceReferenceDate;
+    __block BOOL done = NO;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        while (YES) {
+            struct pollfd incoming = { .fd = listener, .events = POLLIN };
+            if (poll(&incoming, 1, 500) > 0) {
+                int client = accept(listener, NULL, NULL);
+                uid_t peerUID; gid_t peerGID;
+                if (client < 0) continue;
+                if (getpeereid(client, &peerUID, &peerGID) || peerUID != getuid()) { close(client); continue; }
+                [lock lock]; clients++; activity = NSDate.timeIntervalSinceReferenceDate; [lock unlock];
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                    @autoreleasepool {
+                        FILE *input = fdopen(client, "r"), *output = fdopen(dup(client), "w");
+                        if (input && output) serve(input, output);
+                        if (input) fclose(input); else close(client);
+                        if (output) fclose(output);
+                        [lock lock]; clients--; activity = NSDate.timeIntervalSinceReferenceDate; [lock unlock];
+                    }
+                });
+            }
+            [lock lock]; BOOL idle = !clients && NSDate.timeIntervalSinceReferenceDate - activity > 30; [lock unlock];
+            if (idle) break;
+        }
+        close(listener); unlink(address.sun_path);
+        [lock lock]; done = YES; [lock unlock];
+    });
+    while (YES) {
+        [lock lock]; BOOL finished = done; [lock unlock];
+        if (finished) break;
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
     }
-    struct pollfd incoming = { .fd = listener, .events = POLLIN };
-    if (poll(&incoming, 1, 30000) <= 0) {
-        close(listener); unlink(address.sun_path); return 68;
-    }
-    int client = accept(listener, NULL, NULL);
-    close(listener);
-    if (client < 0) { unlink(address.sun_path); return 68; }
-    uid_t peerUID;
-    gid_t peerGID;
-    if (getpeereid(client, &peerUID, &peerGID) || peerUID != getuid()) {
-        close(client); unlink(address.sun_path); return 69;
-    }
-    dup2(client, STDIN_FILENO);
-    dup2(client, STDOUT_FILENO);
-    close(client);
-    int result = serve();
-    unlink(address.sun_path);
-    return result;
+    return 0;
 }
 
 static int serveDefaultSocket(void) {
-    NSString *directory = [NSString stringWithFormat:@"/private/tmp/media-actu-photos-v1-%u", getuid()];
+    NSString *directory = [NSString stringWithFormat:@"/private/tmp/media-actu-photos-v2-%u", getuid()];
     umask(0077);
     if (mkdir(directory.fileSystemRepresentation, 0700) && errno != EEXIST) return 70;
     struct stat info;
@@ -327,6 +474,7 @@ static int serveDefaultSocket(void) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        signal(SIGPIPE, SIG_IGN);
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         NSArray<NSString *> *arguments = [[NSProcessInfo processInfo] arguments];
@@ -335,7 +483,7 @@ int main(int argc, const char *argv[]) {
         if ([command isEqualToString:@"check"]) return statusCommand(NO);
         if ([command isEqualToString:@"status"]) return statusCommand(YES);
         if ([command isEqualToString:@"scan"]) return scanCommand();
-        if ([command isEqualToString:@"serve"]) return serve();
+        if ([command isEqualToString:@"serve"]) return serve(stdin, stdout);
         if ([command isEqualToString:@"serve-socket"] && arguments.count >= 3) return serveSocket(arguments[2]);
         if ([command isEqualToString:@"thumbnail"]) return thumbnailCommand(arguments);
         writeJSON(@{ @"error": @"Unknown command" }, stderr);
