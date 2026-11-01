@@ -83,6 +83,16 @@ def inherited_location(path, locations):
             'is_root': path == location['path'], 'inherited_from': None if path == location['path'] else location['path']}
 
 
+def active_locations(db, volume_id):
+    """Roles for ordinary browsing; disconnected links remain in the catalog."""
+    return [dict(row) for row in db.execute('''
+        SELECT l.* FROM copy_locations l
+        WHERE l.volume_id=?
+          AND NOT EXISTS (SELECT 1 FROM disconnected_copy_groups g WHERE g.group_id=l.group_id)
+          AND NOT EXISTS (SELECT 1 FROM disconnected_copy_locations d WHERE d.location_id=l.id)
+    ''', (volume_id,))]
+
+
 class CopyCatalog:
     def __init__(self, storage):
         self.storage = storage

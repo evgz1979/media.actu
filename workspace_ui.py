@@ -11,7 +11,7 @@ from nicegui import background_tasks, ui
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
-from media_manager.storage import FLAGS, PURPOSES, relative_path
+from media_manager.storage import FLAGS, FOLDER_TAGS, PURPOSES, relative_path
 from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
@@ -158,7 +158,9 @@ WORKSPACE_CSS = """
 .copy-folder-menu .q-item { min-height:32px; padding:5px 12px; }
 .copy-bookmark.disconnected, .copy-link.disconnected { color:#858b87; }
 .s-tree-role.copy-label { max-width:none; }
-.commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(220px,1fr) 112px 80px 56px; min-width:468px; }
+.s-tree-role.library-role { max-width:none; background:#e8eef8; color:#536a89; }
+.s-tree-role.folder-tag { max-width:none; background:#fff1d9; color:#826538; }
+.commander-pane.folder-labels .s-list-grid { grid-template-columns:minmax(var(--folder-name-width,220px),1fr) 112px 80px 56px; min-width:calc(var(--folder-name-width,220px) + 248px); }
 @media(max-width:1450px) {
  .commander-layout { grid-template-columns:242px minmax(0,1fr) minmax(0,1fr) 264px; gap:10px; padding:0 16px 20px; }
  .commander-trees { gap:10px; }
@@ -180,6 +182,12 @@ def volume_label(volume, with_share=True):
 
 def archived(volume):
     return not volume.get('mounted') and (volume['availability'] == 'offline' or volume.get('identity_status') == 'legacy')
+
+
+def folder_membership(workspace, volume_id, path):
+    libraries = getattr(workspace, 'photo_libraries', None)
+    photo_copy = libraries.copy_membership(volume_id, path) if libraries else None
+    return photo_copy or workspace.copies.membership(volume_id, path)
 
 
 class BrowserPane:
@@ -215,7 +223,7 @@ class BrowserPane:
             self.container.on('focusin', lambda: workspace.set_active(index))
             with ui.column().classes('s-panel-head w-full gap-2'):
                 workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.display_volume_id),
-                                        volume_id=lambda: self.display_volume_id)
+                                        volume_id=lambda: self.display_volume_id, folder=True)
                 with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
                     self.mode_switch = ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props(f'aria-label="Режим {self.title.lower()} панели"').classes('pane-mode')
@@ -843,8 +851,16 @@ class BrowserPane:
             self.rows.clear()
             self.workspace.pair.render_tree(self)
             return
-        labels = any(entry['kind'] == 'directory' and self.workspace.copies.membership(self.volume_id, entry['path'])
-                     for data in self.folders.values() for entry in data.get('entries', []))
+        labels, extra_tags = False, 0
+        for data in self.folders.values():
+            for entry in data.get('entries', []):
+                if entry['kind'] != 'directory':
+                    continue
+                membership = folder_membership(self.workspace, self.volume_id, entry['path'])
+                tags = entry.get('metadata', {}).get('tags', [])
+                labels = labels or bool(membership or tags)
+                extra_tags = max(extra_tags, len(tags) + bool((membership or {}).get('media_library')))
+        self.container.style(f'--folder-name-width:{220 + 65 * extra_tags}px')
         self.container.classes(add='folder-labels' if labels else '', remove='' if labels else 'folder-labels')
         self.update_header()
         self.tree.clear()
@@ -902,6 +918,7 @@ class BrowserPane:
                         else:
                             self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
                                                          volume_id=self.volume_id, path=entry['path'],
+                                                         folder=directory,
                                                          extra=self.workspace.copies.context_actions(self.volume_id, entry))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
@@ -914,9 +931,15 @@ class BrowserPane:
                             name_button = ui.button(entry['name'], on_click=None if directory else lambda e=entry: self.select(e)).props('flat dense no-caps color=dark').classes('s-entry-name')
                             if directory:
                                 name_button.props['data-folder-key'] = folder_key
-                            membership = self.workspace.copies.membership(self.volume_id, entry['path']) if directory else None
+                            membership = folder_membership(self.workspace, self.volume_id, entry['path']) if directory else None
                             if membership:
                                 ui.label(membership['label']).classes('s-tree-role copy-label' + (' main' if membership['number'] == 0 else ''))
+                                if membership.get('media_library'):
+                                    ui.label('медиатека').classes('s-tree-role library-role').tooltip(membership['media_library'])
+                            if directory:
+                                for tag in entry.get('metadata', {}).get('tags', []):
+                                    if tag in FOLDER_TAGS:
+                                        ui.label(FOLDER_TAGS[tag]).classes('s-tree-role folder-tag')
                             status = entry.get('status')
                             if status:
                                 ui.icon(STATUS_ICONS.get(status, 'help_outline'), size='13px').classes('shrink-0').style('color:' + STATUS_COLORS.get(status, '#747b72')).props(f'aria-label="{LABELS[status]}"')
@@ -1316,7 +1339,7 @@ class StorageWorkspace:
         finally:
             self.sizes_polling = False
 
-    def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None):
+    def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False):
         client = ui.context.client
 
         def action(callback):
@@ -1333,11 +1356,15 @@ class StorageWorkspace:
                 virtual = self.is_photos(volume_id() if callable(volume_id) else volume_id)
                 finder.set_visibility(not virtual)
                 properties.set_visibility(not virtual)
+                if tags:
+                    tags.set_visibility(not virtual)
             menu.on('before-show', before_show)
             menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
             finder = ui.menu_item('Открыть в Finder', on_click=action(lambda: self.open_in_finder(
                 volume_id() if callable(volume_id) else volume_id, path)))
             properties = ui.menu_item(label, on_click=action(callback))
+            tags = ui.menu_item('Метки папки…', on_click=action(lambda: self.edit_folder_tags(
+                volume_id() if callable(volume_id) else volume_id, path))) if folder else None
             if extra_content:
                 extra_content(action)
             for text, handler in extra:
@@ -1388,7 +1415,7 @@ class StorageWorkspace:
                     classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
                     with ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes(classes):
                         self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']),
-                                           volume_id=volume['id'], extra_content=volume_actions)
+                                           volume_id=volume['id'], extra_content=volume_actions, folder=True)
                         ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[volume['availability']])
                         with ui.column().classes('gap-0 flex-1 min-w-0'):
                             with ui.row().classes('w-full items-center no-wrap gap-1'):
@@ -1822,9 +1849,11 @@ class StorageWorkspace:
             with ui.element('div').classes('workspace-property-grid'):
                 ui.label('Назначение').classes('s-muted')
                 ui.label(PURPOSES[values['purpose']])
-            membership = self.copies.membership(volume_id, path)
+            membership = folder_membership(self, volume_id, path)
             if membership:
                 ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
+                if membership.get('media_library'):
+                    ui.label('медиатека').classes('s-tag').tooltip(membership['media_library'])
                 if not membership['is_root']:
                     ui.label('Унаследовано от /' + membership['path']).classes('s-path s-muted')
                 if membership.get('marker_state'):
@@ -1833,6 +1862,11 @@ class StorageWorkspace:
                     ui.label('Служебный файл папки: ' + marker_state).classes('text-xs s-muted')
                     if membership.get('marker_error'):
                         ui.label(membership['marker_error']).classes('s-error text-xs break-words')
+            if kind == 'directory' and metadata.get('tags'):
+                with ui.row().classes('gap-1 flex-wrap'):
+                    for tag in metadata['tags']:
+                        if tag in FOLDER_TAGS:
+                            ui.label(FOLDER_TAGS[tag]).classes('copy-folder-tag')
             for key, label in FLAGS.items():
                 if values.get(key):
                     ui.label(label).classes('s-tag flag')
@@ -1842,10 +1876,60 @@ class StorageWorkspace:
                 ui.button('Подключить на M4', icon='lan', on_click=lambda: self.connect(volume['id'])).props('outline no-caps color=dark')
             with ui.row().classes('w-full justify-end gap-2'):
                 if kind == 'directory' and volume.get('identity_status') != 'unverified':
+                    ui.button('Метки папки…', on_click=lambda: dialog.submit('tags')).props('outline no-caps color=green-9')
                     ui.button('Изменить отметки', on_click=lambda: dialog.submit('edit')).props('outline no-caps color=green-9')
                 ui.button('Закрыть', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
-        if await dialog == 'edit':
+        result = await dialog
+        if result == 'tags':
+            await self.edit_folder_tags(volume_id, path)
+        elif result == 'edit':
             await self.edit_metadata(volume, path, metadata)
+
+    async def edit_folder_tags(self, volume_id, path):
+        if self.is_photos(volume_id):
+            return
+        self.editing = True
+        try:
+            data = await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
+                                      params={'path': path, 'refresh': False}, timeout=30)
+            selected = data['metadata'].get('tags', [])
+            membership = folder_membership(self, volume_id, path)
+            with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
+                ui.label('Метки папки').classes('text-lg font-semibold')
+                ui.label(PurePosixPath(path).name if path else data['volume']['name']).classes('s-path break-words')
+                if membership and membership.get('media_library'):
+                    ui.label('медиатека · ' + membership['media_library']).classes('copy-folder-tag')
+                    ui.label('Метка «медиатека» задаётся привязкой к Photos.').classes('s-note')
+                controls = {tag: ui.checkbox(title, value=tag in selected) for tag, title in FOLDER_TAGS.items()}
+                ui.label('Можно выбрать несколько. Метки относятся только к этой папке.').classes('s-note')
+                with ui.row().classes('w-full justify-end'):
+                    ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                    ui.button('Сохранить', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+            if not await dialog:
+                return
+            metadata = await self.request('PATCH', f'/api/storage/volumes/{volume_id}/folder-tags',
+                json={'path': path, 'tags': [tag for tag, control in controls.items() if control.value]})
+            self.apply_folder_tags(volume_id, path, metadata)
+        except Exception as error:
+            self.notice(error)
+        finally:
+            self.editing = False
+
+    def apply_folder_tags(self, volume_id, path, metadata):
+        for volume in self.volumes:
+            if volume['id'] == volume_id and not path:
+                volume['metadata'] = metadata
+        for pane in self.panes:
+            if pane.volume_id != volume_id:
+                continue
+            for folder in pane.folders.values():
+                if folder.get('path') == path:
+                    folder['metadata'] = metadata
+                for entry in folder.get('entries', []):
+                    if entry['path'] == path:
+                        entry['metadata'] = metadata
+            if pane.view_mode == 'tree':
+                pane.render()
 
     async def edit_metadata(self, volume, path, metadata):
         volume_id = volume['id']

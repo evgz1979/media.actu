@@ -232,6 +232,12 @@ class StorageMetadataRequest(BaseModel):
     comment: str = Field(default="", max_length=4000)
 
 
+class FolderTagsRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    path: str = Field(default='', max_length=4096)
+    tags: list[Literal['old_copy', 'sort', 'check']] = Field(max_length=3)
+
+
 @app.get("/api/storage/volumes")
 async def storage_volumes(refresh: bool = False) -> dict:
     return await asyncio.to_thread(storage.refresh, refresh)
@@ -363,6 +369,16 @@ async def storage_metadata(volume_id: str, request: StorageMetadataRequest) -> d
         return await asyncio.to_thread(storage.annotate, volume_id, request.path, request.model_dump(exclude={"path"}))
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Том не найден") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch('/api/storage/volumes/{volume_id}/folder-tags')
+async def storage_folder_tags(volume_id: str, request: FolderTagsRequest) -> dict:
+    try:
+        return await asyncio.to_thread(storage.set_folder_tags, volume_id, request.path, request.tags)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail='Том не найден') from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

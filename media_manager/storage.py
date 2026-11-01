@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from urllib.parse import quote, unquote, urlsplit
 
-from .copies import COPY_SCHEMA, inherited_location
+from .copies import COPY_SCHEMA, active_locations, inherited_location
 from .volume_identity import (
     canonical_host, create_marker, mounted_root, read_capacity,
     read_marker, rename_marker, service_file, usb_share, verify_identity,
@@ -28,6 +28,7 @@ from .volume_identity import (
 PURPOSES = {"": "Не назначено", "media": "Медиа", "documents": "Документы", "projects": "Проекты", "mixed": "Разные данные"}
 ROLES = {"": "Не назначено", "primary": "Основное хранение", "copy": "Вторая копия", "archive": "Архив", "temporary": "Временное"}
 FLAGS = {"no_duplicate": "Не дублировать", "planned_move": "Планируется перенос"}
+FOLDER_TAGS = {'old_copy': 'старая копия', 'sort': 'разобрать', 'check': 'проверить'}
 
 
 def now() -> str:
@@ -166,6 +167,10 @@ class StorageCatalog:
                     volume_id TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT, role TEXT,
                     no_duplicate INTEGER, planned_move INTEGER, comment TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY(volume_id, path)
+                );
+                CREATE TABLE IF NOT EXISTS directory_tags (
+                    volume_id TEXT NOT NULL REFERENCES volumes(id), path TEXT NOT NULL,
+                    tags TEXT NOT NULL, PRIMARY KEY(volume_id,path)
                 );
             """)
             db.execute('CREATE TABLE IF NOT EXISTS network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL)')
@@ -430,8 +435,36 @@ class StorageCatalog:
         self.get_volume(volume_id)
         with self.connect() as db:
             annotations = {r["path"]: dict(r) for r in db.execute("SELECT * FROM annotations WHERE volume_id=?", (volume_id,))}
-            locations = [dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE volume_id=?', (volume_id,))]
-        return {**self._metadata(path, annotations), 'copy': inherited_location(path, locations)}
+            locations = active_locations(db, volume_id)
+            tags = self._tags(db, volume_id)
+        return {**self._metadata(path, annotations), 'copy': inherited_location(path, locations),
+                'tags': tags.get(path, [])}
+
+    @staticmethod
+    def _tags(db, volume_id):
+        return {row['path']: json.loads(row['tags'])
+                for row in db.execute('SELECT path,tags FROM directory_tags WHERE volume_id=?', (volume_id,))}
+
+    def set_folder_tags(self, volume_id: str, path: str, tags: list[str]) -> dict:
+        path = relative_path(path)
+        volume = self.get_volume(volume_id)
+        if volume['identity_status'] == 'unverified':
+            raise ValueError('Сначала зарегистрируй сменный диск')
+        if not isinstance(tags, list) or any(not isinstance(tag, str) or tag not in FOLDER_TAGS for tag in tags):
+            raise ValueError('Неизвестная ручная метка папки')
+        selected = [tag for tag in FOLDER_TAGS if tag in tags]
+        with self.connect() as db:
+            if path:
+                parent = relative_path(str(PurePosixPath(path).parent))
+                snapshot = self._snapshot(db, volume_id, parent)
+                if not any(e['path'] == path and e['kind'] == 'directory' for e in snapshot['entries']):
+                    raise ValueError('Метки можно назначать только известным каталогам')
+            if selected:
+                db.execute('INSERT OR REPLACE INTO directory_tags VALUES (?,?,?)',
+                           (volume_id, path, json.dumps(selected)))
+            else:
+                db.execute('DELETE FROM directory_tags WHERE volume_id=? AND path=?', (volume_id, path))
+        return self.metadata(volume_id, path)
 
     @staticmethod
     def _metadata(path: str, annotations: dict) -> dict:
@@ -504,9 +537,12 @@ class StorageCatalog:
                 error_code = 'missing' if failure.errno in (errno.ENOENT, errno.ENOTDIR) else 'read_failed'
         with self.connect() as db:
             annotations = {r["path"]: dict(r) for r in db.execute("SELECT * FROM annotations WHERE volume_id=?", (volume_id,))}
-            locations = [dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE volume_id=?', (volume_id,))]
+            locations = active_locations(db, volume_id)
+            tags = self._tags(db, volume_id)
         for entry in snapshot["entries"]:
-            entry["metadata"] = {**self._metadata(entry["path"], annotations), 'copy': inherited_location(entry['path'], locations)}
+            entry["metadata"] = {**self._metadata(entry["path"], annotations),
+                                 'copy': inherited_location(entry['path'], locations),
+                                 'tags': tags.get(entry['path'], [])}
         return {**snapshot, "path": path, "volume": volume, "cached": cached, "error": error,
                 "error_code": error_code, "metadata": self.metadata(volume_id, path)}
 

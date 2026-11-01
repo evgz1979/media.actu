@@ -88,6 +88,51 @@ class CopyConnectionTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT * FROM disconnected_copy_groups').fetchall(), [])
             self.assertEqual(db.execute('SELECT * FROM disconnected_copy_locations').fetchall(), [])
 
+    def assert_visible_roles(self, expected):
+        controls = CopyGroupsUI(SimpleNamespace())
+        controls.groups = self.copies.groups()
+        for volume, folder in [('main', 'Original'), ('copy', 'Backup'), ('cold', 'Cold')]:
+            with self.subTest(volume=volume):
+                label = expected.get(volume)
+                metadata = self.storage.metadata(volume, folder)['copy']
+                child = self.storage.metadata(volume, folder + '/Year/Month')['copy']
+                root_membership = controls.membership(volume, folder)
+                child_membership = controls.membership(volume, folder + '/Year/Month')
+                # Saved directory snapshots must acquire current relationship
+                # state without re-reading the filesystem.
+                with patch.object(self.storage, '_read_directory', side_effect=AssertionError('cached browse only')):
+                    listing = self.storage.directory(volume, refresh=False)
+                entry = next(e for e in listing['entries'] if e['path'] == folder)
+                for member in (metadata, child, root_membership, child_membership, entry['metadata']['copy']):
+                    self.assertEqual(member['label'] if member else None, label)
+
+    def test_disconnect_removes_roles_from_tree_properties_and_saved_snapshots(self):
+        labels = dict(main='00-main', copy='01-copy', cold='02-copy-cold')
+        self.assert_visible_roles(labels)
+        self.copies.set_group_connected(self.group['id'], False)
+        self.assert_visible_roles({})
+        # Disabling a link keeps its sidebar entry and numbering for reconnection.
+        group = self.copies.group(self.group['id'])
+        self.assertEqual(group['main']['label'], '00-main')
+        self.assertEqual([c['label'] for c in group['copies']], ['01-copy', '02-copy-cold'])
+        self.copies.set_group_connected(self.group['id'], True)
+        self.assert_visible_roles(labels)
+
+    def test_disconnected_copy_hides_only_its_own_role(self):
+        location = self.group['copies'][0]
+        self.copies.set_copy_connected(location['id'], False)
+        self.assert_visible_roles(dict(main='00-main', cold='02-copy-cold'))
+        self.copies.set_group_connected(self.group['id'], False)
+        self.copies.set_group_connected(self.group['id'], True)
+        self.assert_visible_roles(dict(main='00-main', cold='02-copy-cold'))
+        self.copies.set_copy_connected(location['id'], True)
+        self.assert_visible_roles(dict(main='00-main', copy='01-copy', cold='02-copy-cold'))
+
+    def test_missing_disk_keeps_roles_when_relationship_was_not_disabled(self):
+        self.mounted[:] = [v for v in self.mounted if v['id'] != 'cold']
+        self.storage.refresh(True)
+        self.assert_visible_roles(dict(main='00-main', copy='01-copy', cold='02-copy-cold'))
+
     def test_api_can_disconnect_and_reconnect_but_will_not_interrupt_copying(self):
         async def exercise():
             import httpx

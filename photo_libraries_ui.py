@@ -70,7 +70,28 @@ class PhotoLibrariesUI:
         self.libraries = []
         self.rows = {}
         self.signature = None
+        self.copy_roles_signature = None
         self.busy = self.refreshing = False
+
+    def copy_membership(self, volume_id, path):
+        for library in self.libraries:
+            for copy in library.get('copies', []):
+                if copy.get('connected', True) and copy['volume_id'] == volume_id and copy['path'] == path:
+                    return dict(copy, label=f"{copy['number']:02d}-copy", is_root=True,
+                                inherited_from=None, media_library=library.get('label') or 'Photos')
+        return None
+
+    def refresh_copy_roles(self):
+        signature = tuple((library['id'], library.get('label'),
+                           tuple((c['id'], c['volume_id'], c['path'], c['number'], c.get('connected', True))
+                                 for c in library.get('copies', []))) for library in self.libraries)
+        if (signature == self.copy_roles_signature or self.ws.context_menu_open
+                or getattr(self.ws, 'editing', False)):
+            return
+        self.copy_roles_signature = signature
+        for pane in self.ws.panes:
+            if pane.view_mode == 'tree' and pane.volume_id and not self.ws.is_photos(pane.volume_id):
+                pane.render()
 
     def volumes(self):
         return [dict(id=f"photos-{s['id']}", source_id=s['id'], kind='photos',
@@ -116,6 +137,7 @@ class PhotoLibrariesUI:
                         if self.ws.is_photos(pane.display_volume_id):
                             pane.path_signature = None
                             pane.update_header()
+                self.refresh_copy_roles()
                 for library in self.libraries:
                     row = self.rows.get(library['id'])
                     if row:

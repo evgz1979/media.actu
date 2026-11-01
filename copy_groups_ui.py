@@ -53,8 +53,9 @@ class CopyGroupsUI:
         return location['volume_name'] + ' /' + location['path']
 
     def membership(self, volume_id, path):
-        locations = [location for group in self.groups for location in [group['main'], *group['copies']]
-                     if location['volume_id'] == volume_id]
+        locations = [location for group in self.groups if group.get('connected', True)
+                     for location in [group['main'], *group['copies']]
+                     if location.get('connected', True) and location['volume_id'] == volume_id]
         return inherited_location(path, locations)
 
     def main_group(self):
