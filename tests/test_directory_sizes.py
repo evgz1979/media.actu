@@ -198,6 +198,8 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
 
         ws = SimpleNamespace(request=AsyncMock(return_value={'entries': [{'path': 'Album', 'kind': 'directory'}]}),
                              load_directory_sizes=delayed_sizes)
+        ws.is_photos = StorageWorkspace.is_photos
+        ws.read_directory = lambda *args, **kwargs: StorageWorkspace.read_directory(ws, *args, **kwargs)
         pane = BrowserPane.__new__(BrowserPane)
         pane.view_mode = 'tree'
         pane.workspace, pane.generation, pane.volume_id, pane.scan, pane.folders = ws, 1, 'disk', None, {}
@@ -216,10 +218,13 @@ class FolderLoadingTests(unittest.IsolatedAsyncioTestCase):
 
         client = nullcontext()
         client.is_deleted = False
-        ws = SimpleNamespace(request=request, client=client, volumes=[{'id': 'disk', 'availability': 'online'}],
+        ws = SimpleNamespace(request=request, client=client, volumes=[{'id': 'disk', 'kind': 'external', 'availability': 'online'}],
                              set_active=Mock(), render_volumes=Mock(), update_scopes=Mock(),
                              preview_selection=AsyncMock(),
                              context_menu_open=False, editing=False)
+        ws.is_photos = StorageWorkspace.is_photos
+        ws.resolve_volume = lambda volume_id: next((v for v in ws.volumes if v['id'] == volume_id), None)
+        ws.read_directory = lambda *args, **kwargs: StorageWorkspace.read_directory(ws, *args, **kwargs)
         pane = BrowserPane.__new__(BrowserPane)
         pane.view_mode = 'tree'
         pane.workspace, pane.index, pane.generation = ws, 0, 0

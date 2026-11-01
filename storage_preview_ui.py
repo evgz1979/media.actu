@@ -43,6 +43,8 @@ class StoragePreview:
         self.loading = False
         self.generation = 0
         self.limit = 120
+        self.pending_images = {}
+        self.preview_revision = None
         self.content = ui.column().classes('storage-preview')
         self.content.set_visibility(False)
 
@@ -58,24 +60,32 @@ class StoragePreview:
         self.path = relative_path(entry['path'])
         self.kind = entry['kind']
         self.entry = dict(entry)
+        self.pending_images.clear()
+        self.preview_revision = None
         self.data = None
         self.limit = 120
         self.loading = self.kind == 'directory'
         self.pane.path_signature = None
         self.render()
         self.ws.persist_workspace()
+        if volume_id and self.ws.is_photos(volume_id) and self.kind == 'file' and not entry.get('media_id'):
+            try:
+                data = await self.ws.read_directory(volume_id, self.path)
+                if generation == self.generation:
+                    self.entry = data['entry']
+                    self.render()
+            except Exception as error:
+                self.ws.notice(error)
         if not volume_id or self.kind != 'directory':
             return
         try:
-            data = await self.ws.request('GET', f'/api/storage/volumes/{volume_id}/directory',
-                                         params={'path': self.path, 'refresh': False}, timeout=45)
+            data = await self.ws.read_directory(volume_id, self.path, limit=300)
             if generation != self.generation or self.ws.client.is_deleted:
                 return
             self.data = data
             self.render()
             if data.get('volume', {}).get('availability') == 'online':
-                data = await self.ws.request('GET', f'/api/storage/volumes/{volume_id}/directory',
-                                             params={'path': self.path, 'refresh': True, 'discover': False}, timeout=45)
+                data = await self.ws.read_directory(volume_id, self.path, refresh=True)
                 if generation != self.generation or self.ws.client.is_deleted:
                     return
                 self.data = data
@@ -109,11 +119,13 @@ class StoragePreview:
         pane.volume_select.set_visibility(True)
         pane.volume_select.set_enabled(True)
         pane.volume_select.set_value(self.volume_id)
+        pane.hidden.set_visibility(not self.ws.is_photos(self.volume_id))
         pane.parent_button.set_enabled(bool(self.volume_id and self.path))
         pane.root_button.set_enabled(bool(self.volume_id and self.path))
         pane.refresh_button.set_enabled(bool(self.volume_id and not self.loading))
         if self.volume_id:
-            pane.render_path(self.volume_id, self.path, self.kind, navigate=self.open_folder)
+            pane.render_path(self.volume_id, self.path, self.kind, navigate=self.open_folder,
+                             entry_name=(self.entry or {}).get('name'))
         else:
             pane.path_bar.clear()
             pane.path_signature = None
@@ -123,18 +135,42 @@ class StoragePreview:
         data = self.data or {}
         pane.footer.text = ('Читаю папку…' if self.loading else
                             'Сохранённый список · ' + self.ws.format_date(data.get('scanned_at')) if data.get('cached') else
-                            f"Элементов: {len(data.get('entries', []))}" if self.kind == 'directory' else 'Превью · оригинал только для чтения')
+                            f"Элементов: {data.get('total', len(data.get('entries', [])))}" if self.kind == 'directory' else 'Превью · оригинал только для чтения')
 
     def image_url(self, entry, *, large=False):
+        if entry.get('media_id'):
+            return self.ws.core_url.rstrip('/') + f"/api/media/{entry['media_id']}/thumbnail?v={self.preview_revision or 0}"
         params = dict(path=entry['path'], large=str(large).lower(), v=entry.get('modified_at') or entry.get('mtime_ns') or '')
         return self.ws.core_url.rstrip('/') + f'/api/storage/volumes/{quote(self.volume_id, safe="")}/preview?' + urlencode(params)
 
     def image(self, entry, *, large=False):
         preview = ui.image(self.image_url(entry, large=large)).props('fit=contain loading=lazy').classes('preview-image' if large else '')
         preview.add_slot('error', '<div class="preview-image-error">Превью недоступно</div>')
+        if entry.get('media_id') and not entry.get('preview_ready'):
+            self.pending_images[entry['media_id']] = (preview, entry)
 
-    def more(self):
+    async def refresh_pending(self, revision):
+        if not self.pending_images or self.preview_revision == revision or self.loading:
+            return
+        self.preview_revision = revision
+        generation = self.generation
+        items = dict(self.pending_images)
+        for offset in range(0, len(items), 1000):
+            ids = list(items)[offset:offset + 1000]
+            data = await self.ws.request('GET', f'/api/photos/libraries/{self.volume_id[7:]}/preview-status', params={'ids': ids})
+            if generation != self.generation or self.ws.client.is_deleted:
+                return
+            for media_id in data['ready']:
+                preview, entry = items[media_id]
+                entry['preview_ready'] = True
+                preview.set_source(self.image_url(entry))
+                self.pending_images.pop(media_id, None)
+
+    async def more(self):
         self.limit += 120
+        if self.data and self.data.get('has_more') and self.limit > len(self.data['entries']):
+            data = await self.ws.read_directory(self.volume_id, self.path, offset=len(self.data['entries']), limit=300)
+            self.data = dict(data, entries=self.data['entries'] + data['entries'])
         self.render()
 
     def render(self):
@@ -142,6 +178,7 @@ class StoragePreview:
             return
         self.update_header()
         self.content.clear()
+        self.pending_images.clear()
         with self.content:
             if not self.volume_id:
                 ui.label('Выбери папку или файл в соседнем дереве.').classes('s-muted text-sm')
@@ -153,10 +190,13 @@ class StoragePreview:
                 ui.button('К папке', icon='arrow_back', on_click=self.parent).props('flat dense no-caps color=dark')
             entry = self.entry or {}
             ui.label(entry.get('name') or PurePosixPath(self.path).name).classes('preview-title')
-            if self.kind == 'file' and media_kind(Path(self.path)):
+            kind = entry.get('media_kind') or media_kind(Path(entry.get('name') or self.path))
+            if self.kind == 'file' and kind:
                 self.image(entry, large=True)
-                if media_kind(Path(self.path)) == 'video':
+                if kind == 'video':
                     ui.label('Кадр видео').classes('preview-info')
+                if entry.get('media_id'):
+                    ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda: self.ws.open_photo(entry['media_id'])).props('flat dense no-caps color=dark')
             else:
                 ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes('s-muted')
                 ui.label('Для этого типа файла доступна информация без изображения.').classes('preview-info')
@@ -177,19 +217,20 @@ class StoragePreview:
                 ui.label('Читаю папку…').classes('preview-info')
         if self.loading and not self.data:
             return
-        entries = [e for e in data.get('entries', []) if self.pane.hidden.value or not e['name'].startswith('.')]
+        entries = [e for e in data.get('entries', []) if self.ws.is_photos(self.volume_id) or self.pane.hidden.value or not e['name'].startswith('.')]
         if not entries:
             ui.label('Нет видимых элементов' if data.get('entries') else 'Папка пуста' if data.get('scanned_at') else 'Снимок папки не сохранён.').classes('preview-info')
             return
         with ui.element('div').classes('preview-grid'):
             for entry in entries[:self.limit]:
                 with ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props('flat no-caps').classes('preview-tile'):
-                    kind = media_kind(Path(entry['name'])) if entry['kind'] == 'file' else None
+                    kind = (entry.get('media_kind') or media_kind(Path(entry['name']))) if entry['kind'] == 'file' else None
                     if kind:
                         self.image(entry)
                     else:
                         with ui.element('div').classes('preview-tile-symbol'):
                             ui.icon({'directory': 'folder', 'symlink': 'link', 'mount': 'storage'}.get(entry['kind'], 'insert_drive_file'), size='52px')
                     ui.label(entry['name']).classes('preview-tile-name')
-        if len(entries) > self.limit:
-            ui.button(f'Показать ещё ({len(entries) - self.limit})', on_click=self.more).props('flat no-caps color=dark')
+        total = data.get('total', len(entries))
+        if total > self.limit:
+            ui.button(f'Показать ещё ({total - self.limit})', on_click=self.more).props('flat no-caps color=dark')

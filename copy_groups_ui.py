@@ -239,7 +239,8 @@ class CopyGroupsUI:
             return
         ws = self.workspace
         history_only = getattr(ws.pair, 'history_only', False)
-        preview = any(getattr(p, 'view_mode', 'tree') == 'preview' for p in getattr(ws, 'panes', ()))
+        preview = any(getattr(p, 'view_mode', 'tree') == 'preview' or (p.volume or {}).get('kind') == 'photos'
+                      for p in getattr(ws, 'panes', ()))
         self.controls.set_visibility(not bool(ws.report) and not history_only and not preview)
         if ws.report or history_only or preview:
             return

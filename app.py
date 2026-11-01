@@ -36,6 +36,7 @@ from media_manager.copy_files import MissingCopyCatalog
 from media_manager.directory_sizes import DirectorySizeService
 from media_manager.storage_previews import StoragePreviewService
 from media_manager.photo_libraries import PhotoLibraries
+from media_manager.photos_browser import PhotosBrowser
 
 
 ROOT = Path(__file__).parent
@@ -64,6 +65,7 @@ directory_sizes = DirectorySizeService(storage)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 photo_libraries = PhotoLibraries(catalog, storage, photos_adapter)
+photos_browser = PhotosBrowser(photo_libraries)
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter, photo_libraries)
 storage_previews = StoragePreviewService(storage, local_thumbnail_cache_directory())
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -811,6 +813,22 @@ async def connect_photo_library() -> dict:
     await library_call(photo_libraries.refresh_connection)
     thumbnail_workers.wake()
     return await list_photo_libraries()
+
+
+@app.get('/api/photos/libraries/{source_id}/browse')
+async def browse_photo_library(source_id: int, path: str = '',
+                               offset: int = Query(default=0, ge=0),
+                               limit: int = Query(default=150, ge=1, le=1000)) -> dict:
+    result = await library_call(lambda: photos_browser.browse(source_id, path, offset=offset, limit=limit))
+    thumbnail_workers.wake()
+    return result
+
+
+@app.get('/api/photos/libraries/{source_id}/preview-status')
+async def photo_preview_status(source_id: int, ids: list[int] = Query(default=[])) -> dict:
+    if len(ids) > 1000:
+        raise HTTPException(status_code=400, detail='Слишком много объектов')
+    return await library_call(photos_browser.preview_status, source_id, ids)
 
 
 @app.post('/api/photos/libraries', status_code=201)

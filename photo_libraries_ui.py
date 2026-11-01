@@ -52,6 +52,12 @@ class PhotoLibrariesUI:
         self.signature = None
         self.busy = self.refreshing = False
 
+    def volumes(self):
+        return [dict(id=f"photos-{s['id']}", source_id=s['id'], kind='photos',
+                     name=s.get('label') or 'Photos', display_name=s.get('label') or 'Photos',
+                     mount_path=None, availability='online' if s['active'] else 'offline',
+                     mounted=False, identity_status='virtual', library=s) for s in self.libraries]
+
     def build(self):
         ui.add_css(LIBRARY_CSS)
         with ui.expansion('Медиатеки', icon='photo_library', value=True).props('dense').classes('copy-section w-full') as self.section:
@@ -86,6 +92,10 @@ class PhotoLibrariesUI:
                 if signature != self.signature and not self.ws.context_menu_open:
                     self.signature = signature
                     self.render()
+                    for pane in self.ws.panes:
+                        if self.ws.is_photos(pane.display_volume_id):
+                            pane.path_signature = None
+                            pane.update_header()
                 for library in self.libraries:
                     row = self.rows.get(library['id'])
                     if row:
@@ -93,6 +103,9 @@ class PhotoLibrariesUI:
                         total = library.get('thumbnail_total') or 0
                         row['bar'].value = min(1, library.get('thumbnail_done', 0) / total) if total else 0
                         row['state'].text = library_state(library)
+                    for pane in self.ws.panes:
+                        if pane.view_mode == 'preview' and pane.preview.volume_id == f"photos-{library['id']}":
+                            await pane.preview.refresh_pending(library.get('thumbnail_done', 0))
         except Exception as error:
             if not self.ws.client.is_deleted:
                 self.note.text = self.ws.error_text(error)
@@ -112,10 +125,10 @@ class PhotoLibrariesUI:
             for library in self.libraries:
                 source_id = library['id']
                 with ui.column().classes('w-full gap-0'):
-                    with ui.button(on_click=lambda sid=source_id: ui.navigate.to(f'/media?source={sid}')).props('flat no-caps').classes(
+                    with ui.button(on_click=lambda sid=source_id: self.ws.open_library(sid)).props('flat no-caps').classes(
                         'library-button' + (' connected' if library['active'] else '')):
                         with self.menu():
-                            ui.menu_item('Открыть медиатеку', on_click=lambda sid=source_id: ui.navigate.to(f'/media?source={sid}'))
+                            ui.menu_item('Открыть медиатеку', on_click=lambda sid=source_id: self.ws.open_library(sid))
                             ui.menu_item('Переименовать', on_click=lambda s=library: self.rename(s))
                             ui.menu_item('Продолжить превью' if library['paused'] or not library['active'] else 'Пауза превью',
                                          on_click=lambda s=library: self.toggle(s))

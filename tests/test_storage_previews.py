@@ -98,8 +98,14 @@ class PreviewNavigationTests(unittest.IsolatedAsyncioTestCase):
     def preview(self):
         preview = StoragePreview.__new__(StoragePreview)
         preview.ws = SimpleNamespace(client=SimpleNamespace(is_deleted=False), persist_workspace=Mock(), error_text=str)
+        preview.ws.is_photos = StorageWorkspace.is_photos
+        async def read_directory(volume_id, path, **kwargs):
+            return await preview.ws.request('GET', f'/api/storage/volumes/{volume_id}/directory', params={'path': path})
+        preview.ws.read_directory = read_directory
         preview.pane = SimpleNamespace(view_mode='preview', path_signature=None)
         preview.generation, preview.render = 0, Mock()
+        preview.pending_images = {}
+        preview.preview_revision = None
         return preview
 
     async def test_slow_folder_response_cannot_replace_a_newer_file_selection(self):
@@ -113,7 +119,7 @@ class PreviewNavigationTests(unittest.IsolatedAsyncioTestCase):
 
         preview.ws.request = request
         task = asyncio.create_task(preview.show('disk', dict(path='Album', kind='directory')))
-        await started.wait()
+        await asyncio.wait_for(started.wait(), timeout=2)
         await preview.show('disk', dict(path='Other/photo.jpg', kind='file'))
         release.set()
         await task

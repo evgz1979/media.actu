@@ -39,7 +39,7 @@ WORKSPACE_CSS = """
 .pane-link { position:absolute; z-index:3; top:14px; left:50%; transform:translateX(-50%); width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:1px solid #9bb491; border-radius:50%; background:#edf3e7; color:#427644; }
 .commander-trees.linked .commander-pane { border-color:#b0c4a7; }
 .commander-trees.linked .commander-pane.active-pane { border-color:#75986c; }
-.commander-pane { border:2px solid var(--s-line); height:calc(100vh - 180px); min-height:440px; }
+.commander-pane { border:2px solid var(--s-line); height:calc(100vh - 108px); min-height:440px; }
 .commander-pane.active-pane { border-color:#8ba984; }
 @layer overrides {
  .commander-layout .q-btn.disabled { color:#a5aaa1 !important; opacity:1 !important; }
@@ -94,7 +94,7 @@ WORKSPACE_CSS = """
 .commander-sidebar .s-volumes { max-height:calc(100vh - 310px); }
 .commander-sidebar .s-volume-row { padding-left:6px; padding-right:6px; }
 .commander-sidebar .s-volume-capacity { font-size:10px; }
-.workspace-operations { max-height:calc(100vh - 180px); overflow-y:auto; }
+.workspace-operations { max-height:calc(100vh - 108px); overflow-y:auto; }
 .copy-section { border-bottom:1px solid var(--s-line); }
 .copy-section > .q-expansion-item__container > .q-item { min-height:48px; padding:10px 14px; font-size:11px; color:#687466; font-weight:650; }
 .copy-section .q-item__section--avatar { min-width:24px; padding-right:7px; }
@@ -208,13 +208,15 @@ class BrowserPane:
 
     @property
     def volume(self):
-        return next((v for v in self.workspace.volumes if v['id'] == self.volume_id), None)
+        return self.workspace.resolve_volume(self.volume_id)
 
     @property
     def display_volume_id(self):
         return self.preview.volume_id if self.view_mode == 'preview' else self.volume_id
 
     def scope(self):
+        if self.workspace.is_photos(self.display_volume_id):
+            return None
         if self.view_mode == 'preview':
             volume = next((v for v in self.workspace.volumes if v['id'] == self.preview.volume_id), None)
             if not volume or volume.get('identity_status') == 'unverified':
@@ -334,13 +336,14 @@ class BrowserPane:
 
     def update_header(self):
         self.volume_select.options = {
-            v['id']: volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
-            for v in self.workspace.volumes
+            v['id']: ('Photos · ' if v['kind'] == 'photos' else '') + volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
+            for v in self.workspace.browse_volumes()
         }
         self.volume_select.update()
         if self.view_mode == 'preview':
             self.preview.update_header()
             return
+        self.volume_select.set_value(self.volume_id)
         for button in (self.parent_button, self.root_button):
             button.set_enabled(not self.comparison_open())
         self.update_size_header()
@@ -367,7 +370,16 @@ class BrowserPane:
                 ui.label('Выбери том').classes('pane-path-prefix')
             return
         self.render_path(self.volume_id, self.path, self.kind,
-                         boundary=self.scan['root_path'] if self.scan else '')
+                         boundary=self.scan['root_path'] if self.scan else '', entry_name=(self.entry or {}).get('name'))
+        if volume['kind'] == 'photos':
+            library = volume['library']
+            self.snapshot_label.text = 'Каталог Photos · ' + self.workspace.format_date(library.get('last_scan_at'))
+            self.footer.text = ('Подключена' if library['active'] else 'Сохранённый каталог') + f" · {library['media_count']:,} объектов".replace(',', ' ')
+            self.hidden.set_visibility(False)
+            self.result_filter.set_visibility(False)
+            self.refresh_button.set_enabled(not self.refreshing)
+            return
+        self.hidden.set_visibility(True)
         if self.scan:
             timestamp = self.scan.get('finished_at') or self.scan.get('started_at')
             self.snapshot_label.text = 'Список сверки: ' + self.workspace.format_date(timestamp)
@@ -386,6 +398,8 @@ class BrowserPane:
             return None
         if getattr(self.workspace.pair, 'history_only', False):
             return None
+        if self.workspace.is_photos(self.volume_id):
+            return None
         if self.workspace.pair.active and self.workspace.pair.report:
             row = self.workspace.pair.by_path.get(self.workspace.pair.selected)
             if row and not row.get('left' if self.index == 0 else 'right'):
@@ -400,6 +414,10 @@ class BrowserPane:
 
     def update_size_header(self):
         if self.view_mode == 'preview':
+            return
+        if self.workspace.is_photos(self.volume_id):
+            self.folder_size.set_visibility(False)
+            self.refresh_button.set_enabled(not self.refreshing)
             return
         scope = self.size_scope()
         self.folder_size.set_visibility(bool(scope))
@@ -418,21 +436,24 @@ class BrowserPane:
                 or scope in self.workspace.size_force
                 or self.workspace.directory_sizes.get(volume_id, {}).get(path, {}).get('state') in ('queued', 'running'))
 
-    def render_path(self, volume_id, path, kind, *, boundary='', navigate=None):
-        volume = next((v for v in self.workspace.volumes if v['id'] == volume_id), None)
+    def render_path(self, volume_id, path, kind, *, boundary='', navigate=None, entry_name=None):
+        volume = self.workspace.resolve_volume(volume_id)
         if not volume:
             return
         base = (volume['mount_path'] or volume.get('network_url') or volume_label(volume)).rstrip('/') or '/'
-        signature = volume_id, base, path, kind, boundary, bool(self.workspace.report), self.view_mode
+        signature = volume_id, base, path, kind, boundary, bool(self.workspace.report), self.view_mode, entry_name
         if signature == self.path_signature:
             return
         self.path_signature = signature
         self.path_bar.clear()
         navigate = navigate or self.open_path
         prefix, _, root_name = base.rpartition('/')
+        if volume['kind'] == 'photos':
+            prefix, root_name = 'Photos', volume['name']
         crumbs = [(root_name or '/', '', 'directory')]
         parts = PurePosixPath(path).parts if path else ()
-        crumbs.extend((name, '/'.join(parts[:i + 1]), kind if i == len(parts) - 1 else 'directory')
+        crumbs.extend((entry_name if entry_name and kind != 'directory' and i == len(parts) - 1 else name,
+                       '/'.join(parts[:i + 1]), kind if i == len(parts) - 1 else 'directory')
                       for i, name in enumerate(parts))
         with self.path_bar:
             if prefix:
@@ -484,7 +505,7 @@ class BrowserPane:
         self.filter_value = ''
         self.result_filter.set_value('')
         self.volume_select.set_value(volume_id)
-        if self.volume and archived(self.volume):
+        if self.volume and self.volume['kind'] != 'photos' and archived(self.volume):
             self.workspace.archive.open()
         if activate:
             self.workspace.set_active(self.index)
@@ -493,7 +514,7 @@ class BrowserPane:
         self.tree.clear()
         with self.tree:
             ui.spinner(size='22px').classes('m-4')
-        live = not self.scan and self.volume and self.volume['availability'] == 'online'
+        live = not self.scan and self.volume and self.volume['kind'] != 'photos' and self.volume['availability'] == 'online'
         if live:
             self.loading_folders.add(self.root_path)
         await self.load_folder(self.root_path, refresh=False)
@@ -534,8 +555,11 @@ class BrowserPane:
                 data = {**data, 'entries': previous + data['entries'], 'cached': True,
                         'scanned_at': self.scan.get('finished_at') or self.scan.get('started_at') or True}
             else:
-                data = await self.workspace.request('GET', f'/api/storage/volumes/{volume_id}/directory',
-                                                    params={'path': path, 'refresh': refresh, 'discover': discover}, timeout=45)
+                previous = self.folders.get(path, {}).get('entries', []) if more else []
+                data = await self.workspace.read_directory(volume_id, path, refresh=refresh, discover=discover,
+                                                           offset=len(previous))
+                if previous:
+                    data = dict(data, entries=previous + data['entries'])
             if generation == self.generation:
                 self.folders[path] = data
                 return data
@@ -631,6 +655,12 @@ class BrowserPane:
             return
         if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
+        if self.workspace.is_photos(self.volume_id):
+            path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
+            await self.load_folder(path)
+            self.render()
+            await self.workspace.preview_selection(self)
+            return
         self.refreshing = True
         generation = self.generation
         try:
@@ -713,7 +743,7 @@ class BrowserPane:
         self.render()
 
     async def more(self, path):
-        if self.scan:
+        if self.scan or self.workspace.is_photos(self.volume_id):
             await self.load_folder(path, more=True)
         else:
             self.limits[path] = self.limits.get(path, 150) + 150
@@ -763,8 +793,8 @@ class BrowserPane:
                 if not data.get('scanned_at') and not data.get('entries'):
                     ui.label('Читаю папку…' if path in self.loading_folders else 'Список готовится.' if self.scan and self.scan['state'] in ('pending', 'running') else 'Снимок папки не сохранён.').classes('s-muted text-xs p-3')
                     return
-                entries = [e for e in data.get('entries', []) if self.hidden.value or not e['name'].startswith('.')]
-                limit = len(entries) if self.scan else self.limits.get(path, 150)
+                entries = [e for e in data.get('entries', []) if self.workspace.is_photos(self.volume_id) or self.hidden.value or not e['name'].startswith('.')]
+                limit = len(entries) if self.scan or self.workspace.is_photos(self.volume_id) else self.limits.get(path, 150)
                 if not entries and not data.get('error'):
                     ui.label('Нет видимых элементов' if data.get('entries') else 'Папка пуста').classes('s-muted text-xs p-3')
                 for entry in entries[:limit]:
@@ -778,9 +808,14 @@ class BrowserPane:
                     with ui.element('div').classes(classes) as row:
                         self.rows[entry['path']] = row
                         row.on('contextmenu', lambda e=entry: self.select(e, render=False))
-                        self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
-                                                     volume_id=self.volume_id, path=entry['path'],
-                                                     extra=self.workspace.copies.context_actions(self.volume_id, entry))
+                        if self.workspace.is_photos(self.volume_id):
+                            if entry.get('media_id'):
+                                with ui.context_menu():
+                                    ui.menu_item('Открыть в Photos', on_click=lambda e=entry: self.workspace.open_photo(e['media_id']))
+                        else:
+                            self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
+                                                         volume_id=self.volume_id, path=entry['path'],
+                                                         extra=self.workspace.copies.context_actions(self.volume_id, entry))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
                                 ui.button(icon='expand_more' if entry['path'] in self.expanded else 'chevron_right',
@@ -807,16 +842,16 @@ class BrowserPane:
                             modified = datetime.fromtimestamp(entry['mtime_ns'] / 1e9, timezone.utc).isoformat()
                         ui.label(self.workspace.format_date(modified)).classes('s-entry-cell')
                         size = entry.get('size')
-                        if directory:
+                        if directory and not self.workspace.is_photos(self.volume_id):
                             self.size_cells[self.volume_id, entry['path']] = ui.label(
                                 self.workspace.directory_size_text(self.volume_id, entry['path'])).classes('s-entry-cell s-entry-size')
                         else:
-                            ui.label(self.workspace.format_bytes(size) if size is not None and entry['kind'] == 'file' else '—').classes('s-entry-cell s-entry-size')
+                            ui.label(f"{entry['count']} объектов" if directory and 'count' in entry else self.workspace.format_bytes(size) if size is not None and entry['kind'] == 'file' else '—').classes('s-entry-cell s-entry-size')
                         kind = {'directory': 'Папка', 'symlink': 'Ссылка', 'mount': 'Том', 'special': 'Особый'}.get(entry['kind'])
                         ui.label(kind or PurePosixPath(entry['name']).suffix[1:].upper() or 'Файл').classes('s-entry-cell')
                     if directory and entry['path'] in self.expanded:
                         branch(entry['path'], depth + 1)
-                remaining = data.get('total', len(entries)) - len(data.get('entries', [])) if self.scan else len(entries) - limit
+                remaining = data.get('total', len(entries)) - len(data.get('entries', [])) if self.scan or self.workspace.is_photos(self.volume_id) else len(entries) - limit
                 if remaining > 0:
                     ui.button(f'Показать ещё… ({remaining})', on_click=lambda p=path: self.more(p)).props('flat dense no-caps color=dark').classes('ml-5')
 
@@ -851,18 +886,9 @@ class StorageWorkspace:
         self.photo_libraries = PhotoLibrariesUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
         ui.add_css(CSS + WORKSPACE_CSS + PREVIEW_CSS)
-        with ui.row().classes('s-header w-full items-center justify-between no-wrap'):
-            with ui.row().classes('items-center gap-7'):
-                ui.label('media.actu').classes('s-brand')
-                with ui.row().classes('items-center gap-1'):
-                    ui.link('Хранилища', '/').classes('s-nav active')
-                    ui.link('Медиа', '/media').classes('s-nav')
-            with ui.row().classes('items-center gap-2 s-readonly'):
-                ui.icon('lock_outline', size='15px').classes('s-muted')
-                ui.label('Оригиналы — только чтение').classes('s-muted text-xs')
         with ui.row().classes('commander-intro w-full items-center justify-between'):
             with ui.column().classes('gap-1'):
-                ui.label('Хранилища').classes('s-title')
+                ui.label('media.actu').classes('s-title')
                 self.overview = ui.label('Загрузка томов M4…').classes('s-muted text-sm')
             with ui.row().classes('items-center gap-2'):
                 ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props('outline no-caps color=green-9')
@@ -924,6 +950,37 @@ class StorageWorkspace:
     def notice(self, error):
         ui.notify(self.error_text(error), type='negative')
 
+    @staticmethod
+    def is_photos(volume_id):
+        return bool(isinstance(volume_id, str) and volume_id.startswith('photos-') and volume_id[7:].isdigit())
+
+    def browse_volumes(self):
+        libraries = getattr(self, 'photo_libraries', None)
+        return self.volumes + (libraries.volumes() if libraries else [])
+
+    def resolve_volume(self, volume_id):
+        return next((v for v in self.browse_volumes() if v['id'] == volume_id), None)
+
+    async def read_directory(self, volume_id, path, *, refresh=False, discover=False, offset=0, limit=150):
+        if self.is_photos(volume_id):
+            return await self.request('GET', f'/api/photos/libraries/{volume_id[7:]}/browse',
+                                      params=dict(path=path, offset=offset, limit=limit), timeout=45)
+        return await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
+                                  params=dict(path=path, refresh=refresh, discover=discover), timeout=45)
+
+    async def open_library(self, source_id):
+        # A library opens in the active tree; preview mode keeps following it.
+        index = self.active_index
+        if self.panes[index].view_mode == 'preview':
+            index = 1 - index
+        await self.open_volume(f'photos-{source_id}', index)
+
+    async def open_photo(self, media_id):
+        try:
+            await self.request('POST', f'/api/media/{media_id}/open')
+        except Exception as error:
+            self.notice(error)
+
     def capacity_text(self, volume):
         capacity = volume.get('capacity')
         if not capacity:
@@ -980,7 +1037,7 @@ class StorageWorkspace:
     async def restore_panes(self, states):
         restored = False
         for pane, state in zip(self.panes, states):
-            if not any(v['id'] == state['volume_id'] for v in self.volumes):
+            if not self.resolve_volume(state['volume_id']):
                 continue
             pane.hidden.set_value(state['hidden'])
             await pane.show_volume(state['volume_id'], state['root_path'], activate=False)
@@ -992,6 +1049,8 @@ class StorageWorkspace:
                 pane.expanded.add(folder)
             pane.path, pane.kind = state['path'], state['kind']
             pane.entry = dict(path=pane.path, kind=pane.kind, name=PurePosixPath(pane.path).name)
+            if self.is_photos(state['volume_id']) and pane.kind == 'file':
+                pane.entry = (await self.read_directory(state['volume_id'], pane.path))['entry']
             pane.render()
             restored = True
         return restored
@@ -1059,7 +1118,7 @@ class StorageWorkspace:
         return True
 
     async def open_in_finder(self, volume_id, path=''):
-        if not volume_id:
+        if not volume_id or self.is_photos(volume_id):
             return
         try:
             await self.request('POST', f'/api/storage/volumes/{volume_id}/open-in-finder', json={'path': path})
@@ -1179,11 +1238,16 @@ class StorageWorkspace:
         with ui.context_menu() as menu:
             if extra_content:
                 menu.classes('copy-folder-menu')
-            menu.on('before-show', lambda: setattr(self, 'context_menu_open', True))
+            def before_show():
+                self.context_menu_open = True
+                virtual = self.is_photos(volume_id() if callable(volume_id) else volume_id)
+                finder.set_visibility(not virtual)
+                properties.set_visibility(not virtual)
+            menu.on('before-show', before_show)
             menu.on('hide', lambda: setattr(self, 'context_menu_open', False))
-            ui.menu_item('Открыть в Finder', on_click=action(lambda: self.open_in_finder(
+            finder = ui.menu_item('Открыть в Finder', on_click=action(lambda: self.open_in_finder(
                 volume_id() if callable(volume_id) else volume_id, path)))
-            ui.menu_item(label, on_click=action(callback))
+            properties = ui.menu_item(label, on_click=action(callback))
             if extra_content:
                 extra_content(action)
             for text, handler in extra:
@@ -1256,13 +1320,19 @@ class StorageWorkspace:
             return
         self.refresh_button.disable()
         try:
+            def access_state(volume):
+                return tuple(volume.get(key) for key in ('id', 'identity_status', 'identity_error', 'availability', 'mounted')) if volume else None
+            previous = {v['id']: access_state(v) for v in self.volumes}
             data = await self.request('GET', '/api/storage/volumes', params={'refresh': force}, timeout=45)
             self.volumes = data['volumes']
             self.render_volumes()
             await self.copies.refresh()
             for pane in self.panes:
                 pane.update_header()
-                if pane.volume_id:
+                # Capacity and metadata polling must not replace thousands of
+                # tree elements, their focus, or their scroll positions.
+                if pane.volume_id and (force or (not self.is_photos(pane.volume_id)
+                                                 and previous.get(pane.volume_id) != access_state(pane.volume))):
                     pane.render()
             self.update_scopes()
             if data.get('error'):
@@ -1312,6 +1382,7 @@ class StorageWorkspace:
             saved = None
             restore_failed = True
         await self.refresh_volumes()
+        await self.photo_libraries.refresh()
         restored = False
         if saved and not source and not job:
             try:
@@ -1326,7 +1397,7 @@ class StorageWorkspace:
         active = [v for v in self.volumes if not archived(v) and v.get('identity_status') != 'unverified']
         candidates = active or self.volumes
         if candidates and not restored:
-            requested = next((v for v in self.volumes if v['id'] == source), None)
+            requested = self.resolve_volume(source)
             left = requested or next((v for v in candidates if v.get('marker_id') and v.get('mounted')), candidates[0])
             right = next((v for v in candidates if v['id'] != left['id']), left)
             try:
@@ -1337,6 +1408,8 @@ class StorageWorkspace:
             await self.panes[0].show_volume(left['id'], initial_path, activate=False)
             if not self.pair.active:
                 await self.panes[1].show_volume(right['id'], activate=False)
+        elif not restored and self.resolve_volume(source):
+            await self.panes[0].show_volume(source, relative_path(path), activate=False)
         elif not restored:
             for pane in self.panes:
                 pane.render()
@@ -1347,12 +1420,16 @@ class StorageWorkspace:
             self.set_active(0)
         self.state_ready = not restore_failed
         self.persist_workspace()
-        ui.timer(30, self.refresh_volumes)
+        ui.timer(30, lambda: self.poll_connected(self.refresh_volumes))
         await self.photo_libraries.refresh()
-        ui.timer(3, self.photo_libraries.refresh)
-        ui.timer(3, self.poll)
-        ui.timer(1.5, self.poll_directory_sizes)
+        ui.timer(3, lambda: self.poll_connected(self.photo_libraries.refresh))
+        ui.timer(3, lambda: self.poll_connected(self.poll))
+        ui.timer(1.5, lambda: self.poll_connected(self.poll_directory_sizes))
         ui.timer(1, self.persist_workspace)
+
+    async def poll_connected(self, callback):
+        if not self.client.is_deleted and self.client.has_socket_connection:
+            await callback()
 
     async def refresh_history(self):
         try:
@@ -1800,7 +1877,7 @@ class StorageWorkspace:
 
 
 def register_workspace_page(request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
-    @ui.page('/')
+    @ui.page('/', reconnect_timeout=120)
     async def workspace_page(source: str = '', path: str = '', job: str = ''):
         workspace = StorageWorkspace(request, format_bytes, format_date, core_url() if callable(core_url) else core_url)
         await workspace.load(source, path, job)
