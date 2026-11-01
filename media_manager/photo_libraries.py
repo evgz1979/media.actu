@@ -27,6 +27,7 @@ class PhotoLibraries:
         self.connection = dict(state='unknown')
         self.polling = False
         self.originals = None
+        self.schedule = None
         self._migrate()
 
     def _migrate(self):
@@ -147,6 +148,8 @@ class PhotoLibraries:
 
     def scan(self, source_id):
         with self._lock:
+            if self.schedule and self.schedule.blocked(source_id):
+                raise PhotosLibraryUnavailable('Синхронизация разрешена только ночью: ' + self.schedule.describe(source_id)['window'])
             profile = self._require_active(source_id)
             assets = self.adapter.scan(profile['anchors'])
             self.catalog.replace_photos_scan(source_id, assets)
@@ -160,6 +163,8 @@ class PhotoLibraries:
 
     def create_thumbnail(self, source_id, asset_identifier, target):
         with self._lock:
+            if self.schedule and self.schedule.blocked(source_id):
+                raise PhotosLibraryUnavailable('Превью ожидают ночного окна')
             profile = self._require_active(source_id)
             try:
                 return self.adapter.create_thumbnail(asset_identifier, target, anchors=profile['anchors'])
@@ -200,7 +205,8 @@ class PhotoLibraries:
                                    originals=self.originals.summary(link['id']) if self.originals else None))
             result.append(dict(source, library_id=profile['library_id'], active=bool(profile['active']),
                                paused=bool(profile['paused']), connection_state=profile['state'],
-                               connection_error=profile['error'], waiting=waits.get(source['id'], 0), copies=copies))
+                               connection_error=profile['error'], waiting=waits.get(source['id'], 0), copies=copies,
+                               sync_schedule=self.schedule.describe(source['id']) if self.schedule else None))
         return dict(libraries=result, connection=self.connection)
 
     def bind_copy(self, source_id, volume_id, path):

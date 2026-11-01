@@ -48,6 +48,8 @@ class PhotosOriginals:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread = None
+        self.schedule = None
+        self._source_id = None
         self._progress_at = self._validate_at = 0
         with self.catalog._write_lock, self._db() as db:
             db.executescript('''
@@ -99,14 +101,16 @@ class PhotosOriginals:
             raise PhotosLibraryUnavailable('Папка копии отвязана')
         return dict(row)
 
-    def summary(self, link_id):
+    def summary(self, link_id, *, raw=False):
         with self._db() as db:
             row = db.execute('SELECT * FROM photos_original_jobs WHERE link_id=? ORDER BY updated_at DESC LIMIT 1', (link_id,)).fetchone()
         if not row:
-            return dict(state='idle', done_assets=0, total_assets=0, message='Сохранение ещё не запускалось')
+            result = dict(state='idle', done_assets=0, total_assets=0, message='Сохранение ещё не запускалось')
+            return self.schedule.decorate(link_id, result) if self.schedule and not raw else result
         with self._db() as db:
             incomplete = db.execute("SELECT COUNT(*) FROM photos_original_staging s JOIN photos_original_jobs j ON j.id=s.job_id WHERE j.link_id=? AND json_extract(s.data,'$.final')=1", (link_id,)).fetchone()[0]
-        return dict(json.loads(row['data']), id=row['id'], state=row['state'], updated_at=row['updated_at'], incomplete_files=incomplete)
+        result = dict(json.loads(row['data']), id=row['id'], state=row['state'], updated_at=row['updated_at'], incomplete_files=incomplete)
+        return self.schedule.decorate(link_id, result) if self.schedule and not raw else result
 
     def journal(self, link_id, source_id=None):
         self._link(link_id, source_id)
@@ -132,17 +136,24 @@ class PhotosOriginals:
             raise PhotosLibraryUnavailable('Том копии отключён. Подключи его и продолжи сохранение.')
         return volume
 
-    def start(self, link_id, source_id=None, *, background=True):
+    def start(self, link_id, source_id=None, *, background=True, _scheduled=False):
+        if self.schedule and not _scheduled:
+            link = self._link(link_id, source_id)
+            if self.schedule.settings(link['source_id'])['night_only'] or self.schedule.manages(link_id):
+                return self.schedule.request(link_id, source_id)
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise ValueError('Сначала приостанови текущее сохранение оригиналов')
             link = self._link(link_id, source_id)
+            self._source_id = link['source_id']
+            if self.schedule and self.schedule.blocked(self._source_id):
+                raise PhotosLibraryUnavailable('Сохранение ожидает ночного окна')
             self.libraries._require_active(link['source_id'])
             volume = self._volume(link)
             with open_readonly(volume, link['path'], directory=True) as fd:
                 root = object_id(os.fstat(fd))
-            previous = self.summary(link_id)
-            if previous['state'] in {'paused', 'waiting', 'failed', 'completed_with_errors'}:
+            previous = self.summary(link_id, raw=True)
+            if previous['state'] in {'paused', 'waiting', 'failed', 'completed_with_errors'} or (_scheduled and previous['state'] == 'completed'):
                 job = previous['id']
                 if previous['root'] != root:
                     raise ValueError('Привязанная папка была заменена. Проверь привязку перед сохранением.')
@@ -164,9 +175,11 @@ class PhotosOriginals:
             self.run(job, link)
         return self.summary(link_id)
 
-    def pause(self, link_id, source_id=None):
+    def pause(self, link_id, source_id=None, *, _scheduled=False):
         with self._lock:
             self._link(link_id, source_id)
+            if self.schedule and not _scheduled:
+                self.schedule.cancel(link_id)
             job = self.summary(link_id)
             if job['state'] in ACTIVE:
                 self._stop.set()
@@ -181,8 +194,12 @@ class PhotosOriginals:
         # its operation lock while an unavailable network disk is unwinding.
 
     def _check(self):
-        if self._stop.is_set():
+        if self._stopped():
             raise PhotosTransferStopped('Сохранение приостановлено')
+
+    def _stopped(self):
+        return self._stop.is_set() or bool(self.schedule and self._source_id is not None
+                                          and self.schedule.blocked(self._source_id))
 
     def _validate(self, job, link, volume, *, force=False):
         self._check()
@@ -215,6 +232,7 @@ class PhotosOriginals:
         digest = hashlib.sha256()
         os.lseek(fd, 0, os.SEEK_SET)
         while chunk := os.read(fd, 1024 * 1024):
+            self._check()
             check()
             digest.update(chunk)
         if fingerprint(os.fstat(fd)) != before:
@@ -349,6 +367,7 @@ class PhotosOriginals:
                     source = os.open(temporary, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
                     try:
                         while chunk := os.read(source, 1024 * 1024):
+                            self._check()
                             self._write(target, chunk)
                         os.fsync(target)
                     finally:
@@ -401,7 +420,7 @@ class PhotosOriginals:
                 self._progress(job, current_bytes=count)
             try:
                 trailer = self.adapter.stream_original(asset, resource, version, profile['anchors'], write,
-                    lambda fraction: self._progress(job, fraction=fraction, current_bytes=count), self._stop.is_set)
+                    lambda fraction: self._progress(job, fraction=fraction, current_bytes=count), self._stopped)
                 if trailer.get('size') != count or trailer.get('sha256') != digest.hexdigest() or count == 0:
                     raise PhotosAdapterError('Размер или SHA-256 переданного оригинала не совпал')
                 os.fsync(fd)
@@ -469,7 +488,7 @@ class PhotosOriginals:
                         db.execute('INSERT INTO photos_original_resources(job_id,asset,resource,data) VALUES (?,?,?,?)', (job, asset['id'], resource['id'], encoded(item)))
                 received += 1
                 self._progress(job, total_assets=received)
-            self.adapter.original_manifest(profile['anchors'], asset_received, self._stop.is_set)
+            self.adapter.original_manifest(profile['anchors'], asset_received, self._stopped)
             counters = self._counts(job)
             self._update(job, **counters)
             self._inventory(job, link, volume)

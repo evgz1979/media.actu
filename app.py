@@ -38,6 +38,7 @@ from media_manager.storage_previews import StoragePreviewService
 from media_manager.photo_libraries import PhotoLibraries
 from media_manager.photos_browser import PhotosBrowser
 from media_manager.photos_originals import PhotosOriginals
+from media_manager.photos_schedule import PhotosSyncSchedule
 
 
 ROOT = Path(__file__).parent
@@ -70,6 +71,7 @@ photos_browser = PhotosBrowser(photo_libraries)
 photos_originals_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
 photos_originals = PhotosOriginals(photo_libraries, photos_originals_adapter)
 photo_libraries.originals = photos_originals
+photos_schedule = PhotosSyncSchedule(photo_libraries, photos_originals)
 thumbnails = ThumbnailService(catalog, local_thumbnail_cache_directory(), photos_adapter, photo_libraries)
 storage_previews = StoragePreviewService(storage, local_thumbnail_cache_directory())
 thumbnail_workers = ThumbnailWorkerPool(catalog, thumbnails)
@@ -138,6 +140,7 @@ async def lifespan(_: FastAPI):
         if source_path.is_dir():
             watcher.watch(int(source["id"]), source_path)
             schedule_scan(int(source["id"]))
+    photos_schedule.start()
     thumbnail_workers.start()
     async def monitor_libraries():
         while True:
@@ -152,6 +155,7 @@ async def lifespan(_: FastAPI):
     folder_tracking.close()
     folder_markers.close()
     directory_sizes.close()
+    photos_schedule.close()
     photos_originals.close()
     missing_copies.close()
     paired_comparison.close()
@@ -800,9 +804,9 @@ async def authorize_system_photos() -> dict[str, object]:
     return {'status': status}
 
 
-async def library_call(method, *args):
+async def library_call(method, *args, **kwargs):
     try:
-        return await asyncio.to_thread(method, *args)
+        return await asyncio.to_thread(method, *args, **kwargs)
     except PhotosAccessDenied as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except PhotosLibraryUnavailable as error:
@@ -822,6 +826,21 @@ class LibraryCopyRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     volume_id: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=4096)
+
+
+class PhotosSyncScheduleRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    night_only: bool = Field(strict=True)
+    start_hour: int = Field(default=0, ge=0, le=23, strict=True)
+    end_hour: int = Field(default=7, ge=0, le=23, strict=True)
+    timezone: Literal['Europe/Moscow'] = 'Europe/Moscow'
+
+
+@app.patch('/api/photos/libraries/{source_id}/sync-schedule')
+async def set_photos_sync_schedule(source_id: int, request: PhotosSyncScheduleRequest) -> dict:
+    await library_call(photos_schedule.configure, source_id, **request.model_dump())
+    thumbnail_workers.wake()
+    return await list_photo_libraries()
 
 
 @app.get('/api/photos/libraries')

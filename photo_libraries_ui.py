@@ -45,6 +45,11 @@ def originals_state(copy):
     return job.get('message', 'Сохранение ещё не запускалось')
 
 
+def schedule_text(library):
+    schedule = library.get('sync_schedule') or {}
+    return 'Только ночью · ' + schedule.get('window', '00:00–07:00 МСК') if schedule.get('night_only') else ''
+
+
 def library_state(library):
     state = library.get('connection_state')
     if state == 'no_access':
@@ -53,6 +58,8 @@ def library_state(library):
         return 'Не подключена · сохранённый каталог'
     if library.get('paused'):
         return 'Пауза'
+    if (library.get('sync_schedule') or {}).get('blocked'):
+        return 'Синхронизация ожидает ночного окна'
     if library.get('status') == 'scanning':
         return 'Обновляю каталог…'
     waiting = int(library.get('waiting') or 0)
@@ -128,7 +135,8 @@ class PhotoLibrariesUI:
                 self.note.text = connection.get('error') or 'Оригиналы → привязанные копии'
                 self.section.text = f'Медиатеки · {len(self.libraries)}'
                 signature = tuple((s['id'], s.get('label'), s['active'], s['paused'], s['connection_state'],
-                                   tuple((c['id'], c['volume_name'], c['path'], c['availability'], (c.get('originals') or {}).get('state')) for c in s.get('copies', [])))
+                                   tuple((s.get('sync_schedule') or {}).get(key) for key in ('night_only', 'start_hour', 'end_hour')),
+                                   tuple((c['id'], c['volume_name'], c['path'], c['availability'], (c.get('originals') or {}).get('state'), (c.get('originals') or {}).get('scheduled')) for c in s.get('copies', [])))
                                   for s in self.libraries)
                 if signature != self.signature and not self.ws.context_menu_open:
                     self.signature = signature
@@ -145,6 +153,8 @@ class PhotoLibrariesUI:
                         total = library.get('thumbnail_total') or 0
                         row['bar'].value = min(1, library.get('thumbnail_done', 0) / total) if total else 0
                         row['state'].text = library_state(library)
+                        row['schedule'].text = schedule_text(library)
+                        row['schedule'].set_visibility(bool(schedule_text(library)))
                         for copy in library.get('copies', []):
                             refs = row.get('copies', {}).get(copy['id'])
                             if refs:
@@ -181,6 +191,18 @@ class PhotoLibrariesUI:
                             ui.menu_item('Переименовать', on_click=lambda s=library: self.rename(s))
                             ui.menu_item('Продолжить превью' if library['paused'] or not library['active'] else 'Пауза превью',
                                          on_click=lambda s=library: self.toggle(s))
+                            for copy in library.get('copies', []):
+                                job = copy.get('originals') or {}
+                                running = job.get('state') in ('manifest', 'inventory', 'saving', 'pausing') or job.get('scheduled', False)
+                                ui.menu_item(('Пауза оригиналов' if running else 'Продолжить оригиналы') + f" · {copy['number']:02d}-copy",
+                                    on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
+                            night_only = bool((library.get('sync_schedule') or {}).get('night_only'))
+                            with ui.menu_item(on_click=lambda s=library: self.toggle_schedule(s)).props(
+                                'role=menuitemcheckbox aria-checked=' + str(night_only).lower()):
+                                with ui.item_section().props('side'):
+                                    ui.icon('check_box' if night_only else 'check_box_outline_blank', size='18px')
+                                ui.item_section('Синхронизация только ночью')
+                            ui.menu_item('Часы ночной синхронизации…', on_click=lambda s=library: self.schedule_dialog(s))
                             scan = ui.menu_item('Обновить каталог', on_click=lambda sid=source_id: self.scan(sid))
                             scan.set_enabled(bool(library['active']))
                             ui.separator()
@@ -189,7 +211,9 @@ class PhotoLibrariesUI:
                         progress = ui.label(progress_text(library)).classes('library-progress')
                         bar = ui.linear_progress(value=0, show_value=False).props('color=green-7').classes('library-progress-bar')
                         state = ui.label(library_state(library)).classes('library-progress')
-                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state, copies={})
+                        schedule = ui.label(schedule_text(library)).classes('library-progress')
+                        schedule.set_visibility(bool(schedule_text(library)))
+                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state, schedule=schedule, copies={})
                         for copy in library.get('copies', []):
                             refs = dict(progress=ui.label(originals_text(copy)).classes('library-progress'))
                             refs['bar'] = ui.linear_progress(value=0, show_value=False).props('color=blue-7').classes('library-progress-bar')
@@ -203,7 +227,7 @@ class PhotoLibrariesUI:
                             lambda c=copy: self.ws.open_volume(c['volume_id'], 1, path=c['path']), js_handler='(event) => { event.preventDefault(); emit(); }'):
                             with self.menu():
                                 job_state = (copy.get('originals') or {}).get('state', 'idle')
-                                running = job_state in ('manifest', 'inventory', 'saving', 'pausing')
+                                running = job_state in ('manifest', 'inventory', 'saving', 'pausing') or (copy.get('originals') or {}).get('scheduled', False)
                                 ui.menu_item('Пауза сохранения' if running else ('Сохранить оригиналы' if job_state == 'idle' else 'Продолжить / проверить оригиналы'),
                                              on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
                                 ui.menu_item('Журнал сохранения', on_click=lambda sid=source_id, c=copy: self.originals_journal(sid, c))
@@ -232,6 +256,28 @@ class PhotoLibrariesUI:
     async def toggle(self, library):
         action = 'resume' if library['paused'] or not library['active'] else 'pause'
         await self.action('POST', f"/api/photos/libraries/{library['id']}/{action}")
+
+    async def toggle_schedule(self, library):
+        settings = library.get('sync_schedule') or {}
+        await self.action('PATCH', f"/api/photos/libraries/{library['id']}/sync-schedule", json={
+            'night_only': not settings.get('night_only', False),
+            'start_hour': settings.get('start_hour', 0), 'end_hour': settings.get('end_hour', 7)})
+
+    async def schedule_dialog(self, library):
+        settings = library.get('sync_schedule') or {}
+        with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
+            ui.label('Ночная синхронизация').classes('text-lg font-semibold')
+            enabled = ui.checkbox('Синхронизировать только ночью', value=bool(settings.get('night_only')))
+            hours = {hour: f'{hour:02d}:00' for hour in range(24)}
+            start = ui.select(hours, value=settings.get('start_hour', 0), label='Начало').props('outlined dense').classes('w-full')
+            end = ui.select(hours, value=settings.get('end_hour', 7), label='Окончание').props('outlined dense').classes('w-full')
+            ui.label('Время московское. Вне окна оригиналы и фоновые превью ждут. Ручная пауза сохраняется. M4 должен работать.').classes('s-note')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
+                ui.button('Сохранить', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
+        if await dialog:
+            await self.action('PATCH', f"/api/photos/libraries/{library['id']}/sync-schedule", json={
+                'night_only': enabled.value, 'start_hour': start.value, 'end_hour': end.value})
 
     async def scan(self, source_id):
         await self.action('POST', f'/api/sources/{source_id}/scan', timeout=650)

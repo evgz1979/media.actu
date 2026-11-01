@@ -528,7 +528,7 @@ class Catalog:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
-                SELECT thumbnail_jobs.media_id
+                SELECT thumbnail_jobs.media_id,media_files.source_id
                 FROM thumbnail_jobs
                 JOIN media_files ON media_files.id = thumbnail_jobs.media_id
                 JOIN sources ON sources.id = media_files.source_id
@@ -547,6 +547,9 @@ class Catalog:
                 (source_kind,),
             ).fetchone()
             if row is None:
+                return None
+            schedule = getattr(self, 'photos_schedule', None)
+            if source_kind == 'photos' and schedule and schedule.blocked(row['source_id']):
                 return None
             media_id = int(row["media_id"])
             connection.execute(
@@ -569,7 +572,9 @@ class Catalog:
 
     def photos_queue_paused(self) -> bool:
         with self.connect() as db:
-            return db.execute("SELECT 1 FROM photos_libraries WHERE active=1 AND paused=0 AND state='ready'").fetchone() is None
+            row = db.execute("SELECT source_id FROM photos_libraries WHERE active=1 AND paused=0 AND state='ready'").fetchone()
+        schedule = getattr(self, 'photos_schedule', None)
+        return row is None or bool(schedule and schedule.blocked(row['source_id']))
 
     def finish_thumbnail_job(
         self, media_id: int, *, error: str | None = None
