@@ -15,6 +15,7 @@
 - [ADR: режим только чтения](adr/0002-read-only-first-version.md)
 - [ADR: M4 и отдельный порт Core](adr/0003-m4-runtime-and-ports.md)
 - [ADR: медиатеки Photos и прямое хранение оригиналов в копиях](adr/0005-photos-libraries.md)
+- [ADR: продолжение сохранения Photos по метаданным](adr/0006-photos-metadata-resume.md)
 
 ## Правила версионирования
 

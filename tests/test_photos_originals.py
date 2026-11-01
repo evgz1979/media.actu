@@ -1,5 +1,4 @@
 import errno
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +20,7 @@ class StreamingPhotos:
                         ('b', '1:0'): b'other photo' * 200}
         self.requests = []
         self.before_write = lambda: None
-        self.bad_hash = False
+        self.bad_size = False
         self.version = 'v1'
     def probe(self, identifiers=(), **kwargs):
         return dict(sample=['a', 'b', 'c'], matched=list(identifiers), count=2)
@@ -38,7 +37,7 @@ class StreamingPhotos:
             if stopped():
                 raise PhotosTransferStopped()
             write(data[i:i+31])
-        return dict(size=len(data), sha256='bad' if self.bad_hash else hashlib.sha256(data).hexdigest())
+        return dict(size=len(data) + int(self.bad_size))
     def close(self):
         pass
 
@@ -79,14 +78,18 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual(len(self.receipts()), 3)
         for receipt in self.receipts():
             data = (self.copy / receipt['path']).read_bytes()
-            self.assertEqual(hashlib.sha256(data).hexdigest(), receipt['sha256'])
+            self.assertEqual(data, self.adapter.content[(receipt['asset_identifier'], receipt['resource_id'])])
+            self.assertEqual(receipt['size'], len(data))
+            self.assertEqual(receipt['sha256'], '')  # legacy column is unused
         self.assertEqual(list(self.copy.rglob('*.part')), [])
         with self.catalog.connect() as db:
             for table in ('photos_copy_files', 'photos_original_resources', 'photos_original_jobs'):
                 self.assertNotIn('BLOB', [r['type'] for r in db.execute('PRAGMA table_info(' + table + ')')])
 
-    def test_adopts_manual_copy_under_another_name_and_preserves_name_collision(self):
-        (self.copy / 'my renamed photo.jpg').write_bytes(self.adapter.content[('a', '1:0')])
+    def test_adopts_manual_copy_by_name_size_and_metadata_and_preserves_name_collision(self):
+        manual = self.copy / 'manual/IMG_1.JPG'
+        manual.parent.mkdir()
+        manual.write_bytes(self.adapter.content[('a', '1:0')])
         target = self.copy / '2020/2020-02/IMG_2.JPG'
         target.parent.mkdir(parents=True)
         target.write_bytes(b'Unrelated user file')
@@ -94,13 +97,14 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual((result['reused'], result['saved']), (1, 2), result)
         self.assertEqual(target.read_bytes(), b'Unrelated user file')
         photo = next(r for r in self.receipts() if r['asset_identifier'] == 'a' and r['resource_id'] == '1:0')
-        self.assertEqual(photo['path'], 'my renamed photo.jpg')
+        self.assertEqual(photo['path'], 'manual/IMG_1.JPG')
         self.assertFalse((self.copy / '2020/2020-02/IMG_1.JPG').exists())
 
-    def test_second_run_reuses_verified_receipts_without_network(self):
-        self.run_copy()
-        self.adapter.requests.clear()
-        result = self.run_copy()
+    def test_first_and_second_runs_never_read_media_for_verification(self):
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            self.run_copy()
+            self.adapter.requests.clear()
+            result = self.run_copy()
         self.assertEqual(result['done_assets'], 2)
         self.assertEqual(result['reused'], 3)
         self.assertEqual(self.adapter.requests, [])
@@ -115,8 +119,8 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b'user replacement')
         self.assertEqual(self.adapter.requests, [('a', '1:0')])
 
-    def test_hash_mismatch_never_creates_receipts_or_completed_assets(self):
-        self.adapter.bad_hash = True
+    def test_stream_size_mismatch_never_creates_receipts_or_completed_assets(self):
+        self.adapter.bad_size = True
         result = self.run_copy()
         self.assertEqual(result['state'], 'completed_with_errors')
         self.assertEqual(result['done_assets'], 0)
@@ -167,7 +171,7 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual(result['done_resources'], 0)
         self.assertEqual(list(outside.iterdir()), [])
 
-    def test_smb_without_exclusive_rename_uses_exclusive_creation_and_verifies(self):
+    def test_smb_without_exclusive_rename_uses_exclusive_creation(self):
         with patch('media_manager.photos_originals.publish_exclusive', side_effect=OSError(errno.ENOTSUP, 'SMB')):
             result = self.run_copy()
         self.assertEqual(result['state'], 'completed', result)
@@ -238,16 +242,117 @@ class PhotosOriginalsTests(unittest.TestCase):
         self.assertEqual(result['state'], 'completed', result)
         self.assertEqual((self.copy / '2020/2020-02/IMG_1.JPG').read_bytes(), b'appeared concurrently')
 
-    def test_readback_failure_never_creates_a_verified_receipt(self):
-        original_hash = self.service._hash
-        def wrong(fd, check=lambda: None):
-            sha, fp = original_hash(fd, check)
-            return '0' * 64, fp
-        with patch.object(self.service, '_hash', side_effect=wrong):
+    def test_changed_staging_size_never_creates_a_receipt(self):
+        stream = self.adapter.stream_original
+        def truncate(*args, **kwargs):
+            result = stream(*args, **kwargs)
+            for path in self.copy.rglob('*.part'):
+                with path.open('r+b') as file:
+                    file.truncate(1)
+            return result
+        with patch.object(self.adapter, 'stream_original', side_effect=truncate):
             result = self.run_copy()
         self.assertEqual(result['done_resources'], 0)
         self.assertEqual(self.receipts(), [])
         self.assertEqual(list(self.copy.rglob('*.part')), [])
+
+    def test_resume_keeps_progress_during_inventory_and_partial_manifest(self):
+        self.run_copy()
+        self.adapter.requests.clear()
+        read_manifest = self.adapter.original_manifest
+        observations = []
+        def interrupted(anchors, receive, stopped):
+            def one_asset(asset):
+                observations.append(self.service.summary(self.link['id']))
+                receive(asset)
+                raise PhotosTransferStopped()
+            return read_manifest(anchors, one_asset, stopped)
+        with patch.object(self.adapter, 'original_manifest', side_effect=interrupted), \
+             patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            result = self.run_copy()
+        self.assertEqual(result['state'], 'paused', result)
+        self.assertEqual(result['done_assets'], 2)
+        self.assertEqual(result['total_assets'], 2)
+        self.assertEqual(observations[0]['done_assets'], 2)
+        self.assertEqual(observations[0]['total_assets'], 2)
+        self.assertEqual(self.adapter.requests, [])
+        self.assertEqual(self.run_copy()['done_resources'], 3)
+
+    def test_legacy_reset_manifest_recovers_all_receipts_before_resume(self):
+        self.run_copy()
+        job = self.service.summary(self.link['id'])
+        with self.catalog.connect() as db:
+            db.execute("UPDATE photos_original_resources SET state='pending'")
+        self.service._update(job['id'], state='paused', done_assets=0, done_resources=0)
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            reopened = PhotosOriginals(self.libraries, self.adapter)
+            result = reopened.summary(self.link['id'])
+        self.assertEqual(result['done_assets'], 2)
+        self.assertEqual(result['done_resources'], 3)
+
+    def test_changed_mtime_even_at_same_size_is_saved_to_a_free_name(self):
+        self.run_copy()
+        target = self.copy / '2020/2020-02/IMG_1.JPG'
+        before = target.stat()
+        target.write_bytes(b'x' * before.st_size)
+        os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+        self.adapter.requests.clear()
+        self.assertEqual(self.run_copy()['state'], 'completed')
+        self.assertEqual(self.adapter.requests, [('a', '1:0')])
+        self.assertEqual(target.read_bytes(), b'x' * before.st_size)
+
+    def test_missing_receipt_file_is_downloaded_again_without_rereading_other_files(self):
+        self.run_copy()
+        (self.copy / '2020/2020-02/IMG_1.JPG').unlink()
+        self.adapter.requests.clear()
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            result = self.run_copy()
+        self.assertEqual(result['state'], 'completed', result)
+        self.assertEqual(self.adapter.requests, [('a', '1:0')])
+
+    def test_changed_photos_version_does_not_reuse_an_old_receipt_or_overwrite_it(self):
+        self.run_copy()
+        self.adapter.version = 'v2'
+        self.adapter.requests.clear()
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            result = self.run_copy()
+        self.assertEqual(result['saved'], 3)
+        self.assertEqual(len(self.adapter.requests), 3)
+        self.assertEqual(len(list(self.copy.rglob('*.JPG'))), 4)
+
+    def test_metadata_preserving_changes_are_not_read_or_content_compared(self):
+        self.run_copy()
+        target = self.copy / '2020/2020-02/IMG_1.JPG'
+        before = target.stat()
+        target.write_bytes(b'x' * before.st_size)
+        os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.adapter.requests.clear()
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            self.assertEqual(self.run_copy()['done_assets'], 2)
+        self.assertEqual(self.adapter.requests, [])
+
+    def test_ambiguous_manual_names_are_not_adopted(self):
+        for directory in ('first', 'second'):
+            path = self.copy / directory / 'IMG_1.JPG'
+            path.parent.mkdir()
+            path.write_bytes(self.adapter.content[('a', '1:0')])
+        with patch('media_manager.photos_originals.os.read', side_effect=AssertionError('No media readback')):
+            result = self.run_copy()
+        self.assertEqual(result['saved'], 3, result)
+        self.assertEqual(result['reused'], 0)
+
+    def test_manual_file_changed_after_inventory_is_not_adopted(self):
+        manual = self.copy / 'IMG_1.JPG'
+        manual.write_bytes(self.adapter.content[('a', '1:0')])
+        def change():
+            if len(self.adapter.requests) == 1:
+                before = manual.stat()
+                os.utime(manual, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+        self.adapter.before_write = change
+        result = self.run_copy()
+        photo = next(r for r in self.receipts() if r['asset_identifier'] == 'a' and r['resource_id'] == '1:0')
+        self.assertNotEqual(photo['path'], 'IMG_1.JPG')
+        self.assertEqual(result['saved'], 3, result)
 
     def test_unknown_staging_file_is_never_deleted(self):
         unknown = self.copy / ('.media-actu-copy-' + 'a'*32 + '-' + 'b'*32 + '.part')

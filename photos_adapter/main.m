@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
-#import <CommonCrypto/CommonDigest.h>
 
 static NSString *statusName(PHAuthorizationStatus status) {
     switch (status) {
@@ -345,7 +344,6 @@ static void originalRequest(NSDictionary *request, LibraryState *state, FILE *in
             writeJSON(@{ @"event": @"progress", @"fraction": @(fraction) }, output);
         }
     };
-    __block CC_SHA256_CTX hash; CC_SHA256_Init(&hash);
     __block unsigned long long size = 0;
     __block BOOL broken = NO;
     __block NSError *failure = nil;
@@ -355,7 +353,7 @@ static void originalRequest(NSDictionary *request, LibraryState *state, FILE *in
         dataReceivedHandler:^(NSData *data) {
             for (NSUInteger offset = 0; offset < data.length && !broken; offset += 256 * 1024) {
                 NSData *chunk = [data subdataWithRange:NSMakeRange(offset, MIN(256 * 1024, data.length - offset))];
-                CC_SHA256_Update(&hash, chunk.bytes, (CC_LONG)chunk.length); size += chunk.length;
+                size += chunk.length;
                 if (!writeJSON(@{ @"event": @"chunk", @"data": [chunk base64EncodedStringWithOptions:0] }, output)) broken = YES;
             }
         } completionHandler:^(NSError *error) { failure = error; dispatch_semaphore_signal(finished); }];
@@ -371,10 +369,7 @@ static void originalRequest(NSDictionary *request, LibraryState *state, FILE *in
     if (!current || ![assetVersion(current) isEqual:request[@"version"]] || state.unavailable) {
         writeJSON(@{ @"error": @"Объект Photos изменился во время передачи" }, output); return;
     }
-    unsigned char digest[CC_SHA256_DIGEST_LENGTH]; CC_SHA256_Final(digest, &hash);
-    NSMutableString *hex = [NSMutableString string];
-    for (NSUInteger i = 0; i < sizeof(digest); i++) [hex appendFormat:@"%02x", digest[i]];
-    writeJSON(@{ @"event": @"complete", @"size": @(size), @"sha256": hex }, output);
+    writeJSON(@{ @"event": @"complete", @"size": @(size) }, output);
 }
 
 static int serve(FILE *input, FILE *output) {

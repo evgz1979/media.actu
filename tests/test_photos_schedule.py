@@ -91,7 +91,7 @@ class PhotosScheduleTests(unittest.TestCase):
         self.schedule.tick()
         self.assertEqual(self.service.summary(self.link['id'], raw=True)['id'], job)
         self.assertEqual(len(self.adapter.requests), 3)
-        # The next night performs a new sync, reusing verified receipts.
+        # The next night reads the manifest and reuses receipts by metadata.
         self.instant = datetime.fromisoformat('2026-11-03T00:00:00+03:00')
         self.schedule.tick()
         self.wait_worker()
