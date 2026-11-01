@@ -165,12 +165,12 @@ class PhotoLibrariesUI:
                             ui.menu_item('Привязать папку для копий оригиналов', on_click=lambda s=library: self.bind(s))
                         ui.label(library.get('label') or 'Photos').classes('library-name')
                         progress = ui.label(progress_text(library)).classes('library-progress')
-                        bar = ui.linear_progress(value=0).props('color=green-7').classes('library-progress-bar')
+                        bar = ui.linear_progress(value=0, show_value=False).props('color=green-7').classes('library-progress-bar')
                         state = ui.label(library_state(library)).classes('library-progress')
                         self.rows[source_id] = dict(progress=progress, bar=bar, state=state, copies={})
                         for copy in library.get('copies', []):
                             refs = dict(progress=ui.label(originals_text(copy)).classes('library-progress'))
-                            refs['bar'] = ui.linear_progress(value=0).props('color=blue-7').classes('library-progress-bar')
+                            refs['bar'] = ui.linear_progress(value=0, show_value=False).props('color=blue-7').classes('library-progress-bar')
                             refs['state'] = ui.label(originals_state(copy)).classes('library-progress')
                             self.rows[source_id]['copies'][copy['id']] = refs
                         if library.get('copies'):
