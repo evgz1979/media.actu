@@ -5,6 +5,15 @@ from media_manager.storage import relative_path
 
 
 STORAGE_KEY = 'media-actu.workspace.v1'
+SIDEBAR_STORAGE_KEY = 'media-actu.sidebar.v1'
+SIDEBAR_DEFAULTS = dict(volumes=False, volume_archive=False, libraries=True,
+                        copy_groups=True, copy_archive=False)
+
+
+def normalize_sidebar(value):
+    value = value if isinstance(value, dict) else {}
+    return {key: value[key] if isinstance(value.get(key), bool) else default
+            for key, default in SIDEBAR_DEFAULTS.items()}
 
 
 def identifier(value):

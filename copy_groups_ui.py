@@ -29,16 +29,15 @@ class CopyGroupsUI:
     def __init__(self, workspace):
         self.workspace = workspace
         self.groups = []
-        self.loaded = False
         self.controls = None
         self.control_signature = None
         self.kind_context = None
         self.kind = 'copy'
 
     def build_sidebar(self):
-        with ui.expansion('Основные папки · 0', icon='folder_copy', value=True).props('dense').classes('copy-section w-full') as self.section:
+        with self.workspace.sidebar_expansion('copy_groups', 'Основные папки · 0', icon='folder_copy').props('dense').classes('copy-section w-full') as self.section:
             self.list = ui.column().classes('copy-group-list w-full gap-0')
-            with ui.expansion('Отключённые · 0', icon='link_off', value=False).props('dense').classes('s-volume-archive w-full') as self.disconnected:
+            with self.workspace.sidebar_expansion('copy_archive', 'Отключённые · 0', icon='link_off').props('dense').classes('s-volume-archive w-full') as self.disconnected:
                 self.disconnected_list = ui.column().classes('copy-group-list w-full gap-0')
 
     def build_controls(self):
@@ -66,9 +65,6 @@ class CopyGroupsUI:
 
     async def refresh(self):
         self.groups = (await self.workspace.request('GET', '/api/storage/copy-groups', timeout=30))['groups']
-        if not self.loaded and self.groups:
-            self.workspace.volumes_section.close()
-        self.loaded = True
         self.render_sidebar()
         self.render_controls()
 

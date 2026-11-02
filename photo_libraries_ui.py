@@ -109,7 +109,7 @@ class PhotoLibrariesUI:
 
     def build(self):
         ui.add_css(LIBRARY_CSS)
-        with ui.expansion('Медиатеки', icon='photo_library', value=True).props('dense').classes('copy-section w-full') as self.section:
+        with self.ws.sidebar_expansion('libraries', 'Медиатеки', icon='photo_library').props('dense').classes('copy-section w-full') as self.section:
             self.cards = ui.column().classes('library-list')
             self.note = ui.label().classes('library-note w-full')
             with ui.column().classes('library-actions w-full px-2 pb-2 gap-1'):

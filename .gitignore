@@ -17,6 +17,7 @@ launcher.json
 *.sqlite3
 /data/
 /thumbnails/
+.nicegui/
 
 # System and editor files
 .DS_Store

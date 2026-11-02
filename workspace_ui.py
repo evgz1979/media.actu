@@ -6,7 +6,7 @@ from itertools import count
 import json
 from pathlib import PurePosixPath
 
-from nicegui import background_tasks, ui
+from nicegui import app, background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
@@ -18,7 +18,7 @@ from paired_workspace_ui import PairedWorkspace
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
 from storage_preview_ui import PREVIEW_CSS, StoragePreview
 from photo_libraries_ui import PhotoLibrariesUI
-from workspace_state import STORAGE_KEY, normalize_state, pane_snapshot
+from workspace_state import SIDEBAR_STORAGE_KEY, STORAGE_KEY, normalize_sidebar, normalize_state, pane_snapshot
 
 
 STATUS_COLORS = {
@@ -986,6 +986,10 @@ class StorageWorkspace:
         self.current_matches = []
         self.state_ready = False
         self.state_payload = None
+        # Read browser-scoped server storage before creating any expansion.
+        # Restoring via JavaScript after connection would flash the default state.
+        self.sidebar_storage = app.storage.user
+        self.sidebar_state = normalize_sidebar(self.sidebar_storage.get(SIDEBAR_STORAGE_KEY))
         self.directory_sizes = {}
         self.size_requested = set()
         self.size_force = set()
@@ -1007,9 +1011,9 @@ class StorageWorkspace:
                 self.refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props('outline no-caps color=dark')
         with ui.element('div').classes('commander-layout') as self.layout:
             with ui.column().classes('s-panel commander-sidebar w-full gap-0'):
-                with ui.expansion('Тома', icon='storage', value=True).props('dense').classes('copy-section w-full') as self.volumes_section:
+                with self.sidebar_expansion('volumes', 'Тома', icon='storage').props('dense').classes('copy-section w-full') as self.volumes_section:
                     self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
-                    with ui.expansion('Отключённые', icon='link_off', value=False).props('dense').classes('s-volume-archive w-full') as self.archive:
+                    with self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off').props('dense').classes('s-volume-archive w-full') as self.archive:
                         self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
                     ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs px-3 py-2')
                 self.photo_libraries.build()
@@ -1023,6 +1027,16 @@ class StorageWorkspace:
             self.build_operations()
         self.set_active(0)
         self.render_progress()
+
+    def sidebar_expansion(self, key, text, *, icon):
+        def changed(event):
+            # Merge with the latest storage so another tab's preference survives.
+            state = normalize_sidebar(self.sidebar_storage.get(SIDEBAR_STORAGE_KEY))
+            state[key] = event.value
+            self.sidebar_state[key] = event.value
+            self.sidebar_storage[SIDEBAR_STORAGE_KEY] = state
+
+        return ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed)
 
     def build_operations(self):
         with ui.column().classes('s-panel workspace-operations w-full gap-0'):
