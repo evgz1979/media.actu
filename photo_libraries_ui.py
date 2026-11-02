@@ -27,7 +27,7 @@ def progress_text(library):
 
 def originals_text(copy):
     job = copy.get('originals') or {}
-    title = f"Сохранение оригиналов · {copy['number']:02d}-copy"
+    title = (f"Из {copy.get('source_label','копии')}" if copy.get('source_link_id') else 'Оригиналы из Photos') + f" · {copy['number']:02d}-copy"
     if job.get('state', 'idle') == 'idle':
         return title + ' · не запускалось'
     total, done = job.get('total_assets', 0), job.get('done_assets', 0)
@@ -41,7 +41,8 @@ def originals_state(copy):
         return f"Проверка файлов: {job.get('checked_files', 0):,}".replace(',', ' ')
     if state == 'saving':
         size = job.get('current_bytes', 0) / (1024 * 1024)
-        return f"{job.get('current_path', '')} · {size:.1f} МБ" + (f" · iCloud {job['fraction']:.0%}" if 0 < job.get('fraction', 0) < 1 else '')
+        origin = 'Из ' + job['current_source'] + ' · ' if job.get('current_source') and job['current_source']!='Photos' else ''
+        return origin + f"{job.get('current_path', '')} · {size:.1f} МБ" + (f" · iCloud {job['fraction']:.0%}" if 0 < job.get('fraction', 0) < 1 else '')
     return job.get('message', 'Сохранение ещё не запускалось')
 
 
@@ -136,7 +137,7 @@ class PhotoLibrariesUI:
                 self.section.text = f'Медиатеки · {len(self.libraries)}'
                 signature = tuple((s['id'], s.get('label'), s['active'], s['paused'], s['connection_state'],
                                    tuple((s.get('sync_schedule') or {}).get(key) for key in ('night_only', 'start_hour', 'end_hour')),
-                                   tuple((c['id'], c['volume_name'], c['path'], c['availability'], (c.get('originals') or {}).get('state'), (c.get('originals') or {}).get('scheduled')) for c in s.get('copies', [])))
+                                   tuple((c['id'], c['volume_name'], c['path'], c['number'],c.get('source_link_id'),c.get('source_label'), c['availability'], (c.get('originals') or {}).get('state'), (c.get('originals') or {}).get('scheduled')) for c in s.get('copies', [])))
                                   for s in self.libraries)
                 if signature != self.signature and not self.ws.context_menu_open:
                     self.signature = signature
@@ -231,6 +232,9 @@ class PhotoLibrariesUI:
                                 ui.menu_item('Пауза сохранения' if running else ('Сохранить оригиналы' if job_state == 'idle' else 'Продолжить / проверить оригиналы'),
                                              on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
                                 ui.menu_item('Журнал сохранения', on_click=lambda sid=source_id, c=copy: self.originals_journal(sid, c))
+                                ui.menu_item('Источник копирования…', on_click=lambda s=library,c=copy:self.copy_source_dialog(s,c))
+                                if copy['number'] != 1:
+                                    ui.menu_item('Сделать 01-copy', on_click=lambda sid=source_id,c=copy:self.action('POST',f"/api/photos/libraries/{sid}/copies/{c['id']}/make-first"))
                                 ui.separator()
                                 ui.menu_item('Отвязать копию', on_click=lambda sid=source_id, c=copy: self.unbind(sid, c))
 
@@ -327,6 +331,22 @@ class PhotoLibrariesUI:
     async def originals_action(self, source_id, copy, running):
         action = 'pause' if running else 'start'
         await self.action('POST', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/{action}")
+
+    async def copy_source_dialog(self, library, copy):
+        choices = {'photos':'Photos · системная медиатека'}
+        choices.update({c['id']:f"{c['number']:02d}-copy · {c['volume_name']} /{c['path']}"
+                        for c in library['copies'] if c['id']!=copy['id']})
+        with ui.dialog() as dialog,ui.card().classes('w-[560px] max-w-full p-5 gap-3'):
+            ui.label(f"Источник для {copy['number']:02d}-copy").classes('text-lg font-semibold')
+            current = copy.get('source_link_id') or 'photos'
+            selected = ui.select(choices,value=current if current in choices else None,label='Копировать из').classes('w-full').props('outlined')
+            ui.label('Готовые оригиналы передаются из выбранной копии. Пауза и продолжение управляют всей цепочкой.').classes('s-note')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Отмена',on_click=lambda:dialog.submit(None)).props('flat no-caps')
+                ui.button('Сохранить',on_click=lambda:dialog.submit(selected.value)).props('no-caps')
+        value = await dialog
+        if value:
+            await self.action('PATCH',f"/api/photos/libraries/{library['id']}/copies/{copy['id']}/source",json={'source_id':None if value=='photos' else value})
 
     async def originals_journal(self, source_id, copy):
         try:

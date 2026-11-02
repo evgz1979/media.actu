@@ -257,7 +257,7 @@ class MissingCopyCatalog:
             volumes = self._volumes(job['scopes'])
             self._validate(job, volumes)
             self._stop.clear()
-            self._update(operation, state='running', message='Копируем только отсутствующее из 00-main')
+            self._update(operation, state='running', message='Копируем только отсутствующее из ' + job['scopes']['left']['label'])
             if background:
                 self._thread = threading.Thread(target=self.run, args=(operation,), name='copy-missing', daemon=True)
                 self._thread.start()

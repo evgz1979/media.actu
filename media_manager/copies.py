@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS copy_locations (
     CHECK ((kind='main' AND number=0) OR (kind IN ('copy','cold','cloud') AND number>0))
 );
 CREATE INDEX IF NOT EXISTS copy_locations_volume ON copy_locations(volume_id,path);
+CREATE TABLE IF NOT EXISTS copy_sources (
+    location_id TEXT PRIMARY KEY REFERENCES copy_locations(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS copy_group_settings (
     group_id TEXT PRIMARY KEY REFERENCES copy_groups(id) ON DELETE CASCADE,
     tracking INTEGER NOT NULL DEFAULT 0 CHECK(tracking IN (0,1)),
@@ -159,6 +163,7 @@ class CopyCatalog:
     def groups(self):
         volumes = {v['id']: v for v in self.storage.refresh()['volumes']}
         with self.storage.connect() as db:
+            sources = dict(db.execute('SELECT location_id,source_id FROM copy_sources'))
             groups = [dict(row, main=None, copies=[], released_copies=[]) for row in db.execute('''
                 SELECT g.*, COALESCE(s.tracking,0) AS tracking, COALESCE(s.label,'') AS label, s.changed_at,
                        d.disconnected_at
@@ -191,6 +196,11 @@ class CopyCatalog:
                                 availability=volume.get('availability', 'unknown'), removable=volume.get('removable', False))
                 by_id[location['group_id']]['released_copies'].append(location)
             for group in groups:
+                locations = {c['id']:c for c in [group['main'], *group['copies']]}
+                for target in group['copies']:
+                    target['source_location_id'] = sources.get(target['id'])
+                    source = locations.get(sources.get(target['id'], group['main']['id']))
+                    target['source_label'] = source['label'] if source else 'Источник недоступен'
                 group['connected'] = not bool(group['disconnected_at'])
                 group['tracking'] = bool(group['tracking'])
                 released = [copy['number'] for copy in group['released_copies']]
@@ -198,6 +208,30 @@ class CopyCatalog:
                 # Derive from current links, including catalogs written by older versions.
                 group['next_number'] = next_copy_number(group['copies'], released)
         return groups
+
+    def set_copy_source(self, location_id, source_id):
+        with self.storage._lock, self.storage.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            target = db.execute('SELECT * FROM copy_locations WHERE id=?', (location_id,)).fetchone()
+            if target is None or target['number'] == 0:
+                raise ValueError('Выбери действующую копию')
+            nodes = {r['id']:dict(r) for r in db.execute('SELECT * FROM copy_locations WHERE group_id=?', (target['group_id'],))}
+            source_id = source_id or next(c['id'] for c in nodes.values() if c['number'] == 0)
+            if source_id not in nodes:
+                raise ValueError('Источник должен быть папкой того же набора')
+            edges = dict(db.execute('SELECT location_id,source_id FROM copy_sources'))
+            edges[location_id] = source_id
+            current, visited = location_id, set()
+            while current in edges:
+                if current in visited:
+                    raise ValueError('Циклические связи копирования запрещены')
+                visited.add(current)
+                current = edges[current]
+            if nodes[source_id]['number'] == 0:
+                db.execute('DELETE FROM copy_sources WHERE location_id=?', (location_id,))
+            else:
+                db.execute('INSERT OR REPLACE INTO copy_sources VALUES (?,?)', (location_id, source_id))
+        return self.group(target['group_id'])
 
     def group(self, group_id):
         group = next((group for group in self.groups() if group['id'] == group_id), None)

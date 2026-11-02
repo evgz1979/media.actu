@@ -107,12 +107,14 @@ class PhotosSyncSchedule:
         return bool(row and row['enabled'])
 
     def _arm(self, link_id):
+        link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('''INSERT INTO photos_sync_requests(link_id) VALUES (?)
                 ON CONFLICT(link_id) DO UPDATE SET enabled=1,last_window=NULL,seen_result=NULL,retry_after=0,error='' ''', (link_id,))
 
     def request(self, link_id, source_id=None):
         self.originals._link(link_id, source_id)
+        link_id = self.libraries.root_copy(link_id)
         self._arm(link_id)
         job = self.originals.summary(link_id, raw=True)
         with self.catalog._write_lock, self._db() as db:
@@ -122,6 +124,7 @@ class PhotosSyncSchedule:
         return self.originals.summary(link_id)
 
     def cancel(self, link_id):
+        link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE photos_sync_requests SET enabled=0 WHERE link_id=?', (link_id,))
 
@@ -156,6 +159,7 @@ class PhotosSyncSchedule:
                 self.originals.pause(row['link_id'], _scheduled=True)
 
     def _arm_if_missing(self, link_id):
+        link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT OR IGNORE INTO photos_sync_requests(link_id) VALUES (?)', (link_id,))
 
@@ -173,6 +177,8 @@ class PhotosSyncSchedule:
             instant = self.clock()
             for request in requests:
                 source_id, link_id = request['source_id'], request['link_id']
+                if self.libraries.copy_source(link_id):
+                    continue  # Descendants are copied by their root's worker.
                 profile = self.libraries.profile(source_id)
                 if not request['connected'] or not profile['active'] or profile['state'] != 'ready' or self.blocked(source_id):
                     continue

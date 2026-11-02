@@ -100,7 +100,11 @@ class PairedComparisonCatalog:
                 if copy['id'] == copy_id:
                     if not group.get('connected', True) or not copy.get('connected', True):
                         raise ValueError('Связь отключена. Сначала подключи её в разделе «Отключённые».')
-                    return {'left': group['main'], 'right': copy}
+                    source = next((c for c in [group['main'], *group['copies']]
+                                   if c['id'] == (copy.get('source_location_id') or group['main']['id'])), None)
+                    if source is None or not source.get('connected', True):
+                        raise ValueError('Источник копирования недоступен или отключён. Проверь связь.')
+                    return {'left': source, 'right': copy}
         raise KeyError('Связь с копией не найдена')
 
     def create(self, copy_id, mode='folders', base_job_id=None, *, method='size', background=True):
@@ -138,7 +142,10 @@ class PairedComparisonCatalog:
             report = self.job(job)
             if report['state'] not in ('paused', 'failed'):
                 raise ValueError('Эту сверку нельзя продолжить.')
-            self._pair(report['copy_id'])
+            current = self._pair(report['copy_id'])
+            if any(current[side][key] != report['scopes'][side][key]
+                   for side in ('left','right') for key in ('id','volume_id','path')):
+                raise ValueError('Источник или связь изменились. Начни новую сверку.')
             self._stop.clear()
             self._update(job, state='running', message='Читаем выбранную пару папок')
             self._thread = threading.Thread(target=self.run, args=(job,), name='paired-compare', daemon=True)

@@ -17,6 +17,7 @@
 - [ADR: медиатеки Photos и прямое хранение оригиналов в копиях](adr/0005-photos-libraries.md)
 - [ADR: продолжение сохранения Photos по метаданным](adr/0006-photos-metadata-resume.md)
 - [ADR: буферизация и однопроходная запись оригиналов Photos](adr/0007-photos-buffered-direct-write.md)
+- [ADR: источники копирования и цепочки копий](adr/0008-copy-sources.md)
 
 ## Правила версионирования
 

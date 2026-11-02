@@ -151,7 +151,7 @@ class PairedWorkspace:
                 files = ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props('outline no-caps color=blue-8 aria-label="Сверить имена и размеры файлов"')
                 files.set_enabled(not self.copy_running)
                 if self.report['mode'] == 'files' and self.report.get('copyable_count', self.report.get('counts', {}).get('missing_copy')):
-                    copy = ui.button('Скопировать', icon='east', on_click=self.prepare_copy).props('outline no-caps color=green-9 aria-label="Скопировать отсутствующее из основной в копию"')
+                    copy = ui.button('Скопировать', icon='east', on_click=self.prepare_copy).props('outline no-caps color=green-9 aria-label="Скопировать отсутствующее из выбранного источника"')
                     copy.set_enabled(not self.copy_running and not self.copy_dialog_open)
             if self.copy_running:
                 operation = self.copy_operation
@@ -196,6 +196,11 @@ class PairedWorkspace:
 
     async def link(self, group, location, *, load_folders=True):
         with self.ws.client:
+            source = next((c for c in [group['main'], *group['copies']]
+                           if c['id'] == (location.get('source_location_id') or group['main']['id'])), None)
+            if source is None or not source.get('connected', True):
+                self.ws.notice(ValueError('Источник копирования недоступен или отключён'))
+                return
             if self.copy_running:
                 await self.stop_copy()
             if self.active and self.report and self.report['state'] in ('running', 'pausing'):
@@ -209,7 +214,7 @@ class PairedWorkspace:
             self.pending_start = self.pending_view = None
             self.active = True
             self.history_only = bool(location.get('number_released'))
-            self.scopes = {'left': group['main'], 'right': location}
+            self.scopes = {'left': source, 'right': location}
             self.copy_id = location['id']
             self.report, self.rows, self.by_path = None, [], {}
             self.copy_operation = None
@@ -261,7 +266,7 @@ class PairedWorkspace:
         pane.navigation.set_visibility(True)
         pane.toolbar.set_visibility(True)
         pane.result_filter.set_visibility(False)
-        description = 'основная папка' if side == 'left' else f"копия №{scope['number']}"
+        description = ('источник копирования' if side == 'left' else f"копия №{scope['number']}")
         pane.heading.text = ('Прежняя ' + scope['label'] if self.history_only and side == 'right'
                              else f"{scope['label']} ({description})")
         boundary = scope['path']
@@ -681,7 +686,7 @@ class PairedWorkspace:
             try:
                 operation = await self.ws.request('GET', f"/api/storage/copy-operations/{self.copy_operation['id']}", timeout=30)
                 with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-3'):
-                    ui.label('Копирование из 00-main →').classes('text-lg font-semibold')
+                    ui.label('Копирование из ' + self.scopes['left']['label'] + ' →').classes('text-lg font-semibold')
                     self.copy_paths(operation)
                     ui.label(operation['message']).classes('text-sm font-semibold')
                     ui.label(f"Готово файлов: {operation['copied_files']} · папок: {operation['copied_directories']} · пропущено: {operation['skipped']} · ошибок: {operation['errors']}").classes('text-sm s-muted')
@@ -715,7 +720,7 @@ class PairedWorkspace:
             report = self.report
             with ui.dialog() as dialog, ui.card().classes('w-[580px] max-w-full p-5 gap-3'):
                 ui.label('Итоги · ' + self.report_title(report)).classes('text-lg font-semibold')
-                for side, title in (('left', '00-main'), ('right', self.scopes['right']['label'])):
+                for side, title in (('left', self.scopes['left']['label']), ('right', self.scopes['right']['label'])):
                     scope = self.scopes[side]
                     ui.label(title + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes('pair-scopes')
                 ui.label(self.ws.format_date(report['created_at']) + ' · ' + report['message']).classes('text-sm s-muted')

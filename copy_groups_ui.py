@@ -129,6 +129,7 @@ class CopyGroupsUI:
                         actions.append(('Вернуть прежнюю привязку', lambda c=location: self.set_connection(group, True, c)))
                     else:
                         actions.append(('Изменить тип копии', lambda c=location: self.edit_kind(c)))
+                        actions.append(('Источник копирования…', lambda c=location: self.choose_source(group, c)))
                     if not released and not group.get('connected', True):
                         actions.append(('Подключить набор', lambda: self.set_connection(group, True)))
                     elif not released:
@@ -142,6 +143,8 @@ class CopyGroupsUI:
                     ws.property_menu('Свойства папки', lambda c=location: ws.show_properties(c['volume_id'], dict(c, kind='directory')),
                                      volume_id=location['volume_id'], path=location['path'], extra=actions)
                     ui.label(location['label']).classes('copy-label')
+                    if location.get('source_location_id'):
+                        ui.label('← ' + location['source_label']).classes('copy-label')
                     ui.label(self.location_path(location)).classes('copy-link-name')
                     if disconnected(location):
                         ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props('aria-label="Копия отключена"')
@@ -247,7 +250,7 @@ class CopyGroupsUI:
             return
         left, right = ws.panes
         policy = tuple((g['id'], g['next_number'], g.get('connected', True),
-                        tuple((c['id'], c['kind'], c['number'], c.get('connected', True)) for c in g['copies'])) for g in self.groups)
+                        tuple((c['id'], c['kind'], c['number'], c.get('connected', True), c.get('source_location_id')) for c in g['copies'])) for g in self.groups)
         signature = (left.volume_id, left.path, left.kind, right.volume_id, right.path, right.kind, policy,
                      (left.volume or {}).get('identity_status'), (right.volume or {}).get('identity_status'))
         if signature == self.control_signature:
@@ -365,6 +368,32 @@ class CopyGroupsUI:
                 await ws.pair.history(group=group, location=location)
             else:
                 await ws.pair.link(group, location)
+
+    async def choose_source(self, group, location):
+        ws = self.workspace
+        with ws.client:
+            ws.editing = True
+            try:
+                choices = {c['id']: c['label'] + ' · ' + self.location_path(c)
+                           for c in [group['main'], *group['copies']]
+                           if c['id'] != location['id'] and c.get('connected', True)}
+                with ui.dialog() as dialog, ui.card().classes('w-[600px] max-w-full p-5 gap-3'):
+                    ui.label('Источник для ' + location['label']).classes('text-lg font-semibold')
+                    current = location.get('source_location_id') or group['main']['id']
+                    selected = ui.select(choices, value=current if current in choices else None, label='Копировать из').classes('w-full').props('outlined')
+                    with ui.row().classes('w-full justify-end'):
+                        ui.button('Отмена', on_click=lambda:dialog.submit(None)).props('flat no-caps')
+                        ui.button('Сохранить', on_click=lambda:dialog.submit(selected.value)).props('no-caps')
+                source = await dialog
+                if source:
+                    await ws.request('PATCH', f"/api/storage/copy-locations/{location['id']}/source", json={'source_id':source})
+                    if ws.pair.active and ws.pair.copy_id == location['id']:
+                        await ws.pair.unlink()
+                    await self.changed()
+            except Exception as error:
+                ws.notice(error)
+            finally:
+                ws.editing = False
 
     async def release_number(self, location):
         ws = self.workspace

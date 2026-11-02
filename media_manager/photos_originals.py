@@ -25,6 +25,7 @@ ACTIVE = {'manifest', 'inventory', 'saving', 'pausing'}
 WRITE_BUFFER_BYTES = 64 * 1024 * 1024
 SPACE_CHECK_SECONDS = 5
 SPACE_RESERVE_BYTES = 64 * 1024 * 1024
+COPY_BATCH_RESOURCES = 256
 
 
 def encoded(value):
@@ -57,9 +58,9 @@ class PhotosOriginals:
         self.schedule = None
         self._source_id = None
         self._progress_at = self._validate_at = 0
-        self._inventory_files = {}
-        self._inventory_names = {}
-        self._recorded_paths = set()
+        self._inventories = {}
+        self._validation_link = None
+        self._replicas = {}
         with self.catalog._write_lock, self._db() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS photos_original_jobs (
@@ -137,11 +138,11 @@ class PhotosOriginals:
             row = db.execute('SELECT * FROM photos_original_jobs WHERE link_id=? ORDER BY updated_at DESC LIMIT 1', (link_id,)).fetchone()
         if not row:
             result = dict(state='idle', done_assets=0, total_assets=0, message='Сохранение ещё не запускалось')
-            return self.schedule.decorate(link_id, result) if self.schedule and not raw else result
+            return self.schedule.decorate(self.libraries.root_copy(link_id), result) if self.schedule and not raw else result
         with self._db() as db:
             incomplete = db.execute("SELECT COUNT(*) FROM photos_original_staging s JOIN photos_original_jobs j ON j.id=s.job_id WHERE j.link_id=? AND json_extract(s.data,'$.final')=1", (link_id,)).fetchone()[0]
         result = dict(json.loads(row['data']), id=row['id'], state=row['state'], updated_at=row['updated_at'], incomplete_files=incomplete)
-        return self.schedule.decorate(link_id, result) if self.schedule and not raw else result
+        return self.schedule.decorate(self.libraries.root_copy(link_id), result) if self.schedule and not raw else result
 
     def journal(self, link_id, source_id=None):
         self._link(link_id, source_id)
@@ -168,6 +169,10 @@ class PhotosOriginals:
         return volume
 
     def start(self, link_id, source_id=None, *, background=True, _scheduled=False):
+        root_id = self.libraries.root_copy(link_id)
+        if root_id != link_id:
+            self._link(link_id, source_id)
+            return self.start(root_id, source_id, background=background, _scheduled=_scheduled)
         if self.schedule and not _scheduled:
             link = self._link(link_id, source_id)
             if self.schedule.settings(link['source_id'])['night_only'] or self.schedule.manages(link_id):
@@ -200,6 +205,8 @@ class PhotosOriginals:
                 with self.catalog._write_lock, self._db() as db:
                     db.execute('INSERT INTO photos_original_jobs VALUES (?,?,?,?,?)', (job, link_id, 'manifest', now(), encoded(data)))
             self._stop.clear()
+            self._replicas = {}
+            self._inventories = {}
             self._validate_at = 0
             self._log(job, 'info', '', 'Начато сохранение оригиналов в привязанную копию')
             if background:
@@ -212,6 +219,7 @@ class PhotosOriginals:
     def pause(self, link_id, source_id=None, *, _scheduled=False):
         with self._lock:
             self._link(link_id, source_id)
+            link_id = self.libraries.root_copy(link_id)
             if self.schedule and not _scheduled:
                 self.schedule.cancel(link_id)
             job = self.summary(link_id)
@@ -237,7 +245,7 @@ class PhotosOriginals:
 
     def _validate(self, job, link, volume, *, force=False):
         self._check()
-        if not force and time.monotonic() - self._validate_at < .5:
+        if not force and self._validation_link == link['id'] and time.monotonic() - self._validate_at < .5:
             return
         current = self._link(link['id'])
         if current != link:
@@ -250,6 +258,7 @@ class PhotosOriginals:
             if object_id(os.fstat(fd)) != self.summary(link['id'])['root']:
                 raise PhotosLibraryUnavailable('Привязанная папка была заменена')
         self._validate_at = time.monotonic()
+        self._validation_link = link['id']
 
     def _progress(self, job, **values):
         if time.monotonic() - self._progress_at > .5:
@@ -288,7 +297,9 @@ class PhotosOriginals:
 
     def _inventory(self, job, link, volume):
         self._update(job, state='inventory', message='Сверяю параметры файлов', checked_files=0, checked_bytes=0)
-        self._inventory_files, self._inventory_names = {}, {}
+        inventory = self._inventories[link['id']] = dict(files={}, names={}, recorded=set())
+        with self._db() as db:
+            inventory['recorded'] = {r[0] for r in db.execute('SELECT path FROM photos_copy_files WHERE link_id=?', (link['id'],))}
         generation = uuid4().hex
         with self._db() as db:
             incomplete = {r['path'] for r in db.execute('SELECT path FROM photos_original_staging WHERE job_id IN (SELECT id FROM photos_original_jobs WHERE link_id=?)', (link['id'],))}
@@ -317,8 +328,8 @@ class PhotosOriginals:
                             os.close(child)
                     elif stat.S_ISREG(info.st_mode):
                         fp = fingerprint(info)
-                        self._inventory_files[path] = fp
-                        self._inventory_names.setdefault(name_key(name), []).append(path)
+                        inventory['files'][path] = fp
+                        inventory['names'].setdefault(name_key(name), []).append(path)
                         self._inventory_record(link, path, fp, generation)
                         count += 1; size += fp['size']
                         self._progress(job, checked_files=count, checked_bytes=size, current_path=path)
@@ -335,7 +346,8 @@ class PhotosOriginals:
             db.execute('INSERT OR REPLACE INTO photos_original_versions VALUES (?,?,?,?,?)', (link['id'], asset, resource, version, encoded(fp)))
             db.execute("UPDATE photos_original_resources SET state=? WHERE job_id=? AND asset=? AND resource=?", ('reused' if reused else 'saved', job, asset, resource))
             db.execute('DELETE FROM photos_original_staging WHERE job_id=? AND path=?', (job, path))
-        self._recorded_paths.add(path)
+        if link['id'] in self._inventories:
+            self._inventories[link['id']]['recorded'].add(path)
         self._inventory_record(link, path, fp, job)
 
     def _reuse_receipt(self, job, link, volume, asset, resource, version):
@@ -396,10 +408,60 @@ class PhotosOriginals:
         finally:
             view.release()
 
+    def _peer(self, link, item):
+        upstream = self.libraries.copy_source(link['id'])
+        with self._db() as db:
+            rows = list(db.execute('''SELECT f.*,v.version,v.fingerprint,l.number FROM photos_copy_files f
+                JOIN photos_original_versions v ON v.link_id=f.link_id AND v.asset=f.asset_identifier AND v.resource=f.resource_id
+                JOIN photos_copy_links l ON l.id=f.link_id
+                WHERE l.source_id=? AND f.link_id<>? AND f.asset_identifier=? AND f.resource_id=? AND v.version=?
+                  AND (? IS NULL OR f.link_id=?) ORDER BY l.number''',
+                (link['source_id'],link['id'],item['asset'],item['resource'],item['version'],upstream,upstream)))
+        return dict(rows[0]) if rows else None
+
+    def _stream_peer(self, peer, write):
+        source = self._link(peer['link_id'])
+        volume = self._volume(source)
+        job = self.summary(source['id'], raw=True)
+        expected = json.loads(peer['fingerprint'])
+        def check():
+            self._check()
+            if self._link(source['id']) != source:
+                raise PhotosLibraryUnavailable('Источник копирования изменился')
+            current = self._volume(source)
+            if any(current.get(k) != volume.get(k) for k in ('mount_path','device','marker_id')):
+                raise PhotosLibraryUnavailable('Том источника копирования изменился')
+            with open_readonly(volume,source['path'],directory=True) as root:
+                if job.get('root') and object_id(os.fstat(root)) != job['root']:
+                    raise PhotosLibraryUnavailable('Папка источника копирования заменена')
+        check()
+        try:
+            with self._file(volume,source,peer['path']) as fd:
+                if not same_file(fingerprint(os.fstat(fd)),expected) or os.fstat(fd).st_size != peer['size']:
+                    raise PhotosLibraryUnavailable('Параметры сохранённого оригинала изменились: ' + peer['path'])
+                count = 0
+                while chunk := os.read(fd,WRITE_BUFFER_BYTES):
+                    check()
+                    write(chunk)
+                    count += len(chunk)
+                check()
+                if not same_file(fingerprint(os.fstat(fd)),expected):
+                    raise PhotosLibraryUnavailable('Источник изменился во время копирования: ' + peer['path'])
+                return dict(size=count)
+        except FileNotFoundError as error:
+            raise PhotosLibraryUnavailable('Сохранённый оригинал отсутствует в копии: ' + peer['path']) from error
+        except OSError as error:
+            raise PhotosLibraryUnavailable('Не удалось передать оригинал из копии: ' + str(error)) from error
+
     def _save(self, job, link, volume, profile, item):
         asset, resource, version = item['asset'], item['resource'], item['version']
         if self._reuse_receipt(job, link, volume, asset, resource, version):
             return 'reused'
+        peer = self._peer(link,item)
+        if not peer and self.libraries.copy_source(link['id']):
+            raise PhotosLibraryUnavailable('Ожидаю готовый оригинал в копии-источнике')
+        source_label = f"{peer['number']:02d}-copy" if peer else 'Photos'
+        self._update(job,current_source=source_label)
         created = item.get('created_at', '')
         try:
             date = datetime.fromisoformat(created.replace('Z', '+00:00'))
@@ -407,6 +469,10 @@ class PhotosOriginals:
         except ValueError:
             parent_path = 'Без даты'
         name = safe_name(item['name'])
+        if peer:
+            path = PurePosixPath(peer['path'])
+            parent_path = '' if str(path.parent)=='.' else str(path.parent)
+            name = safe_name(path.name)
         with destination_directory(volume, link, parent_path, create=True) as parent:
             fd, path, identity = None, None, None
             buffer = bytearray()
@@ -453,15 +519,17 @@ class PhotosOriginals:
                     view.release()
                 self._progress(job, current_bytes=count, buffered_bytes=len(buffer), written_bytes=written, write_batches=batches)
             try:
-                trailer = self.adapter.stream_original(asset, resource, version, profile['anchors'], write,
-                    lambda fraction: self._progress(job, fraction=fraction, current_bytes=count), self._stopped)
+                trailer = (self._stream_peer(peer,write) if peer else
+                    self.adapter.stream_original(asset, resource, version, profile['anchors'], write,
+                    lambda fraction: self._progress(job, fraction=fraction, current_bytes=count), self._stopped))
                 if trailer.get('size') != count or count == 0:
                     raise PhotosAdapterError('Размер переданного оригинала не совпал')
                 self._check()
                 # A small manual copy can be adopted before any destination is
                 # created. Once writing starts, that new file is the result.
-                candidates = [path for path in self._inventory_names.get(name_key(item['name']), [])
-                              if path not in self._recorded_paths and self._inventory_files[path]['size'] == count]
+                inventory = self._inventories.get(link['id'],dict(files={},names={},recorded=set()))
+                candidates = [path for path in inventory['names'].get(name_key(item['name']), [])
+                              if path not in inventory['recorded'] and inventory['files'][path]['size'] == count]
                 # Ambiguous manually exported names are left untouched.
                 if fd is not None or len(candidates) != 1:
                     candidates = []
@@ -469,7 +537,7 @@ class PhotosOriginals:
                     try:
                         with self._file(volume, link, candidate) as existing:
                             existing_fp = fingerprint(os.fstat(existing))
-                        if same_file(existing_fp, self._inventory_files[candidate]):
+                        if same_file(existing_fp, inventory['files'][candidate]):
                             self._receipt(job, link, asset, resource, version, candidate, existing_fp, True)
                             return 'reused'
                     except FileNotFoundError:
@@ -506,6 +574,93 @@ class PhotosOriginals:
                 (SELECT asset,MIN(state IN ('saved','reused')) ready FROM photos_original_resources WHERE job_id=? GROUP BY asset)''', (job,)).fetchone()
         return dict(row) | dict(assets)
 
+    def _prepare_replica(self, parent_job, link):
+        volume = self._volume(link)
+        with open_readonly(volume,link['path'],directory=True) as fd:
+            root = object_id(os.fstat(fd))
+        previous = self.summary(link['id'],raw=True)
+        if previous.get('id'):
+            if previous['root'] != root:
+                raise PhotosLibraryUnavailable('Папка копии заменена: ' + link['path'])
+            job = previous['id']
+        else:
+            job = uuid4().hex
+            data = dict(root=root,done_assets=0,total_assets=0,done_resources=0,total_resources=0,
+                        saved=0,reused=0,errors=0,current_bytes=0,current_path='',fraction=0)
+            with self.catalog._write_lock,self._db() as db:
+                db.execute('INSERT INTO photos_original_jobs VALUES (?,?,?,?,?)',(job,link['id'],'inventory',now(),encoded(data)))
+        self._cleanup(job,link,volume)
+        self._inventory(job,link,volume)
+        inventory = self._inventories[link['id']]['files']
+        with self._db() as db:
+            rows = [dict(r) for r in db.execute('SELECT asset,resource,data FROM photos_original_resources WHERE job_id=?',(parent_job,))]
+            receipts = {(r['asset_identifier'],r['resource_id']):dict(r) for r in db.execute('''
+                SELECT f.*,v.version,v.fingerprint FROM photos_copy_files f JOIN photos_original_versions v
+                ON v.link_id=f.link_id AND v.asset=f.asset_identifier AND v.resource=f.resource_id WHERE f.link_id=?''',(link['id'],))}
+        generation = uuid4().hex
+        with self.catalog._write_lock,self._db() as db:
+            for row in rows:
+                item = json.loads(row['data'])
+                receipt = receipts.get((row['asset'],row['resource']))
+                fp = inventory.get(receipt['path']) if receipt else None
+                ready = bool(fp and receipt['version']==item['version'] and fp['size']==receipt['size']
+                             and same_file(fp,json.loads(receipt['fingerprint'])))
+                db.execute('''INSERT INTO photos_original_resources(job_id,asset,resource,data,state,seen) VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(job_id,asset,resource) DO UPDATE SET data=excluded.data,state=excluded.state,seen=excluded.seen''',
+                    (job,row['asset'],row['resource'],row['data'],'reused' if ready else 'pending',generation))
+            db.execute('DELETE FROM photos_original_resources WHERE job_id=? AND seen<>?',(job,generation))
+        self._update(job,state='waiting_primary',message='Ожидаю новые оригиналы из копии-источника',**self._counts(job))
+        return job,volume
+
+    def _replicate_all(self, master_job, master):
+        with self._db() as db:
+            links = {r['id']:dict(r) for r in db.execute('SELECT * FROM photos_copy_links WHERE source_id=? AND connected=1',(master['source_id'],))}
+            edges = dict(db.execute('SELECT link_id,source_link_id FROM photos_copy_sources'))
+        jobs = {master['id']:master_job}
+        remaining = set(links)-{master['id']}
+        while remaining:
+            eligible = sorted((identifier for identifier in remaining if edges.get(identifier) in jobs),key=lambda identifier:links[identifier]['number'])
+            if not eligible:
+                break
+            for identifier in eligible:
+                self._check()
+                remaining.remove(identifier)
+                link,upstream = links[identifier],edges[identifier]
+                job = None
+                try:
+                    if identifier not in self._replicas:
+                        self._replicas[identifier] = self._prepare_replica(jobs[upstream],link)
+                    job,volume = self._replicas[identifier]
+                    jobs[identifier] = job
+                    with self._db() as db:
+                        rows = [dict(r) for r in db.execute('''SELECT r.asset,r.resource,r.data FROM photos_original_resources r
+                            JOIN photos_copy_files f ON f.link_id=? AND f.asset_identifier=r.asset AND f.resource_id=r.resource
+                            JOIN photos_original_versions v ON v.link_id=f.link_id AND v.asset=f.asset_identifier AND v.resource=f.resource_id
+                            WHERE r.job_id=? AND r.state NOT IN ('saved','reused') AND v.version=json_extract(r.data,'$.version')
+                            ORDER BY f.path,r.asset,r.resource''',(upstream,job))]
+                    if rows:
+                        self._update(job,state='saving',message=f"Копирую из {links[upstream]['number']:02d}-copy",errors=0)
+                    for row in rows:
+                        self._validate(job,link,volume)
+                        item = json.loads(row['data'])
+                        self._update(job,current_path=item['name'],current_bytes=0,fraction=0,buffered_bytes=0,written_bytes=0,write_batches=0)
+                        self._save(job,link,volume,None,item)
+                        self._update(job,**self._counts(job))
+                    counts = self._counts(job)
+                    complete = counts['done_resources']==counts['total_resources']
+                    self._update(job,state='completed' if complete else 'waiting_primary',current_path='',current_bytes=0,buffered_bytes=0,
+                        message='Копия дополнена из источника' if complete else f"Ожидаю новые оригиналы из {links[upstream]['number']:02d}-copy",**counts)
+                except PhotosTransferStopped:
+                    stopped_job = job or self.summary(identifier,raw=True).get('id')
+                    if stopped_job:
+                        self._update(stopped_job,state='paused',message='Сохранение приостановлено',current_bytes=0,buffered_bytes=0,**self._counts(stopped_job))
+                    raise
+                except (OSError,ValueError,PhotosAdapterError,KeyError) as error:
+                    current = self.summary(identifier,raw=True)
+                    if current.get('id'):
+                        self._update(current['id'],state='waiting',message=str(error),current_bytes=0,buffered_bytes=0)
+                        self._log(current['id'],'error','',str(error))
+
     def run(self, job, link):
         state, message = 'completed', 'Оригиналы сохранены'
         manifest_ready = False
@@ -521,7 +676,6 @@ class PhotosOriginals:
                     JOIN photos_original_versions v ON v.link_id=f.link_id
                         AND v.asset=f.asset_identifier AND v.resource=f.resource_id
                     WHERE f.link_id=?''', (link['id'],))}
-                self._recorded_paths = {r[0] for r in db.execute('SELECT path FROM photos_copy_files WHERE link_id=?', (link['id'],))}
             self._update(job, state='manifest', message='Обновляю список оригиналов Photos', current_path='')
             generation = uuid4().hex
             received = 0
@@ -533,7 +687,7 @@ class PhotosOriginals:
                     for resource in resources:
                         item = dict(resource, asset=asset['id'], resource=resource['id'], version=asset['version'], created_at=asset.get('created_at', ''))
                         receipt = receipts.get((asset['id'], resource['id']))
-                        fp = self._inventory_files.get(receipt['path']) if receipt else None
+                        fp = self._inventories[link['id']]['files'].get(receipt['path']) if receipt else None
                         ready = bool(fp and not item.get('error') and receipt['version'] == asset['version'] and fp['size'] == receipt['size']
                                      and same_file(fp, json.loads(receipt['fingerprint'])))
                         db.execute('''INSERT INTO photos_original_resources(job_id,asset,resource,data,state,seen)
@@ -550,16 +704,20 @@ class PhotosOriginals:
             counters = self._counts(job)
             self._update(job, **counters)
             self._update(job, state='saving', message='Сохраняю оставшиеся оригиналы', current_path='')
-            # Iterate IDs with a short-lived connection; never keep a write/read
-            # transaction open while waiting for iCloud or the destination.
-            position = ('', '')
-            while True:
+            self._replicate_all(job,link)
+            # Restore known copies first, ordered by folder/date. No PhotoKit
+            # resource transfer starts until the existing copies are imported.
+            with self._db() as db:
+                work = [dict(row) for row in db.execute('''SELECT r.asset,r.resource,r.data FROM photos_original_resources r
+                    WHERE r.job_id=? AND r.state NOT IN ('saved','reused') ORDER BY EXISTS (
+                        SELECT 1 FROM photos_copy_files f JOIN photos_original_versions v ON v.link_id=f.link_id
+                            AND v.asset=f.asset_identifier AND v.resource=f.resource_id
+                        JOIN photos_copy_links l ON l.id=f.link_id
+                        WHERE l.source_id=? AND l.id<>? AND f.asset_identifier=r.asset AND f.resource_id=r.resource
+                            AND v.version=json_extract(r.data,'$.version')) DESC,
+                    json_extract(r.data,'$.created_at'),r.asset,r.resource''',(job,link['source_id'],link['id']))]
+            for index,row in enumerate(work,1):
                 self._validate(job, link, volume)
-                with self._db() as db:
-                    row = db.execute("SELECT asset,resource,data FROM photos_original_resources WHERE job_id=? AND state NOT IN ('saved','reused') AND (asset,resource)>(?,?) ORDER BY asset,resource LIMIT 1", (job, *position)).fetchone()
-                if not row:
-                    break
-                position = (row['asset'], row['resource'])
                 item = json.loads(row['data'])
                 self._update(job, current_path=item['name'], current_bytes=0, fraction=0,
                              buffered_bytes=0, written_bytes=0, write_batches=0)
@@ -579,10 +737,13 @@ class PhotosOriginals:
                     # A disconnected/replaced destination stops the whole job.
                     self._validate(job, link, volume, force=True)
                     with self.catalog._write_lock, self._db() as db:
-                        db.execute("UPDATE photos_original_resources SET state='error' WHERE job_id=? AND asset=? AND resource=?", (job, *position))
+                        db.execute("UPDATE photos_original_resources SET state='error' WHERE job_id=? AND asset=? AND resource=?", (job, row['asset'],row['resource']))
                     self._log(job, 'error', item['name'], str(error))
                     counters['errors'] += 1
                 self._update(job, **counters)
+                if index % COPY_BATCH_RESOURCES == 0:
+                    self._replicate_all(job,link)
+            self._replicate_all(job,link)
             if self._counts(job)['errors']:
                 state, message = 'completed_with_errors', 'Часть оригиналов не сохранена. Ошибки — в журнале; можно повторить.'
         except PhotosTransferStopped:
@@ -598,4 +759,11 @@ class PhotosOriginals:
                 message += f' · Незавершённых файлов в копии: {incomplete}; пути — в журнале.'
             counts = self._counts(job) if manifest_ready else {}
             self._update(job, state=state, message=message, current_path='', current_bytes=0, fraction=0, buffered_bytes=0, **counts)
+            with self._db() as db:
+                unfinished = [r[0] for r in db.execute('''SELECT j.id FROM photos_original_jobs j
+                    JOIN photos_copy_links l ON l.id=j.link_id WHERE l.source_id=? AND j.id<>?
+                    AND j.state IN ('manifest','inventory','saving','pausing')''',(link['source_id'],job))]
+            for child in unfinished:
+                self._update(child,state='paused' if state=='paused' else 'waiting',
+                             message='Цепочка остановлена: ' + message,current_bytes=0,buffered_bytes=0)
             self._log(job, 'error' if state in ('failed', 'waiting', 'completed_with_errors') else 'info', '', message)

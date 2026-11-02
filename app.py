@@ -432,6 +432,23 @@ class CopyConnectionRequest(BaseModel):
     connected: bool = Field(strict=True)
 
 
+class CopySourceRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    source_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+def set_folder_copy_source(location_id, source_id):
+    with comparison_gate:
+        if paired_comparison.busy():
+            raise ValueError('Сначала приостанови сверку или дождись завершения копирования')
+        return copies.set_copy_source(location_id, source_id)
+
+
+@app.patch('/api/storage/copy-locations/{location_id}/source')
+async def storage_copy_source(location_id: str, request: CopySourceRequest) -> dict:
+    return await copy_catalog_action(set_folder_copy_source, location_id, request.source_id)
+
+
 def set_copy_connection(action, identifier, connected):
     with comparison_gate:
         if not connected and missing_copies.busy():
@@ -905,6 +922,18 @@ async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -
 @app.delete('/api/photos/libraries/{source_id}/copies/{link_id}')
 async def unbind_photo_library_copy(source_id: int, link_id: str) -> dict:
     await library_call(photo_libraries.unbind_copy, source_id, link_id)
+    return await list_photo_libraries()
+
+
+@app.patch('/api/photos/libraries/{source_id}/copies/{link_id}/source')
+async def photo_copy_source(source_id: int, link_id: str, request: CopySourceRequest) -> dict:
+    await library_call(photo_libraries.set_copy_source, source_id, link_id, request.source_id)
+    return await list_photo_libraries()
+
+
+@app.post('/api/photos/libraries/{source_id}/copies/{link_id}/make-first')
+async def photo_copy_first(source_id: int, link_id: str) -> dict:
+    await library_call(photo_libraries.make_first_copy, source_id, link_id)
     return await list_photo_libraries()
 
 

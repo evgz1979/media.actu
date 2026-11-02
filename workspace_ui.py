@@ -934,6 +934,8 @@ class BrowserPane:
                             membership = folder_membership(self.workspace, self.volume_id, entry['path']) if directory else None
                             if membership:
                                 ui.label(membership['label']).classes('s-tree-role copy-label' + (' main' if membership['number'] == 0 else ''))
+                                if membership.get('source_location_id') or membership.get('source_link_id'):
+                                    ui.label('← ' + membership.get('source_label','копия')).classes('s-tree-role copy-label')
                                 if membership.get('media_library'):
                                     ui.label('медиатека').classes('s-tree-role library-role').tooltip(membership['media_library'])
                             if directory:
@@ -1852,6 +1854,8 @@ class StorageWorkspace:
             membership = folder_membership(self, volume_id, path)
             if membership:
                 ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
+                if membership.get('source_location_id') or membership.get('source_link_id'):
+                    ui.label('Источник: ' + membership.get('source_label','копия')).classes('s-muted')
                 if membership.get('media_library'):
                     ui.label('медиатека').classes('s-tag').tooltip(membership['media_library'])
                 if not membership['is_root']:

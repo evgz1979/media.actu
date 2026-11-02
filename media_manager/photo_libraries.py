@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import json
 from pathlib import PurePosixPath
 import threading
@@ -30,11 +31,23 @@ class PhotoLibraries:
         self.schedule = None
         self._migrate()
 
+    @contextmanager
+    def _db(self):
+        db = self.catalog.connect()
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
     def _migrate(self):
         # Preserve legacy media IDs: their 3,410 cached previews remain valid.
         if getattr(self.adapter, 'supported', True) and not any(s['kind'] == 'photos' for s in self.catalog.list_sources()):
             self.catalog.add_system_photos_source()
-        with self.catalog._write_lock, self.catalog.connect() as db:
+        with self.catalog._write_lock, self._db() as db:
+            db.execute('''CREATE TABLE IF NOT EXISTS photos_copy_sources (
+                link_id TEXT PRIMARY KEY REFERENCES photos_copy_links(id) ON DELETE CASCADE,
+                source_link_id TEXT NOT NULL)''')
             for source in db.execute("SELECT id FROM sources WHERE kind='photos'").fetchall():
                 anchors = [r[0] for r in db.execute('SELECT relative_path FROM media_files WHERE source_id=? ORDER BY id LIMIT 12', (source['id'],))]
                 db.execute('INSERT OR IGNORE INTO photos_libraries(source_id,library_id,anchors) VALUES (?,?,?)',
@@ -42,7 +55,7 @@ class PhotoLibraries:
             db.execute("UPDATE photos_libraries SET active=0,state='unknown'")
 
     def _profiles(self):
-        with self.catalog.connect() as db:
+        with self._db() as db:
             rows = [dict(r) for r in db.execute('SELECT * FROM photos_libraries ORDER BY source_id')]
         for row in rows:
             row['anchors'] = json.loads(row['anchors'])
@@ -55,7 +68,7 @@ class PhotoLibraries:
         return profile
 
     def _unavailable(self, state, error):
-        with self.catalog._write_lock, self.catalog.connect() as db:
+        with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE photos_libraries SET active=0,state=?,error=?,checked_at=?', (state, str(error), now()))
             db.execute("UPDATE sources SET status=?,error=? WHERE kind='photos'", ('no_access' if state == 'no_access' else 'offline', str(error)))
         self.connection = dict(state=state, error=str(error))
@@ -86,7 +99,7 @@ class PhotoLibraries:
                 self.connection.update(count=probe.get('count', 0))
                 return self.connection
             profile = matched[0]
-            with self.catalog._write_lock, self.catalog.connect() as db:
+            with self.catalog._write_lock, self._db() as db:
                 db.execute("UPDATE photos_libraries SET active=0,state='offline',error=NULL")
                 db.execute("UPDATE photos_libraries SET active=1,state='ready',anchors=?,error=NULL,checked_at=? WHERE source_id=?",
                            (json.dumps(profile['anchors']), now(), profile['source_id']))
@@ -110,7 +123,7 @@ class PhotoLibraries:
             if not probe.get('sample'):
                 raise ValueError('В текущей медиатеке пока нет объектов. Дождись её загрузки в Photos.')
             library_id = uuid.uuid4().hex
-            with self.catalog._write_lock, self.catalog.connect() as db:
+            with self.catalog._write_lock, self._db() as db:
                 cursor = db.execute("INSERT INTO sources(path,kind,role,label,comment,created_at) VALUES (?,'photos','source',?,'',?)",
                                     ('photos://' + library_id, label, now()))
                 source_id = cursor.lastrowid
@@ -124,7 +137,7 @@ class PhotoLibraries:
         self.profile(source_id)
         if not label.strip() or len(label.strip()) > 120:
             raise ValueError('Задай название медиатеки до 120 символов')
-        with self.catalog._write_lock, self.catalog.connect() as db:
+        with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE sources SET label=? WHERE id=?', (label.strip(), source_id))
 
     def set_paused(self, source_id, paused):
@@ -135,7 +148,7 @@ class PhotoLibraries:
                 if connection.get('source_id') != source_id:
                     raise PhotosLibraryUnavailable(connection.get('error') or 'Открой эту системную медиатеку на M4 и повтори подключение.')
                 self.catalog.enqueue_source_thumbnails(source_id)
-            with self.catalog._write_lock, self.catalog.connect() as db:
+            with self.catalog._write_lock, self._db() as db:
                 db.execute('UPDATE photos_libraries SET paused=? WHERE source_id=?', (int(paused), source_id))
                 if not paused:
                     db.execute('DELETE FROM thumbnail_waits WHERE media_id IN (SELECT id FROM media_files WHERE source_id=?)', (source_id,))
@@ -156,7 +169,7 @@ class PhotoLibraries:
             self.catalog.enqueue_source_thumbnails(source_id)
             self.catalog.set_source_status(source_id, 'idle')
             if assets and not profile['anchors']:
-                with self.catalog._write_lock, self.catalog.connect() as db:
+                with self.catalog._write_lock, self._db() as db:
                     db.execute('UPDATE photos_libraries SET anchors=? WHERE source_id=?',
                                (json.dumps([a['id'] for a in assets[:12]]), source_id))
             return assets
@@ -188,8 +201,9 @@ class PhotoLibraries:
         except OSError:
             volumes = {}
         result = []
-        with self.catalog.connect() as db:
+        with self._db() as db:
             links = [dict(r) for r in db.execute('SELECT * FROM photos_copy_links WHERE connected=1 ORDER BY source_id,number')]
+            sources = dict(db.execute('SELECT link_id,source_link_id FROM photos_copy_sources'))
             waits = dict(db.execute('SELECT m.source_id,COUNT(*) FROM thumbnail_waits w JOIN media_files m ON m.id=w.media_id GROUP BY m.source_id'))
         for source in self.catalog.list_sources():
             if source['id'] not in profiles:
@@ -200,14 +214,76 @@ class PhotoLibraries:
                 if link['source_id'] != source['id']:
                     continue
                 volume = volumes.get(link['volume_id'], {})
+                upstream = next((c for c in links if c['id'] == sources.get(link['id'])), None)
                 copies.append(dict(link, volume_name=volume.get('display_name') or volume.get('name') or 'Том недоступен',
                                    availability=volume.get('availability', 'unknown'),
+                                   source_link_id=sources.get(link['id']),
+                                   source_label=(f"{upstream['number']:02d}-copy" if upstream else
+                                                 'Источник недоступен' if sources.get(link['id']) else 'Photos'),
                                    originals=self.originals.summary(link['id']) if self.originals else None))
             result.append(dict(source, library_id=profile['library_id'], active=bool(profile['active']),
                                paused=bool(profile['paused']), connection_state=profile['state'],
                                connection_error=profile['error'], waiting=waits.get(source['id'], 0), copies=copies,
                                sync_schedule=self.schedule.describe(source['id']) if self.schedule else None))
         return dict(libraries=result, connection=self.connection)
+
+    def copy_source(self, link_id):
+        with self._db() as db:
+            row = db.execute('SELECT source_link_id FROM photos_copy_sources WHERE link_id=?', (link_id,)).fetchone()
+        return row[0] if row else None
+
+    def root_copy(self, link_id):
+        visited = set()
+        while True:
+            if link_id in visited:
+                raise ValueError('Циклическая связь копий медиатеки')
+            visited.add(link_id)
+            source = self.copy_source(link_id)
+            if source is None:
+                return link_id
+            link_id = source
+
+    def set_copy_source(self, source_id, link_id, source_link_id):
+        self.profile(source_id)
+        with self.catalog._write_lock, self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if self.originals and db.execute("SELECT 1 FROM photos_original_jobs WHERE state IN ('manifest','inventory','saving','pausing')").fetchone():
+                raise ValueError('Сначала приостанови сохранение оригиналов')
+            nodes = {r['id']:dict(r) for r in db.execute('SELECT * FROM photos_copy_links WHERE source_id=?', (source_id,))}
+            if link_id not in nodes or (source_link_id is not None and source_link_id not in nodes):
+                raise ValueError('Источник должен быть копией этой медиатеки')
+            edges = dict(db.execute('SELECT link_id,source_link_id FROM photos_copy_sources'))
+            if source_link_id is None:
+                edges.pop(link_id, None)
+            else:
+                edges[link_id] = source_link_id
+            current, visited = link_id, set()
+            while current in edges:
+                if current in visited:
+                    raise ValueError('Циклические связи копирования запрещены')
+                visited.add(current)
+                current = edges[current]
+            if source_link_id is None:
+                db.execute('DELETE FROM photos_copy_sources WHERE link_id=?', (link_id,))
+            else:
+                db.execute('INSERT OR REPLACE INTO photos_copy_sources VALUES (?,?)', (link_id, source_link_id))
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='photos_sync_requests'").fetchone():
+                    db.execute('UPDATE photos_sync_requests SET enabled=0 WHERE link_id=?', (link_id,))
+
+    def make_first_copy(self, source_id, link_id):
+        self.profile(source_id)
+        with self.catalog._write_lock, self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if self.originals and db.execute("SELECT 1 FROM photos_original_jobs WHERE state IN ('manifest','inventory','saving','pausing')").fetchone():
+                raise ValueError('Сначала приостанови сохранение оригиналов')
+            links = [r['id'] for r in db.execute('SELECT id FROM photos_copy_links WHERE source_id=? ORDER BY number', (source_id,))]
+            if link_id not in links:
+                raise KeyError('Копия медиатеки не найдена')
+            links.remove(link_id)
+            links.insert(0, link_id)
+            db.execute('UPDATE photos_copy_links SET number=-number WHERE source_id=?', (source_id,))
+            for number, identifier in enumerate(links, 1):
+                db.execute('UPDATE photos_copy_links SET number=? WHERE id=?', (number, identifier))
 
     def bind_copy(self, source_id, volume_id, path):
         self.profile(source_id)
@@ -220,7 +296,7 @@ class PhotoLibraries:
         # Only verify the destination; binding writes no marker or original.
         with open_readonly(volume, path, directory=True):
             pass
-        with self.catalog._write_lock, self.catalog.connect() as db:
+        with self.catalog._write_lock, self._db() as db:
             existing = db.execute('SELECT * FROM photos_copy_links WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
             if existing and existing['source_id'] == source_id:
                 db.execute('UPDATE photos_copy_links SET connected=1 WHERE id=?', (existing['id'],))
@@ -235,6 +311,6 @@ class PhotoLibraries:
 
     def unbind_copy(self, source_id, link_id):
         self.profile(source_id)
-        with self.catalog._write_lock, self.catalog.connect() as db:
+        with self.catalog._write_lock, self._db() as db:
             if not db.execute('UPDATE photos_copy_links SET connected=0 WHERE id=? AND source_id=?', (link_id, source_id)).rowcount:
                 raise KeyError('Копия медиатеки не найдена')
