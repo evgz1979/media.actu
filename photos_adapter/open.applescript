@@ -1,3 +1,5 @@
+-- Выделяет объект по ID в системном приложении Photos без экспорта.
+-- Используется SystemPhotosAdapter.open_asset; принимает один assetIdentifier.
 on run arguments
     set assetIdentifier to item 1 of arguments
     tell application "Photos"

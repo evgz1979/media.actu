@@ -56,7 +56,11 @@ PAIR_CSS = '''
 '''
 
 
+# Управляет связанными панелями, отчётом пары и подтверждением копирования.
+# Зависимости конструктора: workspace.
 class PairedWorkspace:
+    # Инициализирует PairedWorkspace и его рабочее состояние.
+    # Обновляет состояние объекта: active, by_path, closed, copy_dialog_open, copy_id, copy_operation, differences_only, generation, history_only, loaded_job и ещё 15.
     def __init__(self, workspace):
         self.ws = workspace
         self.active = False
@@ -84,22 +88,30 @@ class PairedWorkspace:
         self.pending_start = None
         self.pending_view = None
 
+    # Проверяет активность текущей операции копирования по её состоянию.
+    # Возвращает локальное значение без обращения к файловой системе.
     @property
     def copy_running(self):
         return bool(self.copy_operation and self.copy_operation['state'] in ('running', 'stopping'))
 
+    # Формирует название сверки по режиму и методу проверки файлов.
+    # Использует report.get.
     @staticmethod
     def report_title(report):
         if report['mode'] == 'folders':
             return 'Папки'
         return 'Файлы · ' + ('имя и размер' if report.get('method') == 'size' else 'SHA-256')
 
+    # Создаёт центральную панель управления связанной парой.
+    # Обновляет состояние объекта: rail.
     def build(self):
         ui.add_css(PAIR_CSS)
         self.rail = ui.column().classes('pair-rail')
         self.render_rail()
         ui.timer(1.5, self.poll)
 
+    # Обновляет команды, прогресс и состояние центральной панели пары.
+    # Обновляет состояние объекта: rail_signature.
     def render_rail(self):
         if not hasattr(self, 'rail') or self.ws.client.is_deleted:
             return
@@ -194,6 +206,8 @@ class PairedWorkspace:
                             ui.menu_item('Сверить содержимое · SHA-256', on_click=lambda: self.start('files', 'sha256'))
             ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes('pair-disconnect')
 
+    # Связывает выбранный источник с копией, сохраняя прежнее состояние панелей.
+    # Обновляет состояние объекта: active, by_path, copy_id, copy_operation, differences_only, generation, history_only, loaded_job, pending_start, pending_view и ещё 10.
     async def link(self, group, location, *, load_folders=True):
         with self.ws.client:
             source = next((c for c in [group['main'], *group['copies']]
@@ -233,6 +247,8 @@ class PairedWorkspace:
             self.ws.set_active(0)
             self.ws.update_scopes()
 
+    # Размыкает панели и восстанавливает независимый просмотр после остановки работы.
+    # Обновляет состояние объекта: active, by_path, copy_operation, generation, history_only, pending_start, pending_view, rail_signature, report, rows, saved.
     async def unlink(self):
         if not self.active:
             return
@@ -257,6 +273,8 @@ class PairedWorkspace:
             self.ws.set_active(self.saved_active)
             self.ws.update_scopes()
 
+    # Обновляет путь и границы связанной стороны панели.
+    # Использует pane.location.set_visibility, pane.navigation.set_visibility, pane.render_path, pane.result_filter.set_visibility, pane.toolbar.set_visibility.
     def update_header(self, pane):
         side = 'left' if pane.index == 0 else 'right'
         scope = self.scopes[side]
@@ -284,6 +302,8 @@ class PairedWorkspace:
             if pane.volume:
                 pane.footer.text = self.ws.capacity_text(pane.volume)
 
+    # Преобразует путь тома в путь относительно выбранной стороны пары.
+    # Использует path.startswith.
     def relative(self, index, path):
         scope = self.scopes['left' if index == 0 else 'right']
         if path == scope['path']:
@@ -291,6 +311,8 @@ class PairedWorkspace:
         prefix = scope['path'] + '/'
         return path[len(prefix):] if path.startswith(prefix) else None
 
+    # Переходит к относительному пути внутри допустимой области пары.
+    # Обновляет состояние объекта: root, selected.
     async def navigate_path(self, index, path):
         relative = self.relative(index, path)
         if relative is None:
@@ -305,6 +327,8 @@ class PairedWorkspace:
                 await asyncio.gather(*(p.show_volume(s['volume_id'], absolute_scope_path(s, relative), activate=False)
                                        for p, s in zip(self.ws.panes, self.scopes.values())))
 
+    # Отбирает строки с учётом корня, раскрытия, скрытых файлов и различий.
+    # Использует PurePosixPath, any, include.add, part.startswith, path.startswith.
     def visible_rows(self):
         include = None
         if self.differences_only:
@@ -336,6 +360,8 @@ class PairedWorkspace:
             result.append(dict(row, level=row['depth'] - base_depth, collapsed=path in self.closed))
         return result
 
+    # Передаёт компоненту строки, выбор и дополнительные свойства связанного дерева.
+    # Использует PurePosixPath, any, p.startswith, self.report.get, self.ws.size_texts.
     def configure_view(self, view):
         side = view.props['side']
         view.props['sizes'] = self.ws.size_texts(self.scopes[side]['volume_id'])
@@ -348,6 +374,8 @@ class PairedWorkspace:
                                    'Часть данных не проверена. Подробности — в итогах.' if self.report.get('root_errors') else
                                    'Различий нет' if self.differences_only else 'Папок нет')
 
+    # Создаёт или обновляет виртуализированное дерево одной стороны пары.
+    # Использует PairedTree, existing.set_rows, pane.tree.classes, pane.tree.clear, self.configure_view.
     def render_tree(self, pane):
         side = 'left' if pane.index == 0 else 'right'
         pane.tree.classes(add='pair-host')
@@ -361,6 +389,8 @@ class PairedWorkspace:
         self.configure_view(existing)
         existing.set_rows(self.visible_rows(), self.selected)
 
+    # Обновляет оба связанных дерева и центральное управление.
+    # Использует pane.update_header, self.configure_view, self.render_tree, self.views[side].run_method, self.views[side].set_rows.
     def redraw(self, rows_changed=True):
         visible = self.visible_rows() if rows_changed else None
         for side, pane in zip(('left', 'right'), self.ws.panes):
@@ -375,6 +405,8 @@ class PairedWorkspace:
             pane.update_header()
         self.ws.update_scopes()
 
+    # Выбирает общий относительный путь в обеих сторонах пары.
+    # Обновляет состояние объекта: selected.
     def choose(self, relative):
         self.selected = relative
         row = self.by_path.get(relative)
@@ -384,6 +416,8 @@ class PairedWorkspace:
             pane.kind = (data or row or {}).get('kind', 'directory')
             pane.entry = dict(data or {}, path=pane.path, kind=pane.kind)
 
+    # Делает относительную папку общим корнем связанных деревьев.
+    # Обновляет состояние объекта: root, root_files_open.
     def navigate(self, relative):
         self.root = relative
         self.root_files_open = False
@@ -393,6 +427,8 @@ class PairedWorkspace:
         for view in self.views.values():
             view.run_method('resetScroll')
 
+    # Обрабатывает выбор строки виртуального дерева и обновляет превью.
+    # Асинхронно ожидает: self.ws.preview_selection.
     async def on_select(self, event):
         with self.ws.client:
             if event.args['path'] not in self.by_path:
@@ -405,6 +441,8 @@ class PairedWorkspace:
             self.redraw(rows_changed=expanded)
             await self.ws.preview_selection(self.ws.panes[0 if event.args['side'] == 'left' else 1])
 
+    # Обрабатывает открытие папки или файла в связанном дереве.
+    # Асинхронно ожидает: self.ws.preview_selection.
     async def on_open(self, event):
         with self.ws.client:
             row = self.by_path.get(event.args['path'])
@@ -412,6 +450,8 @@ class PairedWorkspace:
                 self.navigate(row['path'])
                 await self.ws.preview_selection(self.ws.panes[0 if event.args['side'] == 'left' else 1])
 
+    # Меняет раскрытие папки сразу для двух сторон пары.
+    # Использует self.closed.add, self.closed.remove, self.redraw.
     async def on_toggle(self, event):
         with self.ws.client:
             path = event.args['path']
@@ -421,15 +461,21 @@ class PairedWorkspace:
                 self.closed.add(path)
             self.redraw()
 
+    # Сворачивает или раскрывает каталоги связанного отчёта.
+    # Обновляет состояние объекта: closed, root_files_open.
     def collapse_all(self, value):
         self.closed = {r['path'] for r in self.rows if r['kind'] == 'directory'} if value else set()
         self.root_files_open = not value
         self.redraw()
 
+    # Переключает показ файлов непосредственно в текущем корне пары.
+    # Обновляет состояние объекта: root_files_open.
     def toggle_root_files(self):
         self.root_files_open = not self.root_files_open
         self.redraw()
 
+    # Переключает фильтр различий и обновляет набор загружаемых строк.
+    # Обновляет состояние объекта: differences_only, rail_signature, root.
     def toggle_differences(self):
         self.differences_only = not self.differences_only
         self.root = ''
@@ -438,6 +484,8 @@ class PairedWorkspace:
         self.render_rail()
         self.redraw()
 
+    # Согласует показ скрытых элементов в двух связанных панелях.
+    # Обновляет состояние объекта: show_hidden.
     def set_hidden(self, value):
         changed = self.show_hidden != value
         self.show_hidden = value
@@ -447,6 +495,8 @@ class PairedWorkspace:
         if changed:
             self.redraw()
 
+    # Создаёт новую парную сверку заданного режима и метода через Core.
+    # Обновляет состояние объекта: pending_start.
     async def start(self, mode, method='size'):
         if self.history_only:
             return
@@ -469,6 +519,8 @@ class PairedWorkspace:
                 self.pending_start = None
                 self.ws.persist_workspace()
 
+    # Применяет отчёт пары, сохраняя подходящее состояние раскрытия и выбора.
+    # Обновляет состояние объекта: by_path, closed, copy_operation, differences_only, pending_view, rail_signature, report, root, root_files_open, rows, scopes и ещё 2.
     async def apply(self, report):
         previous = self.report
         changed = not previous or report['id'] != previous['id']
@@ -507,6 +559,8 @@ class PairedWorkspace:
                     pane.kind = 'directory'
                 pane.render()
 
+    # Восстанавливает корень, раскрытие и фильтры связанного дерева из снимка вкладки.
+    # Обновляет состояние объекта: closed, differences_only, pending_view, root, root_files_open, selected, show_hidden.
     def restore_view(self, state):
         self.differences_only = state['differences_only']
         self.show_hidden = state['hidden']
@@ -523,6 +577,8 @@ class PairedWorkspace:
         self.choose(self.selected)
         self.redraw()
 
+    # Загружает страницы выровненных строк с проверкой актуальности выбранного задания.
+    # Обновляет состояние объекта: by_path, closed, loaded_job, pending_view, rail_signature, root_files_open, rows, structure_at.
     async def load_rows(self, job):
         generation = self.generation
         params = {'limit': 5000, 'differences_only': self.report['mode'] == 'files'}
@@ -566,6 +622,8 @@ class PairedWorkspace:
         self.render_rail()
         self.redraw()
 
+    # Обновляет состояние парной сверки и операции копирования через API.
+    # Обрабатывает ошибки: Exception.
     async def poll(self):
         if self.ws.client.is_deleted or not self.active or not self.report:
             return
@@ -587,6 +645,8 @@ class PairedWorkspace:
         except Exception as error:
             self.ws.overview.text = 'Нет связи с Core: ' + self.ws.error_text(error)
 
+    # Применяет прогресс операции и при необходимости открывает итоговую сверку.
+    # Обновляет состояние объекта: copy_operation, rail_signature.
     async def apply_copy_operation(self, operation):
         self.copy_operation = operation
         verification = operation.get('verification_id')
@@ -596,17 +656,23 @@ class PairedWorkspace:
         self.rail_signature = None
         self.render_rail()
 
+    # Запрашивает остановку активного копирования отсутствующих элементов.
+    # Обновляет состояние объекта: copy_operation, rail_signature.
     async def stop_copy(self):
         if self.copy_running:
             self.copy_operation = await self.ws.request('POST', f"/api/storage/copy-operations/{self.copy_operation['id']}/stop", timeout=30)
             self.rail_signature = None
             self.render_rail()
 
+    # Формирует подписи исходной и целевой папок сохранённого плана.
+    # Использует ui.label, ui.label(scope['label'] + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes.
     def copy_paths(self, operation):
         for side in ('left', 'right'):
             scope = operation['scopes'][side]
             ui.label(scope['label'] + ' · ' + scope['volume_name'] + ' /' + scope['path']).classes('text-sm break-all')
 
+    # Показывает весь зафиксированный план копирования постранично.
+    # Асинхронно ожидает: self.ws.request.
     async def copy_item_list(self, operation):
         """The entire frozen plan can be reviewed in manageable pages."""
         page = await self.ws.request('GET', f"/api/storage/copy-operations/{operation['id']}/items", params={'limit': 200}, timeout=30)
@@ -615,6 +681,8 @@ class PairedWorkspace:
         shown = ui.label().classes('text-xs s-muted')
         more = ui.button('Показать ещё 200').props('flat dense no-caps color=green-9')
 
+        # Добавляет страницу элементов и результатов плана в открытый диалог.
+        # Использует item.get, more.set_visibility, self.ws.format_bytes, ui.column, ui.column().classes.
         def append(data):
             nonlocal position
             with container:
@@ -633,6 +701,8 @@ class PairedWorkspace:
             shown.text = f"Показано: {position} из {data['total']}"
             more.set_visibility(position < data['total'])
 
+        # Запрашивает следующую страницу элементов плана копирования.
+        # Обрабатывает ошибки: Exception.
         async def load_more():
             with self.ws.client:
                 more.disable()
@@ -647,6 +717,8 @@ class PairedWorkspace:
         more.on_click(load_more)
         append(page)
 
+    # Создаёт план, показывает его пользователю и запускает после подтверждения.
+    # Обновляет состояние объекта: copy_dialog_open, rail_signature.
     async def prepare_copy(self):
         if self.history_only or self.copy_dialog_open or self.copy_running or not self.report:
             return
@@ -679,6 +751,8 @@ class PairedWorkspace:
                 self.rail_signature = None
                 self.render_rail()
 
+    # Показывает прогресс, состав и результаты операции копирования.
+    # Обрабатывает ошибки: Exception.
     async def copy_details(self):
         if not self.copy_operation:
             return
@@ -700,12 +774,16 @@ class PairedWorkspace:
             except Exception as error:
                 self.ws.notice(error)
 
+    # Запрашивает паузу активной парной сверки.
+    # Обновляет состояние объекта: rail_signature, report.
     async def stop(self):
         if self.report:
             self.report = await self.ws.request('POST', f"/api/storage/paired-comparisons/{self.report['id']}/pause", timeout=30)
             self.rail_signature = None
             self.render_rail()
 
+    # Продолжает приостановленную парную сверку через API Core.
+    # Обрабатывает ошибки: Exception.
     async def resume(self):
         if self.history_only:
             return
@@ -715,6 +793,8 @@ class PairedWorkspace:
             except Exception as error:
                 self.ws.notice(error)
 
+    # Показывает итоги парной сверки, счётчики и выбранные области.
+    # Использует dialog.open, report.get, report.get('root_errors', {}).items, report['counts'].items, row.get.
     async def details(self):
         with self.ws.client:
             report = self.report
@@ -757,9 +837,13 @@ class PairedWorkspace:
                 ui.button('Закрыть', on_click=dialog.close).props('flat no-caps color=dark')
             dialog.open()
 
+    # Учитывает открытое контекстное меню при периодических обновлениях дерева.
+    # Параметры: event.
     def on_menu_state(self, event):
         self.ws.context_menu_open = event.args['open']
 
+    # Распределяет команды контекстного меню между свойствами, Finder и решениями.
+    # Асинхронно ожидает: self.decide, self.ws.open_in_finder, self.ws.show_properties.
     async def on_context(self, event):
         row = self.by_path.get(event.args['path'])
         if not row:
@@ -777,6 +861,8 @@ class PairedWorkspace:
             elif action == 'properties':
                 await self.ws.show_properties(self.scopes[side]['volume_id'], data)
 
+    # Открывает выбор планового решения для элемента только в копии.
+    # Обрабатывает ошибки: Exception.
     async def decide(self, row):
         with self.ws.client:
             job, generation = self.report['id'], self.generation
@@ -801,6 +887,8 @@ class PairedWorkspace:
             finally:
                 self.ws.editing = False
 
+    # Показывает историю выбранной связи и открывает сохранённый отчёт пары.
+    # Обрабатывает ошибки: Exception.
     async def history(self, *, group=None, location=None):
         with self.ws.client:
             try:
@@ -812,6 +900,8 @@ class PairedWorkspace:
                         ui.label(location['label'] + ' · ' + location['volume_name'] + ' /' + location['path']).classes('text-sm s-muted break-words')
                     if not jobs:
                         ui.label('Эта пара ещё не проверялась.').classes('s-muted text-sm')
+                    # Открывает выбранный отчёт истории пары после проверки отсутствия активного копирования.
+                    # Явно отклоняет недопустимое состояние через ValueError.
                     async def choose(job):
                         try:
                             if self.copy_running:
@@ -829,6 +919,8 @@ class PairedWorkspace:
                         label += ' · ' + {'completed': 'Готово', 'paused': 'Пауза', 'running': 'Выполняется', 'pausing': 'Остановка', 'failed': 'Ошибка'}[job['state']]
                         ui.button(label, on_click=lambda j=job: choose(j)).props('flat no-caps color=green-9').classes('pair-history-row')
                     ui.separator()
+                    # Закрывает историю пары и открывает действующий диалог прежних отчётов по именам.
+                    # Использует dialog.close, self.ws.legacy_dialog.open.
                     def legacy():
                         dialog.close()
                         self.ws.legacy_dialog.open()

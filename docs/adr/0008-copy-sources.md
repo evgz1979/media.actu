@@ -3,6 +3,14 @@
 Статус: принято
 Дата: 2026-11-02
 
+## Сверка реализации — 2026-11-03
+
+Явные источники обычных и Photos-копий действуют. Уточнение текущего поведения: make_first_copy меняет номера, а маршруты меняются отдельно set_copy_source. Отключение Photos-копии сохраняет квитанции и не перенаправляет её потомков автоматически.
+
+Код: [`CopyCatalog.set_copy_source`](../../media_manager/copies.py#L240), [`PhotoLibraries.set_copy_source`](../../media_manager/photo_libraries.py#L290), [`PhotoLibraries.make_first_copy`](../../media_manager/photo_libraries.py#L319).
+
+Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
+
 ## Обычные папки
 
 Каждая копия может получать файлы из основной папки `00-main` либо из другой

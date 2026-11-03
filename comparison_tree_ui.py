@@ -10,7 +10,11 @@ from nicegui import ui
 from storage_ui import folder_icon
 
 
+# Показывает найденные пути общей сверки в правой панели.
+# Зависимости конструктора: pane.
 class ComparisonTree:
+    # Инициализирует ComparisonTree и его рабочее состояние.
+    # Обновляет состояние объекта: context, expanded, focus, folders, generation, limit, pane, roots, selected, workspace.
     def __init__(self, pane):
         self.pane = pane
         self.workspace = pane.workspace
@@ -23,6 +27,8 @@ class ComparisonTree:
         self.focus = None
         self.limit = 100
 
+    # Сбрасывает найденные ветви и контекст выбранного исходного элемента.
+    # Обновляет состояние объекта: context, focus, generation, roots, selected.
     def reset(self, context=None):
         self.generation += 1
         self.context = context
@@ -32,10 +38,14 @@ class ComparisonTree:
         self.selected = None
         self.focus = None
 
+    # Переключает правую панель к дереву найденных совпадений.
+    # Обновляет состояние объекта: focus, selected.
     def show_matches(self):
         self.focus = self.selected = None
         self.pane.render()
 
+    # Применяет найденные пути и контекст с ограничением отображаемых корней.
+    # Обновляет состояние объекта: limit, roots.
     def set_matches(self, matches, context, limit=100):
         if context != self.context:
             self.reset(context)
@@ -43,6 +53,8 @@ class ComparisonTree:
         self.limit = limit
         self.pane.render()
 
+    # Обновляет заголовок и путь панели найденных совпадений.
+    # Использует pane.location.set_visibility, pane.path_bar.clear, pane.render_path, pane.toolbar.set_visibility, self.roots[0].get.
     def update_header(self):
         pane = self.pane
         pane.location.set_visibility(bool(self.selected))
@@ -58,9 +70,13 @@ class ComparisonTree:
         pane.snapshot_label.text = 'Список сверки: ' + self.workspace.format_date(timestamp) if self.roots else ''
         pane.footer.text = f'Найдено путей: {len(self.roots)}' if self.roots else ''
 
+    # Перерисовывает раскрытые ветви сохранённого дерева совпадений.
+    # Использует branch, count, node, ui.label, ui.label(f'Показаны первые {self.limit} найденных путей.').classes.
     def render(self):
         rows = count()
 
+        # Рисует один узел совпадения с командами выбора, открытия и свойств.
+        # Использует PurePosixPath, branch, entry.get, folder_icon, json.dumps.
         def node(entry, scope, depth=0, root=False):
             key = entry['scan_id'], entry['path']
             directory = entry['kind'] == 'directory'
@@ -99,6 +115,8 @@ class ComparisonTree:
             if directory and key in self.expanded:
                 branch(entry, scope, depth + 1)
 
+        # Рекурсивно рисует загруженные дочерние ветви совпадения.
+        # Использует child['name'].startswith, data.get, node, self.folders.get, ui.button.
         def branch(entry, scope, depth=0):
             data = self.folders.get((entry['scan_id'], entry['path']), {})
             for child in data.get('entries', []):
@@ -120,6 +138,8 @@ class ComparisonTree:
         if not self.focus and self.roots and len(self.roots) == self.limit:
             ui.label(f'Показаны первые {self.limit} найденных путей.').classes('s-muted text-xs p-3')
 
+    # Получает страницу дочерних элементов из сохранённого индекса цели.
+    # Обрабатывает ошибки: Exception.
     async def load(self, entry, *, more=False):
         key = entry['scan_id'], entry['path']
         generation, job_id = self.generation, self.workspace.job_id
@@ -137,6 +157,8 @@ class ComparisonTree:
             self.folders[key] = {**data, 'entries': previous + data['entries']}
         return True
 
+    # Открывает найденный путь в контексте соответствующей цели отчёта.
+    # Асинхронно ожидает: self.open_folder, self.workspace.open_volume.
     async def open_path(self, path):
         if not self.selected:
             return
@@ -149,6 +171,8 @@ class ComparisonTree:
                  'name': PurePosixPath(path).name or scope['volume_name']}
         await self.open_folder(entry, scope)
 
+    # Делает выбранную папку корнем отображаемого дерева совпадений.
+    # Обновляет состояние объекта: focus.
     async def open_folder(self, entry, scope):
         if entry['kind'] != 'directory':
             return
@@ -161,6 +185,8 @@ class ComparisonTree:
             self.focus = scope, entry
             self.pane.render()
 
+    # Выбирает найденный элемент и при необходимости загружает или раскрывает ветвь.
+    # Обновляет состояние объекта: selected.
     async def select(self, entry, scope, *, expand=False, toggle=True, render=True):
         previous_volume = self.pane.volume_id
         already_active = self.workspace.active_index == 1
@@ -187,6 +213,8 @@ class ComparisonTree:
 
         await self.workspace.preview_selection(pane)
 
+    # Догружает следующую страницу дочерних элементов сохранённого дерева.
+    # Асинхронно ожидает: self.load.
     async def more(self, entry):
         if await self.load(entry, more=True):
             self.pane.render()

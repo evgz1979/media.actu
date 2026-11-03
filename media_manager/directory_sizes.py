@@ -12,11 +12,17 @@ from .storage import now, relative_path
 from .volume_identity import service_file
 
 
+# Проверяет, лежит ли путь внутри выбранного относительного корня.
+# Использует path.startswith.
 def within(path, root):
     return not root or path == root or path.startswith(root + '/')
 
 
+# Считает логические размеры папок в фоне и сохраняет результаты для отключённых томов.
+# Зависимости конструктора: storage.
 class DirectorySizeService:
+    # Инициализирует DirectorySizeService и его рабочее состояние.
+    # Изменяет SQLite-таблицы: directory_sizes.
     def __init__(self, storage):
         self.storage = storage
         self._condition = threading.Condition(threading.RLock())
@@ -34,6 +40,8 @@ class DirectorySizeService:
             if 'stale' not in {r['name'] for r in db.execute('PRAGMA table_info(directory_sizes)')}:
                 db.execute('ALTER TABLE directory_sizes ADD COLUMN stale INTEGER NOT NULL DEFAULT 0')
 
+    # Останавливает очередь размеров и пробуждает ожидающие потоки.
+    # Использует self._condition.notify_all, self._stop.set, worker.join.
     def close(self):
         self._stop.set()
         with self._condition:
@@ -41,6 +49,8 @@ class DirectorySizeService:
         for worker in self._workers:
             worker.join(timeout=1)
 
+    # Возвращает сохранённые размеры и при разрешении ставит непокрытые области в очередь.
+    # Поля результата: sizes.
     def request(self, volume_id, paths, *, start=True, refresh=False):
         paths = sorted({relative_path(path) for path in paths}, key=lambda p: (p.count('/'), len(p), p))
         # Polling cached sizes must not discover disks or wait for NAS metadata.
@@ -88,6 +98,8 @@ class DirectorySizeService:
                 sizes[path] = value
             return {'sizes': sizes}
 
+    # Извлекает области из очереди и записывает результаты либо ошибки подсчёта.
+    # Обрабатывает ошибки: Exception.
     def _worker(self):
         while not self._stop.is_set():
             with self._condition:
@@ -105,6 +117,8 @@ class DirectorySizeService:
                 with self._condition:
                     self._jobs.pop(key, None)
 
+    # Обходит дерево снизу вверх и сохраняет размеры каждой доступной папки.
+    # Изменяет SQLite-таблицы: directory_sizes.
     def calculate(self, volume_id, path):
         """One traversal supplies totals for every descendant; file contents stay closed."""
         path = relative_path(path)

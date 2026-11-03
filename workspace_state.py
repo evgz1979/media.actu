@@ -10,12 +10,16 @@ SIDEBAR_DEFAULTS = dict(volumes=False, volume_archive=False, libraries=True,
                         copy_groups=True, copy_archive=False)
 
 
+# Восстанавливает только известные булевы настройки раскрытия боковых секций.
+# Использует SIDEBAR_DEFAULTS.items, value.get.
 def normalize_sidebar(value):
     value = value if isinstance(value, dict) else {}
     return {key: value[key] if isinstance(value.get(key), bool) else default
             for key, default in SIDEBAR_DEFAULTS.items()}
 
 
+# Проверяет формат ID из сохранённого состояния или допускает None.
+# Явно отклоняет недопустимое состояние через ValueError.
 def identifier(value):
     if value is None:
         return None
@@ -24,12 +28,16 @@ def identifier(value):
     return value
 
 
+# Проверяет длину и нормализует относительный путь снимка вкладки.
+# Явно отклоняет недопустимое состояние через ValueError.
 def path(value):
     if not isinstance(value, str) or len(value) > 4096:
         raise ValueError('Некорректный путь в сохранённом состоянии')
     return relative_path(value)
 
 
+# Собирает компактный снимок панели и её режима превью.
+# Использует data.get, preview.snapshot, vars.
 def pane_snapshot(pane):
     data = pane if isinstance(pane, dict) else vars(pane)
     hidden = data.get('hidden', False)
@@ -43,6 +51,8 @@ def pane_snapshot(pane):
     return result
 
 
+# Проверяет версию и структуру снимка двух панелей, пары и отчёта.
+# Обрабатывает ошибки: (KeyError, TypeError, ValueError, AttributeError).
 def normalize_state(value):
     try:
         if not isinstance(value, dict) or value.get('version') != 1:

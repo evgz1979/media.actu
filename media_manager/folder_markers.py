@@ -25,10 +25,14 @@ CREATE TABLE IF NOT EXISTS folder_marker_jobs (
 '''
 
 
+# Возвращает время UTC для версии служебного описания папки.
+# Использует datetime.now, datetime.now(timezone.utc).isoformat.
 def timestamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+# Ставит изменённое описание папки в очередь в транзакции вызывающего каталога.
+# Изменяет SQLite-таблицы: folder_marker_jobs.
 def queue_marker(db, payload):
     """Call in the catalog's transaction so a changed role cannot lose its update."""
     previous = db.execute('SELECT payload FROM folder_marker_jobs WHERE location_id=?', (payload['folder_id'],)).fetchone()
@@ -45,6 +49,8 @@ def queue_marker(db, payload):
                (payload['folder_id'],payload['group_id'],payload['volume_id'],payload['path'],json.dumps(document,ensure_ascii=False,sort_keys=True)))
 
 
+# Читает ограниченный JSON-маркер и проверяет схему и идентификаторы.
+# Явно отклоняет недопустимое состояние через OSError, ValueError.
 def read_folder_marker(root):
     try:
         descriptor = os.open(FOLDER_MARKER_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
@@ -84,6 +90,8 @@ def read_folder_marker(root):
         os.close(descriptor)
 
 
+# Публикует служебное описание после проверки владения прежним маркером.
+# Явно отклоняет недопустимое состояние через OSError, ValueError.
 def write_folder_marker(root, payload, *, may_replace=lambda previous: False, before_publish=lambda: None):
     # Import at use time: copy catalogs enqueue descriptions before file services
     # are constructed, and must not acquire filesystem dependencies on import.
@@ -145,27 +153,39 @@ def write_folder_marker(root, payload, *, may_replace=lambda previous: False, be
             pass
 
 
+# Согласует постоянную очередь маркеров с доступными зарегистрированными папками.
+# Зависимости конструктора: copies.
 class FolderMarkerService:
+    # Инициализирует FolderMarkerService и его рабочее состояние.
+    # Обновляет состояние объекта: _stop, _sync_lock, _thread, _wake, copies, storage.
     def __init__(self,copies):
         self.copies, self.storage = copies, copies.storage
         self._stop, self._wake = threading.Event(), threading.Event()
         self._thread = None
         self._sync_lock = threading.Lock()
 
+    # Запускает фоновый поток синхронизации описаний папок.
+    # Обновляет состояние объекта: _thread.
     def start(self):
         self.copies.queue_folder_markers()
         self._thread = threading.Thread(target=self._run,daemon=True,name='folder-markers')
         self._thread.start()
 
+    # Пробуждает поток после изменения связей или описания папки.
+    # Использует self._wake.set.
     def wake(self):
         self._wake.set()
 
+    # Запрашивает остановку и ожидает завершения потока маркеров.
+    # Использует self._stop.set, self._thread.join, self._wake.set.
     def close(self):
         self._stop.set()
         self._wake.set()
         if self._thread:
             self._thread.join(timeout=1)
 
+    # Периодически согласует очередь маркеров, переживая временные ошибки.
+    # Обрабатывает ошибки: Exception.
     def _run(self):
         while not self._stop.is_set():
             self._wake.clear()
@@ -175,11 +195,15 @@ class FolderMarkerService:
                 logging.exception('Unable to synchronize folder descriptions')
             self._wake.wait(30)
 
+    # Проверяет, что ревизия задания маркера ещё актуальна.
+    # Читает SQLite-таблицы: folder_marker_jobs.
     def _current(self,job):
         with self.storage.connect() as db:
             row = db.execute('SELECT revision FROM folder_marker_jobs WHERE location_id=?',(job['location_id'],)).fetchone()
             return bool(row and row['revision'] == job['revision'])
 
+    # Проверяет допустимость замены маркера прежней освобождённой привязки.
+    # Читает SQLite-таблицы: folder_marker_jobs.
     def _may_replace(self,previous,payload):
         if previous['volume_id'] != payload['volume_id']:
             return False
@@ -189,6 +213,8 @@ class FolderMarkerService:
         return bool(known and known['status'] in {'released','removed'}
                     and (known['group_id'],known['volume_id']) == (previous['group_id'],previous['volume_id']))
 
+    # Подтверждает принадлежность текущего пути действующей или архивной привязке.
+    # Читает SQLite-таблицы: copy_locations, folder_marker_jobs, released_copy_locations.
     def _owns_path(self,job):
         with self.storage.connect() as db:
             owner = db.execute('SELECT id FROM copy_locations WHERE volume_id=? AND path=?',
@@ -204,6 +230,8 @@ class FolderMarkerService:
                                (job['volume_id'],job['path'])).fetchone()
             return bool(owner and owner['location_id'] == job['location_id'])
 
+    # Проверяет тома и записывает актуальные маркеры с повторными попытками.
+    # Изменяет SQLite-таблицы: folder_marker_jobs.
     def reconcile(self):
         from .comparison import open_readonly
 
@@ -234,6 +262,8 @@ class FolderMarkerService:
                     elif self._current(job):
                         with open_readonly(volume,job['path'],directory=True) as root:
                             identity = os.fstat(root)
+                            # Повторно проверяет ревизию задания, принадлежность пути и ID папки перед публикацией маркера.
+                            # Явно отклоняет недопустимое состояние через OSError.
                             def before_publish():
                                 if self._stop.is_set() or not self._current(job) or not self._owns_path(job):
                                     raise OSError('Описание папки изменилось. Запись будет повторена.')
@@ -256,6 +286,8 @@ class FolderMarkerService:
         finally:
             self._sync_lock.release()
 
+    # Возвращает сводку состояний и ошибок постоянной очереди маркеров.
+    # Поля результата: folders, counts.
     def status(self):
         with self.storage.connect() as db:
             rows = [dict(row) for row in db.execute('SELECT location_id,group_id,volume_id,path,state,error,synced_at FROM folder_marker_jobs ORDER BY group_id,location_id')]

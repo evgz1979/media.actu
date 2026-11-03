@@ -172,6 +172,8 @@ WORKSPACE_CSS = """
 """
 
 
+# Формирует подпись тома с необязательным именем сетевого ресурса.
+# Использует name.casefold, share.casefold, volume.get.
 def volume_label(volume, with_share=True):
     name = volume.get('display_name') or volume['name']
     share = volume.get('share_name')
@@ -180,17 +182,25 @@ def volume_label(volume, with_share=True):
     return name
 
 
+# Определяет, должен ли недоступный том отображаться в архиве.
+# Использует volume.get.
 def archived(volume):
     return not volume.get('mounted') and (volume['availability'] == 'offline' or volume.get('identity_status') == 'legacy')
 
 
+# Определяет принадлежность пути обычной копии или копии медиатеки.
+# Использует libraries.copy_membership, workspace.copies.membership.
 def folder_membership(workspace, volume_id, path):
     libraries = getattr(workspace, 'photo_libraries', None)
     photo_copy = libraries.copy_membership(volume_id, path) if libraries else None
     return photo_copy or workspace.copies.membership(volume_id, path)
 
 
+# Управляет деревом, выбором, навигацией и режимом превью одной панели.
+# Зависимости конструктора: workspace, index.
 class BrowserPane:
+    # Инициализирует BrowserPane и его рабочее состояние.
+    # Обновляет состояние объекта: comparison, container, entry, expanded, filter_value, folder_entries, folder_size, folders, footer, generation, heading, hidden и ещё 33.
     def __init__(self, workspace, index):
         self.workspace = workspace
         self.index = index
@@ -253,14 +263,20 @@ class BrowserPane:
             self.footer = ui.label('Том не выбран').classes('pane-status w-full')
         self.comparison = ComparisonTree(self) if index == 1 else None
 
+    # Возвращает сведения о выбранном томе или виртуальной медиатеке.
+    # Использует self.workspace.resolve_volume.
     @property
     def volume(self):
         return self.workspace.resolve_volume(self.volume_id)
 
+    # Возвращает ID тома, фактически показанного деревом или превью.
+    # Возвращает локальное значение без обращения к файловой системе.
     @property
     def display_volume_id(self):
         return self.preview.volume_id if self.view_mode == 'preview' else self.volume_id
 
+    # Возвращает допустимую файловую область панели для операций с папками.
+    # Поля результата: volume_id, path.
     def scope(self):
         if self.workspace.is_photos(self.display_volume_id):
             return None
@@ -275,6 +291,8 @@ class BrowserPane:
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return {'volume_id': self.volume_id, 'path': path}
 
+    # Обрабатывает актуальное изменение выбранного тома, отбрасывая устаревшие события.
+    # Асинхронно ожидает: self.preview.show, self.workspace.open_volume.
     async def volume_changed(self, event):
         # Unlinking restores selectors before opening the requested parent. Ignore
         # queued events from those older values after the latest value is set.
@@ -287,10 +305,14 @@ class BrowserPane:
         if event.value and event.value == self.volume_select.value and event.value != self.volume_id:
             await self.workspace.open_volume(event.value, self.index)
 
+    # Передаёт действительное переключение режима панели в set_mode.
+    # Асинхронно ожидает: self.set_mode.
     async def mode_changed(self, event):
         if event.value == self.mode_switch.value and event.value != self.view_mode:
             await self.set_mode(event.value)
 
+    # Переключает дерево и превью с сохранением положения и согласованием второй панели.
+    # Обновляет состояние объекта: path_signature, tree_scroll, view_mode.
     async def set_mode(self, mode, *, target=None):
         if mode not in ('tree', 'preview'):
             return
@@ -331,6 +353,8 @@ class BrowserPane:
         self.workspace.update_scopes()
         self.workspace.persist_workspace()
 
+    # Делает панель активной и возвращает клавиатурный фокус дереву.
+    # Использует self.comparison.show_matches, self.focus_tree, self.workspace.set_active.
     def activate_heading(self):
         self.workspace.set_active(self.index)
         if self.view_mode == 'preview':
@@ -339,6 +363,8 @@ class BrowserPane:
             self.comparison.show_matches()
         self.focus_tree()
 
+    # Назначает DOM-фокус дереву без нежелательной прокрутки страницы.
+    # Использует ws.client.run_javascript.
     def focus_tree(self):
         ws = self.workspace
         if self.view_mode != 'tree' or ws.client.is_deleted or ws.editing or ws.context_menu_open:
@@ -346,6 +372,8 @@ class BrowserPane:
         ws.client.run_javascript(f'requestAnimationFrame(() => {{ const tree = getHtmlElement({self.tree.id}); '
                                  '(tree?.querySelector(".pair-virtual") || tree)?.focus({preventScroll:true}); });')
 
+    # Регистрирует строку для клавиатурной навигации и выбора элемента.
+    # Использует (scope or {}).get, entry.get, json.dumps.
     def register_navigation(self, row, entry, scope=None, *, selected=False):
         key = json.dumps([(scope or {}).get('volume_id', self.volume_id), entry.get('scan_id'), entry['path']], ensure_ascii=False)
         self.navigation_entries[key] = (entry, scope, row)
@@ -353,12 +381,16 @@ class BrowserPane:
         row.props['role'] = 'treeitem'
         row.props['aria-selected'] = 'true' if selected else 'false'
 
+    # Обновляет признак выбранной строки среди зарегистрированных DOM-элементов.
+    # Использует (scope or {}).get, entry.get, json.dumps, row.classes, self.navigation_entries.items.
     def update_navigation_selection(self, entry, scope=None):
         key = json.dumps([(scope or {}).get('volume_id', self.volume_id), entry.get('scan_id'), entry['path']], ensure_ascii=False)
         for row_key, (_, _, row) in self.navigation_entries.items():
             row.classes(add='selected' if row_key == key else '', remove='' if row_key == key else 'selected')
             row.props['aria-selected'] = 'true' if row_key == key else 'false'
 
+    # Принимает клавиатурный выбор строки и открывает связанное превью.
+    # Асинхронно ожидает: self.comparison.select, self.select.
     async def keyboard_selected(self, event):
         ws = self.workspace
         if self.view_mode != 'tree' or ws.client.is_deleted or ws.editing or ws.context_menu_open:
@@ -373,6 +405,8 @@ class BrowserPane:
             else:
                 await self.select(entry, render=False)
 
+    # Обновляет отображение скрытых элементов и сохраняет состояние вкладки.
+    # Использует self.preview.render, self.render, self.workspace.pair.set_hidden.
     def hidden_changed(self, event):
         if self.view_mode == 'preview':
             self.preview.render()
@@ -382,6 +416,8 @@ class BrowserPane:
         else:
             self.render()
 
+    # Различает одиночный и двойной щелчок по папке дерева.
+    # Асинхронно ожидает: self.comparison.open_folder, self.comparison.select, self.open_path, self.select.
     async def folder_clicked(self, event):
         entry = self.folder_entries.get(event.args['key'])
         if entry is None:
@@ -398,11 +434,15 @@ class BrowserPane:
             else:
                 await self.select(entry, True)
 
+    # Сохраняет локальное состояние независимого дерева перед переходом в связанную пару.
+    # Поля результата: volume_id, root_path, path, kind, entry, folders, expanded, limits, hidden.
     def save_browse_state(self):
         return {'volume_id': self.volume_id, 'root_path': self.root_path, 'path': self.path,
                 'kind': self.kind, 'entry': self.entry, 'folders': self.folders.copy(),
                 'expanded': self.expanded.copy(), 'limits': self.limits.copy(), 'hidden': self.hidden.value}
 
+    # Восстанавливает дерево после выхода из связанного режима.
+    # Обновляет состояние объекта: filter_value, generation, job_id, scan.
     def restore_browse_state(self, state):
         self.generation += 1
         self.scan, self.job_id = None, None
@@ -417,6 +457,8 @@ class BrowserPane:
             self.comparison.reset()
         self.render()
 
+    # Обновляет варианты выбора тома и текущее значение селектора панели.
+    # Использует archived, self.volume_select.props.pop, self.volume_select.set_options, self.workspace.resolve_volume, self.workspace.selectable_volumes.
     def update_volume_select(self, volume_id):
         options = {
             v['id']: ('Photos · ' if v['kind'] == 'photos' else '') + volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
@@ -429,6 +471,8 @@ class BrowserPane:
             self.volume_select.props.pop('display-value', None)
         self.volume_select.set_options(options, value=volume_id if volume_id in options else None)
 
+    # Обновляет путь, подписи и доступность элементов управления панели.
+    # Обновляет состояние объекта: path_signature.
     def update_header(self):
         self.update_volume_select(self.display_volume_id)
         if self.view_mode == 'preview':
@@ -483,6 +527,8 @@ class BrowserPane:
         self.result_filter.set_visibility(bool(self.scan and self.workspace.report and self.workspace.report['mode'] == 'names'))
         self.result_filter.set_enabled(bool(self.scan and self.scan['side'] == 'source'))
 
+    # Определяет область для отображаемого логического размера папки.
+    # Использует PurePosixPath, relative_path, row.get, self.workspace.is_photos, self.workspace.pair.by_path.get.
     def size_scope(self):
         if not self.volume_id:
             return None
@@ -499,9 +545,13 @@ class BrowserPane:
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return self.volume_id, path
 
+    # Проверяет наличие открытого результата общей или парной сверки.
+    # Возвращает локальное значение без обращения к файловой системе.
     def comparison_open(self):
         return bool(self.workspace.report or (self.workspace.pair.active and self.workspace.pair.report))
 
+    # Обновляет размер текущей области в заголовке панели.
+    # Использует self.comparison_open, self.folder_size.set_visibility, self.refresh_busy, self.refresh_button.set_enabled, self.size_scope.
     def update_size_header(self):
         if self.view_mode == 'preview':
             return
@@ -515,6 +565,8 @@ class BrowserPane:
             self.folder_size.text = 'Размер папки: ' + self.workspace.directory_size_text(*scope, detail=True)
         self.refresh_button.set_enabled(bool(scope) and not self.comparison_open() and not self.refresh_busy())
 
+    # Обновляет индикатор фонового чтения открытой папки.
+    # Использует any, pane.size_scope, self.size_scope, self.workspace.directory_sizes.get, self.workspace.directory_sizes.get(volume_id, {}).get.
     def refresh_busy(self):
         scope = self.size_scope()
         if self.refreshing:
@@ -526,6 +578,8 @@ class BrowserPane:
                 or scope in self.workspace.size_force
                 or self.workspace.directory_sizes.get(volume_id, {}).get(path, {}).get('state') in ('queued', 'running'))
 
+    # Строит кликабельный путь с учётом границы выбранной области.
+    # Обновляет состояние объекта: path_signature.
     def render_path(self, volume_id, path, kind, *, boundary='', navigate=None, entry_name=None):
         volume = self.workspace.resolve_volume(volume_id)
         if not volume:
@@ -565,6 +619,8 @@ class BrowserPane:
         # Keep the selected folder visible without scrolling the tree or the page.
         self.workspace.client.run_javascript(f'requestAnimationFrame(() => {{ const bar = getHtmlElement({self.path_bar.id}); if (bar) bar.scrollLeft = bar.scrollWidth; }});')
 
+    # Открывает путь в обычном, парном или сохранённом дереве панели.
+    # Асинхронно ожидает: self.show_volume, self.workspace.open_volume, self.workspace.pair.navigate_path, self.workspace.refresh_matches.
     async def open_path(self, path):
         path = relative_path(path)
         if self.workspace.pair.active:
@@ -579,6 +635,8 @@ class BrowserPane:
             if self.index == 0:
                 await self.workspace.refresh_matches()
 
+    # Показывает том и сначала загружает снимок, затем обновляет доступную папку.
+    # Обновляет состояние объекта: entry, expanded, filter_value, generation, job_id, kind, path, root_path, scan, volume_id.
     async def show_volume(self, volume_id, path='', *, scan=None, job_id=None, activate=True):
         self.generation += 1
         generation = self.generation
@@ -619,6 +677,8 @@ class BrowserPane:
         if live:
             background_tasks.create(self.refresh_open_folder(generation, volume_id, self.root_path))
 
+    # Фоново обновляет открытую папку, отбрасывая ответы прежнего поколения панели.
+    # Асинхронно ожидает: self.load_folder.
     async def refresh_open_folder(self, generation, volume_id, path):
         if generation != self.generation or self.workspace.client.is_deleted:
             return
@@ -630,6 +690,8 @@ class BrowserPane:
             if not self.workspace.context_menu_open and not self.workspace.editing:
                 self.render()
 
+    # Загружает страницу живого, виртуального или сохранённого дерева через API.
+    # Обрабатывает ошибки: Exception.
     async def load_folder(self, path, *, more=False, refresh=True, discover=True):
         generation = self.generation
         volume_id = self.volume_id
@@ -662,6 +724,8 @@ class BrowserPane:
                                       'error': self.workspace.error_text(error)}
                 return self.folders[path]
 
+    # Выбирает строку дерева, синхронизирует превью и при необходимости раскрывает папку.
+    # Обновляет состояние объекта: entry, kind, path.
     async def select(self, entry, toggle=False, *, render=True):
         self.workspace.set_active(self.index)
         self.path, self.kind, self.entry = entry['path'], entry['kind'], entry
@@ -682,6 +746,8 @@ class BrowserPane:
         if self.index == 0:
             await self.workspace.refresh_matches()
 
+    # Переходит к допустимому корню текущего режима панели.
+    # Обновляет состояние объекта: entry, kind, path.
     async def go_root(self):
         if self.view_mode == 'preview':
             if self.preview.volume_id:
@@ -705,6 +771,8 @@ class BrowserPane:
         if self.index == 0:
             await self.workspace.refresh_matches()
 
+    # Переходит к родительской папке с соблюдением границ сверки и превью.
+    # Обновляет состояние объекта: entry, kind, path.
     async def go_parent(self):
         if self.view_mode == 'preview':
             if self.preview.volume_id:
@@ -740,6 +808,8 @@ class BrowserPane:
         if self.index == 0:
             await self.workspace.refresh_matches()
 
+    # Обновляет открытую область и состояние её списков без потери выбранного режима.
+    # Обновляет состояние объекта: entry, kind, path, refreshing, root_path.
     async def refresh(self):
         if self.view_mode == 'preview':
             await self.preview.refresh()
@@ -824,6 +894,8 @@ class BrowserPane:
             self.refreshing = False
             self.workspace.update_size_labels()
 
+    # Меняет фильтр статусов сохранённого дерева и перезагружает результат.
+    # Обновляет состояние объекта: expanded, filter_value.
     async def change_filter(self, event):
         if event.value == self.filter_value:
             return
@@ -833,6 +905,8 @@ class BrowserPane:
         await self.load_folder(self.root_path)
         self.render()
 
+    # Загружает следующую страницу дочерних элементов папки.
+    # Асинхронно ожидает: self.load_folder.
     async def more(self, path):
         if self.scan or self.workspace.is_photos(self.volume_id):
             await self.load_folder(path, more=True)
@@ -840,6 +914,8 @@ class BrowserPane:
             self.limits[path] = self.limits.get(path, 150) + 150
         self.render()
 
+    # Перестраивает видимые строки независимого дерева и регистрирует навигацию.
+    # Обновляет состояние объекта: navigation_revision.
     def render(self):
         self.size_cells.clear()
         self.navigation_entries.clear()
@@ -886,6 +962,8 @@ class BrowserPane:
                         ui.label(title)
             row_numbers = count()
 
+            # Рекурсивно рисует раскрытые узлы обычного дерева и регистрирует навигацию строк.
+            # Использует PurePosixPath, PurePosixPath(entry['name']).suffix[1:].upper, STATUS_COLORS.get, STATUS_ICONS.get, branch.
             def branch(path, depth):
                 data = self.folders.get(path)
                 if not data:
@@ -970,7 +1048,11 @@ class BrowserPane:
             branch(self.root_path, 0)
 
 
+# Координирует две панели, тома, медиатеки, сверки и сохранённое состояние вкладки.
+# Зависимости конструктора: request, format_bytes, format_date, core_url.
 class StorageWorkspace:
+    # Инициализирует StorageWorkspace и его рабочее состояние.
+    # Обновляет состояние объекта: active_index, archive, archive_list, browse_active, browse_state, client, context_menu_open, copies, core_url, current_matches и ещё 28.
     def __init__(self, request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
         self.request, self.format_bytes, self.format_date = request, format_bytes, format_date
         self.core_url = core_url
@@ -1028,7 +1110,11 @@ class StorageWorkspace:
         self.set_active(0)
         self.render_progress()
 
+    # Создаёт секцию боковой панели с восстановлением её раскрытия.
+    # Использует ui.expansion.
     def sidebar_expansion(self, key, text, *, icon):
+        # Сохраняет актуальное раскрытие секции боковой панели в браузерном хранилище.
+        # Использует normalize_sidebar, self.sidebar_storage.get.
         def changed(event):
             # Merge with the latest storage so another tab's preference survives.
             state = normalize_sidebar(self.sidebar_storage.get(SIDEBAR_STORAGE_KEY))
@@ -1038,6 +1124,8 @@ class StorageWorkspace:
 
         return ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed)
 
+    # Создаёт управление общей сверкой и диалог её прежнего интерфейса.
+    # Обновляет состояние объекта: browse_button, counts, history, journal_button, legacy_dialog, pause_button, phase_label, progress, progress_row, refresh_lists и ещё 5.
     def build_operations(self):
         with ui.column().classes('s-panel workspace-operations w-full gap-0'):
             with ui.column().classes('s-panel-head w-full'):
@@ -1064,6 +1152,8 @@ class StorageWorkspace:
             self.browse_button = ui.button('Закрыть результат сверки', icon='close', on_click=self.browse).props('flat dense no-caps color=dark').classes('text-xs')
             ui.button('Закрыть', on_click=self.legacy_dialog.close).props('flat no-caps color=dark')
 
+    # Извлекает понятное сообщение из HTTP-ошибки или обычного исключения.
+    # Обрабатывает ошибки: ValueError.
     @staticmethod
     def error_text(error):
         if hasattr(error, 'response'):
@@ -1073,23 +1163,35 @@ class StorageWorkspace:
                 pass
         return str(error)
 
+    # Показывает пользователю сообщение об ошибке операции UI.
+    # Использует self.error_text, ui.notify.
     def notice(self, error):
         ui.notify(self.error_text(error), type='negative')
 
+    # Распознаёт ID виртуального тома медиатеки photos-<source_id>.
+    # Использует volume_id.startswith, volume_id[7:].isdigit.
     @staticmethod
     def is_photos(volume_id):
         return bool(isinstance(volume_id, str) and volume_id.startswith('photos-') and volume_id[7:].isdigit())
 
+    # Объединяет обычные тома и виртуальные медиатеки для выбора в панелях.
+    # Использует libraries.volumes.
     def browse_volumes(self):
         libraries = getattr(self, 'photo_libraries', None)
         return self.volumes + (libraries.volumes() if libraries else [])
 
+    # Формирует варианты селектора томов с отображаемыми названиями.
+    # Использует archived, self.browse_volumes, v.get.
     def selectable_volumes(self):
         return [v for v in self.browse_volumes() if v.get('availability') != 'offline' and not archived(v)]
 
+    # Находит файловый или виртуальный том по ID рабочего пространства.
+    # Использует next, self.browse_volumes.
     def resolve_volume(self, volume_id):
         return next((v for v in self.browse_volumes() if v['id'] == volume_id), None)
 
+    # Выбирает API обычного тома или виртуальной медиатеки и получает страницу.
+    # Асинхронно ожидает: self.request.
     async def read_directory(self, volume_id, path, *, refresh=False, discover=False, offset=0, limit=150):
         if self.is_photos(volume_id):
             return await self.request('GET', f'/api/photos/libraries/{volume_id[7:]}/browse',
@@ -1097,6 +1199,8 @@ class StorageWorkspace:
         return await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
                                   params=dict(path=path, refresh=refresh, discover=discover), timeout=45)
 
+    # Открывает выбранную медиатеку в активной панели.
+    # Асинхронно ожидает: self.open_volume.
     async def open_library(self, source_id):
         # A library opens in the active tree; preview mode keeps following it.
         index = self.active_index
@@ -1104,12 +1208,16 @@ class StorageWorkspace:
             index = 1 - index
         await self.open_volume(f'photos-{source_id}', index)
 
+    # Передаёт Core команду выделения объекта в системном Photos.
+    # Обрабатывает ошибки: Exception.
     async def open_photo(self, media_id):
         try:
             await self.request('POST', f'/api/media/{media_id}/open')
         except Exception as error:
             self.notice(error)
 
+    # Форматирует сохранённые сведения о заполнении тома.
+    # Использует self.format_bytes, volume.get.
     def capacity_text(self, volume):
         capacity = volume.get('capacity')
         if not capacity:
@@ -1118,6 +1226,8 @@ class StorageWorkspace:
         text += f" · {capacity['used_bytes'] / capacity['total_bytes'] * 100:.0f}%"
         return text + (' · ранее' if volume.get('capacity_cached') else '')
 
+    # Выбирает активную панель и обновляет связанное управление.
+    # Обновляет состояние объекта: active_index.
     def set_active(self, index):
         if index not in (0, 1):
             return
@@ -1129,6 +1239,8 @@ class StorageWorkspace:
             self.render_volumes()
         self.persist_workspace()
 
+    # Собирает компактное состояние навигации двух панелей и открытой сверки.
+    # Использует pair.relative, pane_snapshot.
     def workspace_snapshot(self):
         state = dict(version=1, active=self.active_index, panes=[pane_snapshot(p) for p in self.panes])
         if self.pair.active:
@@ -1148,12 +1260,16 @@ class StorageWorkspace:
                 state['browse'] = [pane_snapshot(p) for p in self.browse_state]
         return state
 
+    # Передаёт выбранный элемент в соседнюю панель с включённым превью.
+    # Асинхронно ожидает: target.preview.show.
     async def preview_selection(self, source):
         target = self.panes[1 - source.index]
         if source.view_mode == 'tree' and target.view_mode == 'preview':
             entry = source.entry or dict(path=source.path, kind=source.kind, name=PurePosixPath(source.path).name)
             await target.preview.show(source.volume_id, entry)
 
+    # Сохраняет нормализованное состояние рабочего пространства в хранилище вкладки.
+    # Обновляет состояние объекта: state_payload.
     def persist_workspace(self):
         if not self.state_ready or self.client.is_deleted or not self.client.has_socket_connection:
             return
@@ -1163,6 +1279,8 @@ class StorageWorkspace:
         self.state_payload = payload
         self.client.run_javascript(f'try {{ sessionStorage.setItem({json.dumps(STORAGE_KEY)}, {json.dumps(payload)}); }} catch (e) {{ console.warn("Не удалось сохранить панели", e); }}')
 
+    # Восстанавливает выбранные области и режимы двух независимых панелей.
+    # Асинхронно ожидает: pane.load_folder, pane.show_volume, self.read_directory.
     async def restore_panes(self, states):
         restored = False
         for pane, state in zip(self.panes, states):
@@ -1184,6 +1302,8 @@ class StorageWorkspace:
             restored = True
         return restored
 
+    # Восстанавливает вкладку, историю и связанную пару из проверенного снимка состояния.
+    # Явно отклоняет недопустимое состояние через ValueError.
     async def restore_workspace(self, state):
         if not await self.restore_panes(state.get('browse', state['panes'])):
             return False
@@ -1246,6 +1366,8 @@ class StorageWorkspace:
         self.update_scopes()
         return True
 
+    # Отправляет Core проверенную команду открытия файлового пути в Finder.
+    # Обрабатывает ошибки: Exception.
     async def open_in_finder(self, volume_id, path=''):
         if not volume_id or self.is_photos(volume_id):
             return
@@ -1254,6 +1376,8 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Форматирует размер папки с учётом актуальности, ошибки и состояния подсчёта.
+    # Использует record.get, self.directory_sizes.get, self.directory_sizes.get(volume_id, {}).get, self.format_bytes, self.format_date.
     def directory_size_text(self, volume_id, path, *, detail=False):
         record = self.directory_sizes.get(volume_id, {}).get(path, {})
         size, state = record.get('bytes'), record.get('state', 'unknown')
@@ -1276,9 +1400,13 @@ class StorageWorkspace:
             text += ' · ' + self.format_date(record['calculated_at'])
         return text
 
+    # Собирает форматированные размеры всех известных папок выбранного тома.
+    # Использует self.directory_size_text, self.directory_sizes.get.
     def size_texts(self, volume_id):
         return {path: self.directory_size_text(volume_id, path) for path in self.directory_sizes.get(volume_id, {})}
 
+    # Обновляет уже созданные подписи размеров без перестроения деревьев.
+    # Использует pane.size_cells.items, pane.size_cells.pop, pane.update_size_header, self.directory_size_text, self.pair.views.items.
     def update_size_labels(self):
         if self.client.is_deleted:
             return
@@ -1294,6 +1422,8 @@ class StorageWorkspace:
                 view.props['sizes'] = self.size_texts(self.pair.scopes[side]['volume_id'])
                 view.update()
 
+    # Получает или ставит в очередь размеры выбранных папок через Core.
+    # Обрабатывает ошибки: Exception.
     async def load_directory_sizes(self, volume_id, paths, *, start=False, refresh=False):
         try:
             result = await self.request('POST', f'/api/storage/volumes/{volume_id}/directory-sizes',
@@ -1308,6 +1438,8 @@ class StorageWorkspace:
                 records[path] = dict(records.get(path, {}), state='error', error=self.error_text(error))
         self.update_size_labels()
 
+    # Периодически обновляет видимые размеры и ограничивает повторные запросы.
+    # Обновляет состояние объекта: size_open_scopes, sizes_polling.
     async def poll_directory_sizes(self):
         if self.client.is_deleted or self.sizes_polling or self.context_menu_open or self.editing:
             return
@@ -1355,10 +1487,16 @@ class StorageWorkspace:
         finally:
             self.sizes_polling = False
 
+    # Создаёт контекстное меню свойств с восстановлением фокуса и состоянием редактирования.
+    # Использует action, extra_content, menu.classes, menu.on, ui.context_menu.
     def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False):
         client = ui.context.client
 
+        # Оборачивает команду контекстного меню в обработчик закрытия и восстановления фокуса.
+        # Параметры: callback.
         def action(callback):
+            # Асинхронно вызывает команду меню в сохранённом контексте клиента NiceGUI.
+            # Асинхронно ожидает: callback.
             async def invoke():
                 with client:
                     await callback()
@@ -1367,6 +1505,8 @@ class StorageWorkspace:
         with ui.context_menu() as menu:
             if extra_content:
                 menu.classes('copy-folder-menu')
+            # Перед открытием меню отмечает его активность и скрывает файловые команды для Photos.
+            # Обновляет состояние объекта: context_menu_open.
             def before_show():
                 self.context_menu_open = True
                 virtual = self.is_photos(volume_id() if callable(volume_id) else volume_id)
@@ -1386,6 +1526,8 @@ class StorageWorkspace:
             for text, handler in extra:
                 ui.menu_item(text, on_click=action(handler))
 
+    # Открывает файловый том в выбранной панели с выходом из конфликтующего режима.
+    # Асинхронно ожидает: self.browse, self.pair.unlink, self.panes[index].preview.show, self.panes[index].show_volume.
     async def open_volume(self, volume_id, index=None, *, path=''):
         with self.client:
             index = self.active_index if index is None else index
@@ -1398,6 +1540,8 @@ class StorageWorkspace:
                 await self.browse()
             await self.panes[index].show_volume(volume_id, path)
 
+    # Перерисовывает активные и архивные тома с группировкой и индикаторами.
+    # Использует archived, groups, self.archive.set_visibility, self.archive_list.clear, self.volume_list.clear.
     def render_volumes(self):
         self.volume_list.clear()
         self.archive_list.clear()
@@ -1410,6 +1554,8 @@ class StorageWorkspace:
         self.archive.set_visibility(bool(offline))
         selected = self.panes[self.active_index].display_volume_id if getattr(self, 'panes', []) else None
 
+        # Распределяет переданные тома по отображаемым группам NAS и локальных носителей.
+        # Использует grouped.setdefault, grouped.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append, grouped.values и ещё 2.
         def groups(items):
             grouped = {}
             for volume in items:
@@ -1421,6 +1567,8 @@ class StorageWorkspace:
                     ui.label(group['details']['name']).classes('grow truncate')
                     ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
                 for volume in group['volumes']:
+                    # Добавляет доступное переименование подтверждённого сменного носителя в меню тома.
+                    # Использует action, rename.set_enabled, ui.menu_item, v.get.
                     def volume_actions(action, v=volume):
                         if v.get('marker_id'):
                             rename = ui.menu_item('Переименовать диск', on_click=action(lambda: self.rename_disk(v['id'])))
@@ -1448,11 +1596,15 @@ class StorageWorkspace:
         with self.archive_list:
             groups(offline)
 
+    # Обновляет тома и связанные сведения, сохраняя отображение при ошибках API.
+    # Обновляет состояние объекта: volumes.
     async def refresh_volumes(self, force=False):
         if not force and (self.context_menu_open or self.editing):
             return
         self.refresh_button.disable()
         try:
+            # Выделяет признаки доступности тома для обнаружения изменений без полной перерисовки.
+            # Использует volume.get.
             def access_state(volume):
                 return tuple(volume.get(key) for key in ('id', 'identity_status', 'identity_error', 'availability', 'mounted')) if volume else None
             previous = {v['id']: access_state(v) for v in self.volumes}
@@ -1476,11 +1628,15 @@ class StorageWorkspace:
         finally:
             self.refresh_button.enable()
 
+    # Пересчитывает выбранные области и доступность действий сверки и копирования.
+    # Использует ', '.join, labels.append, next, pane.scope, scope_label.
     def update_scopes(self):
         self.persist_workspace()
         self.copies.render_sidebar()
         self.copies.render_controls()
         if self.report:
+            # Формирует подпись выбранной области из названия тома и относительного пути.
+            # Использует next, volume_label.
             def scope_label(scan):
                 volume = next((v for v in self.volumes if v['id'] == scan['volume_id']), None)
                 name = volume_label(volume) if volume else scan['volume_name']
@@ -1505,6 +1661,8 @@ class StorageWorkspace:
         running = self.report and self.report['state'] in ('running', 'pausing')
         self.start_button.set_enabled(bool(valid and not running))
 
+    # Инициализирует рабочее пространство и применяет параметры старой ссылки либо снимок вкладки.
+    # Обновляет состояние объекта: job_id, report, state_ready.
     async def load(self, source='', path='', job=''):
         restore_failed = False
         try:
@@ -1562,10 +1720,14 @@ class StorageWorkspace:
         if self.panes[self.active_index].view_mode == 'tree':
             self.panes[self.active_index].focus_tree()
 
+    # Вызывает периодический обработчик только для ещё существующего клиента NiceGUI.
+    # Асинхронно ожидает: callback.
     async def poll_connected(self, callback):
         if not self.client.is_deleted and self.client.has_socket_connection:
             await callback()
 
+    # Обновляет список последних заданий общей сверки.
+    # Обрабатывает ошибки: Exception.
     async def refresh_history(self):
         try:
             jobs = (await self.request('GET', '/api/storage/comparisons', timeout=45))['jobs']
@@ -1574,12 +1736,16 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Открывает выбранный пользователем отчёт общей сверки.
+    # Асинхронно ожидает: self.browse, self.choose_job.
     async def history_changed(self, event):
         if event.value and event.value != self.job_id:
             await self.choose_job(event.value)
         elif not event.value and self.job_id:
             await self.browse()
 
+    # Получает сохранённый отчёт по ID и применяет его к рабочему пространству.
+    # Обрабатывает ошибки: Exception.
     async def choose_job(self, job_id):
         try:
             report = await self.request('GET', f'/api/storage/comparisons/{job_id}', timeout=45)
@@ -1587,6 +1753,8 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Показывает общую сверку в панелях и обновляет связанные элементы управления.
+    # Обновляет состояние объекта: browse_active, browse_state, job_id, last_marker, match_generation, report.
     async def apply_report(self, report):
         if self.pair.active:
             await self.pair.unlink()
@@ -1615,6 +1783,8 @@ class StorageWorkspace:
         self.set_active(0)
         await self.refresh_matches()
 
+    # Создаёт поиск имён по выбранным областям через API Core.
+    # Обрабатывает ошибки: Exception.
     async def start_comparison(self):
         left, right = [p.scope() for p in self.panes]
         if not left or not right:
@@ -1631,6 +1801,8 @@ class StorageWorkspace:
         finally:
             self.update_scopes()
 
+    # Закрывает отчёт общей сверки и возвращает независимый просмотр папок.
+    # Обновляет состояние объекта: browse_state, job_id, last_marker, match_generation, report.
     async def browse(self):
         self.match_generation += 1
         self.job_id, self.report, self.last_marker = None, None, None
@@ -1645,10 +1817,14 @@ class StorageWorkspace:
         self.render_progress()
         self.set_active(self.browse_active)
 
+    # Получает признаки изменения отчёта для подавления лишних перерисовок.
+    # Параметры: report.
     @staticmethod
     def report_marker(report):
         return report['state'], report['phase'], tuple((s['id'], s['state']) for s in report['scans'])
 
+    # Опросом обновляет общую и парную сверки, копии, медиатеки и превью.
+    # Обновляет состояние объекта: last_marker, report.
     async def poll(self):
         if self.context_menu_open or self.editing:
             return
@@ -1676,6 +1852,8 @@ class StorageWorkspace:
         except Exception as error:
             self.phase_label.text = 'Нет связи с Core: ' + self.error_text(error)
 
+    # Обновляет прогресс и доступные команды общей сверки, включая старые отчёты.
+    # Использует JOB_STATES.get, LABELS.get, STATUS_COLORS.get, report.get, report.get('counts', {}).items.
     def render_progress(self):
         report = self.report
         self.link_badge.set_visibility(False)
@@ -1726,6 +1904,8 @@ class StorageWorkspace:
                 ui.label(str(number)).classes('text-right')
         self.update_scopes()
 
+    # Передаёт команду паузы или продолжения общей сверки в Core.
+    # Обновляет состояние объекта: report.
     async def control(self, action):
         if not self.job_id:
             return
@@ -1740,6 +1920,8 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Загружает совпадения выбранного элемента и показывает найденные пути справа.
+    # Обновляет состояние объекта: current_matches, match_generation.
     async def refresh_matches(self):
         self.match_generation += 1
         generation = self.match_generation
@@ -1784,6 +1966,8 @@ class StorageWorkspace:
             else:
                 ui.label('Совпадений в выбранной области нет' if self.report['state'] == 'completed' else 'Сверка ещё выполняется').classes('text-xs s-muted')
 
+    # Показывает события общей сверки с загрузкой предыдущих записей.
+    # Обрабатывает ошибки: Exception.
     async def show_journal(self):
         if not self.job_id:
             return
@@ -1795,6 +1979,8 @@ class StorageWorkspace:
                 container = ui.column().classes('w-full max-h-[65vh] overflow-auto gap-2')
                 cursor = events[-1]['id'] if events else None
 
+                # Добавляет события очередной страницы в диалог журнала общей сверки.
+                # Использует event.get, self.format_date, ui.label, ui.label(event['path']).classes и ещё 1.
                 def append(items):
                     with container:
                         for event in items:
@@ -1802,6 +1988,8 @@ class StorageWorkspace:
                             if event.get('path'):
                                 ui.label(event['path']).classes('s-path s-muted')
 
+                # Загружает более ранние события общей сверки по сохранённому курсору.
+                # Обрабатывает ошибки: Exception.
                 async def older():
                     nonlocal cursor
                     more.disable()
@@ -1824,6 +2012,8 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Показывает свойства тома, папки или файла и доступные команды.
+    # Обрабатывает ошибки: Exception.
     async def show_properties(self, volume_id, entry=None):
         volume = next((v for v in self.volumes if v['id'] == volume_id), None)
         if not volume:
@@ -1903,6 +2093,8 @@ class StorageWorkspace:
         elif result == 'edit':
             await self.edit_metadata(volume, path, metadata)
 
+    # Открывает редактирование пользовательских меток выбранной папки.
+    # Обновляет состояние объекта: editing.
     async def edit_folder_tags(self, volume_id, path):
         if self.is_photos(volume_id):
             return
@@ -1933,6 +2125,8 @@ class StorageWorkspace:
         finally:
             self.editing = False
 
+    # Применяет полученные метки к локальным снимкам и строкам UI.
+    # Использует folder.get, pane.folders.values, pane.render.
     def apply_folder_tags(self, volume_id, path, metadata):
         for volume in self.volumes:
             if volume['id'] == volume_id and not path:
@@ -1949,6 +2143,8 @@ class StorageWorkspace:
             if pane.view_mode == 'tree':
                 pane.render()
 
+    # Редактирует сохранённые назначение, флаги и комментарий расположения.
+    # Обновляет состояние объекта: editing.
     async def edit_metadata(self, volume, path, metadata):
         volume_id = volume['id']
         inherit = '__inherit__'
@@ -1991,6 +2187,8 @@ class StorageWorkspace:
         finally:
             self.editing = False
 
+    # Открывает переименование зарегистрированного сменного носителя.
+    # Обновляет состояние объекта: editing.
     async def rename_disk(self, volume_id):
         volume = next((v for v in self.volumes if v['id'] == volume_id), None)
         if not volume:
@@ -1998,6 +2196,8 @@ class StorageWorkspace:
         self.editing = True
         saving = False
 
+        # Сохраняет новое название носителя и обновляет связанные данные UI.
+        # Обрабатывает ошибки: Exception, ValueError.
         async def save():
             nonlocal saving
             if saving:
@@ -2038,6 +2238,8 @@ class StorageWorkspace:
         finally:
             self.editing = False
 
+    # Регистрирует выбранный сменный носитель через подтверждённое действие Core.
+    # Обрабатывает ошибки: Exception.
     async def register_disk(self, pane):
         volume = pane.volume
         if not volume:
@@ -2062,6 +2264,8 @@ class StorageWorkspace:
         except Exception as error:
             self.notice(error)
 
+    # Открывает подключение сохранённого сетевого тома в Finder на машине Core.
+    # Обрабатывает ошибки: Exception.
     async def connect(self, volume_id):
         try:
             await self.request('POST', f'/api/storage/volumes/{volume_id}/connect')
@@ -2070,7 +2274,11 @@ class StorageWorkspace:
             self.notice(error)
 
 
+# Регистрирует главную страницу с параметрами совместимости старых ссылок.
+# Параметры: request, format_bytes, format_date, core_url.
 def register_workspace_page(request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
+    # Создаёт рабочее пространство для клиента и загружает его начальное состояние.
+    # Асинхронно ожидает: workspace.load.
     @ui.page('/', reconnect_timeout=120)
     async def workspace_page(source: str = '', path: str = '', job: str = ''):
         workspace = StorageWorkspace(request, format_bytes, format_date, core_url() if callable(core_url) else core_url)

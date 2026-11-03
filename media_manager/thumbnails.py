@@ -14,11 +14,17 @@ from media_manager.photos_adapter import SystemPhotosAdapter
 register_heif_opener()
 
 
+# Обозначает недоступность настроенного диска или каталога кэша превью.
+# Базовые типы: RuntimeError.
 class ThumbnailCacheUnavailable(RuntimeError):
     pass
 
 
+# Создаёт и находит версионированные JPEG-превью объектов медиаиндекса.
+# Зависимости конструктора: catalog, cache_directory, photos_adapter, photo_libraries.
 class ThumbnailService:
+    # Инициализирует ThumbnailService и его рабочее состояние.
+    # Обновляет состояние объекта: _folder_slots, _locks_guard, _media_locks, _photos_slots, cache_directory, catalog, photo_libraries, photos_adapter.
     def __init__(
         self,
         catalog: Catalog,
@@ -35,12 +41,16 @@ class ThumbnailService:
         self._locks_guard = threading.Lock()
         self._media_locks: dict[int, threading.Lock] = {}
 
+    # Сериализует создание превью одного media_id и возвращает готовый путь.
+    # Использует self._get_or_create, self._media_locks.setdefault, threading.Lock.
     def get_or_create(self, media_id: int) -> Path | None:
         with self._locks_guard:
             media_lock = self._media_locks.setdefault(media_id, threading.Lock())
         with media_lock:
             return self._get_or_create(media_id)
 
+    # Возвращает только существующее превью без вызова генерации или PhotoKit.
+    # Использует Path, Path(str(media['source_path'])).resolve, candidate.is_symlink, candidate.resolve и ещё 1.
     def get_cached(self, media_id: int) -> Path | None:
         media = self.catalog.get_media(media_id)
         if not media or (media['kind'] != 'photo' and media.get('source_kind') != 'photos'):
@@ -64,6 +74,8 @@ class ThumbnailService:
         target = self._cache_target(media_id, fingerprint)
         return target if target.is_file() else None
 
+    # Проверяет доступность диска кэша и строит двухуровневый хеш-путь JPEG.
+    # Явно отклоняет недопустимое состояние через ThumbnailCacheUnavailable.
     def _cache_target(self, media_id: int, fingerprint: str) -> Path:
         parts = self.cache_directory.parts
         if len(parts) >= 3 and parts[:2] == ("/", "Volumes"):
@@ -81,6 +93,8 @@ class ThumbnailService:
             ) from error
         return directory / f"{media_id}-{fingerprint}.jpg"
 
+    # Проверяет готовый JPEG Photos и требует размер больше прежних 64 пикселей.
+    # Обрабатывает ошибки: OSError.
     @staticmethod
     def _usable_photos_preview(target: Path) -> bool:
         if not target.is_file():
@@ -93,6 +107,8 @@ class ThumbnailService:
         except OSError:
             return False
 
+    # Создаёт превью через PhotoKit или Pillow с ограничением параллелизма.
+    # Использует Image.new, Image.open, ImageOps.exif_transpose, Path, Path(str(media['source_path'])).resolve.
     def _get_or_create(self, media_id: int) -> Path | None:
         media = self.catalog.get_media(media_id)
         if not media or (media['kind'] != 'photo' and media.get('source_kind') != 'photos'):

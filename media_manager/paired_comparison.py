@@ -25,11 +25,17 @@ DECISIONS = {'keep': 'Оставить в копии', 'add_main': 'Добави
              'move': 'Подготовить перенос', 'remove': 'Подготовить удаление'}
 
 
+# Объединяет корень зарегистрированной области и относительный путь строки.
+# Использует '/'.join, relative_path.
 def absolute_scope_path(scope, path):
     return '/'.join(part for part in (scope['path'], relative_path(path)) if part)
 
 
+# Ведёт двухсторонние сверки, выровненные строки и решения по лишним элементам.
+# Зависимости конструктора: storage, copies, legacy.
 class PairedComparisonCatalog:
+    # Инициализирует PairedComparisonCatalog и его рабочее состояние.
+    # Изменяет SQLite-таблицы: paired_decisions, paired_entries, paired_jobs, paired_rows.
     def __init__(self, storage, copies, legacy=None):
         self.storage, self.copies, self.legacy = storage, copies, legacy
         self._lock = threading.RLock()
@@ -73,25 +79,35 @@ class PairedComparisonCatalog:
             db.execute("UPDATE paired_jobs SET state='paused',message=?,updated_at=? WHERE state IN ('running','pausing')",
                        ('Проверка прервана перезапуском. Можно продолжить.', now()))
 
+    # Проверяет работу парной сверки или связанной операции копирования.
+    # Использует self._thread.is_alive, self.transfers.busy.
     def busy(self):
         return (self._thread is not None and self._thread.is_alive()) or bool(self.transfers and self.transfers.busy())
 
+    # Проверяет отсутствие конфликтующей парной или общей сверки.
+    # Явно отклоняет недопустимое состояние через ValueError.
     def _idle(self):
         if self.busy():
             raise ValueError('Другая сверка ещё выполняется. Сначала останови её.')
         if self.legacy:
             self.legacy._assert_idle()
 
+    # Сохраняет поля парной сверки и время последнего изменения.
+    # Изменяет SQLite-таблицы: paired_jobs.
     def _update(self, job, **values):
         values['updated_at'] = now()
         with self.storage.connect() as db:
             db.execute('UPDATE paired_jobs SET ' + ','.join(k + '=?' for k in values) + ' WHERE id=?',
                        (*values.values(), job))
 
+    # Прерывает обход, если пользователь запросил паузу сверки.
+    # Явно отклоняет недопустимое состояние через Paused.
     def _check(self):
         if self._stop.is_set():
             raise Paused()
 
+    # Разрешает актуальный источник и назначение действующей связи копии.
+    # Явно отклоняет недопустимое состояние через KeyError, ValueError.
     def _pair(self, copy_id):
         for group in self.copies.groups():
             if any(copy['id'] == copy_id for copy in group.get('released_copies', [])):
@@ -107,6 +123,8 @@ class PairedComparisonCatalog:
                     return {'left': source, 'right': copy}
         raise KeyError('Связь с копией не найдена')
 
+    # Создаёт сверку структуры или файлов для зарегистрированной пары.
+    # Изменяет SQLite-таблицы: paired_jobs.
     def create(self, copy_id, mode='folders', base_job_id=None, *, method='size', background=True):
         if mode not in ('folders', 'files'):
             raise ValueError('Неизвестный вид сверки')
@@ -136,6 +154,8 @@ class PairedComparisonCatalog:
                 self.resume(job)
         return self.job(job)
 
+    # Продолжает приостановленную сверку после проверки неизменности связи.
+    # Явно отклоняет недопустимое состояние через ValueError.
     def resume(self, job):
         with self._lock:
             self._idle()
@@ -152,6 +172,8 @@ class PairedComparisonCatalog:
             self._thread.start()
         return self.job(job)
 
+    # Запрашивает кооперативную остановку выбранной парной сверки.
+    # Использует self._stop.set, self._update, self.job.
     def pause(self, job):
         with self._lock:
             if self.job(job)['state'] == 'running':
@@ -159,11 +181,15 @@ class PairedComparisonCatalog:
                 self._update(job, state='pausing', message='Остановка после текущего чтения')
         return self.job(job)
 
+    # Останавливает поток парной сверки при завершении Core.
+    # Использует self._stop.set, self._thread.join.
     def close(self):
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
 
+    # Собирает отчёт, счётчики, ошибки корней и сведения о копировании.
+    # Явно отклоняет недопустимое состояние через KeyError.
     def job(self, job):
         with self.storage.connect() as db:
             row = db.execute('SELECT * FROM paired_jobs WHERE id=?', (job,)).fetchone()
@@ -180,21 +206,29 @@ class PairedComparisonCatalog:
         result['copyable_count'] = len(self.transfers.candidates(job)) if self.transfers and result['mode'] == 'files' and result['state'] == 'completed' else 0
         return result
 
+    # Возвращает последние отчёты всех пар или выбранной копии.
+    # Читает SQLite-таблицы: paired_jobs.
     def jobs(self, copy_id=None):
         with self.storage.connect() as db:
             ids = [r[0] for r in db.execute('SELECT id FROM paired_jobs' + (' WHERE copy_id=?' if copy_id else '') +
                                           ' ORDER BY created_at DESC LIMIT 30', (copy_id,) if copy_id else ())]
         return [self.job(job) for job in ids]
 
+    # Сохраняет метаданные одного элемента стороны сверки в JSON.
+    # Изменяет SQLite-таблицы: paired_entries.
     def _save_entry(self, db, job, side, path, data):
         db.execute('INSERT OR REPLACE INTO paired_entries VALUES (?,?,?,?)',
                    (job, side, path, json.dumps(data, ensure_ascii=False)))
 
+    # Восстанавливает индекс элементов выбранной стороны из SQLite.
+    # Читает SQLite-таблицы: paired_entries.
     def _entries(self, job, side):
         with self.storage.connect() as db:
             return {r['path']: json.loads(r['data']) for r in db.execute(
                 'SELECT path,data FROM paired_entries WHERE job_id=? AND side=?', (job, side))}
 
+    # Обходит одну сторону пары и сохраняет перечень элементов и ошибки.
+    # Изменяет SQLite-таблицы: directories, paired_entries, paired_jobs.
     def _inventory(self, job, side, scope, volume, files):
         with self.storage.connect() as db:
             db.execute('DELETE FROM paired_entries WHERE job_id=? AND side=?', (job, side))
@@ -250,6 +284,8 @@ class PairedComparisonCatalog:
                     self._save_entry(db, job, side, path, entry)
         self._update(job, **{side + '_complete': 1})
 
+    # Читает SHA-256 одного файла с проверкой его параметров до и после чтения.
+    # Явно отклоняет недопустимое состояние через OSError.
     def _hash(self, job, side, entry, volume, counters):
         try:
             if not volume or volume['availability'] != 'online':
@@ -289,6 +325,8 @@ class PairedComparisonCatalog:
             self._save_entry(db, job, side, entry['relative'], entry)
         self._update(job, **counters)
 
+    # Проверяет содержимое пар файлов одинакового размера и повторно проверяет версии.
+    # Явно отклоняет недопустимое состояние через OSError.
     def _hash_pairs(self, job, inventories, volumes):
         candidates = []
         for path, left in inventories['left'].items():
@@ -319,6 +357,8 @@ class PairedComparisonCatalog:
                 with self.storage.connect() as db:
                     self._save_entry(db, job, side, entry['relative'], entry)
 
+    # Классифицирует строку по наличию сторон, типу, ошибкам и выбранному методу.
+    # Использует any, e.get, left.get, path.startswith, right.get.
     @staticmethod
     def _status(path, left, right, failures, files, method):
         if any(e and e.get('error') for e in (left, right)):
@@ -348,6 +388,8 @@ class PairedComparisonCatalog:
             return 'same' if left['digest'] == right['digest'] else 'different'
         return 'unverified'
 
+    # Выравнивает стороны по пути и сохраняет статусы и счётчики различий.
+    # Изменяет SQLite-таблицы: paired_decisions, paired_rows.
     def _classify(self, job, inventories, files, method):
         with self.storage.connect() as db:
             copy_id = db.execute('SELECT copy_id FROM paired_jobs WHERE id=?', (job,)).fetchone()[0]
@@ -397,6 +439,8 @@ class PairedComparisonCatalog:
         errors = sum(bool(e.get('error')) for entries in inventories.values() for e in entries.values())
         return errors
 
+    # Выполняет индексацию, дополнительное хеширование и сборку результата пары.
+    # Обрабатывает ошибки: Exception, Paused.
     def run(self, job):
         try:
             report = self.job(job)
@@ -418,6 +462,8 @@ class PairedComparisonCatalog:
         except Exception as error:
             self._update(job, state='failed', message=str(error))
 
+    # Возвращает страницу строк отчёта с фильтрацией и наследуемыми решениями.
+    # Поля результата: rows, total, offset.
     def rows(self, job, offset=0, limit=1000, differences_only=False):
         report = self.job(job)
         predicate = " AND (r.status NOT IN ('both','same','same_size','skipped') OR (r.kind='directory' AND (instr(r.path,'/')=0 OR json_extract(r.data,'$.attention_count')>0)))" if differences_only else ''
@@ -440,6 +486,8 @@ class PairedComparisonCatalog:
                 rows.append(dict(data, decision=action, own_decision=row['action'], decision_from=inherited))
         return {'rows': rows, 'total': total, 'offset': offset}
 
+    # Сохраняет или снимает решение для элемента только в копии.
+    # Решения keep/add_main/move/remove являются планом и не изменяют пользовательские файлы.
     def decide(self, job, path, action):
         path = relative_path(path)
         if action not in DECISIONS and action is not None:

@@ -9,6 +9,8 @@ RUNNING = {'manifest', 'inventory', 'saving', 'pausing'}
 DEFAULT = dict(night_only=False, start_hour=0, end_hour=7, timezone='Europe/Moscow')
 
 
+# Определяет, попадает ли момент в разрешённые часы выбранной временной зоны.
+# Использует ZoneInfo, instant.astimezone.
 def in_window(settings, instant):
     if not settings['night_only']:
         return True
@@ -17,6 +19,8 @@ def in_window(settings, instant):
     return start <= hour < end if start < end else hour >= start or hour < end
 
 
+# Возвращает дату начала текущего окна, включая переход через полночь.
+# Использует ZoneInfo, instant.astimezone, local.date, local.date().isoformat, timedelta.
 def window_key(settings, instant):
     local = instant.astimezone(ZoneInfo(settings['timezone']))
     if settings['start_hour'] > settings['end_hour'] and local.hour < settings['end_hour']:
@@ -24,7 +28,11 @@ def window_key(settings, instant):
     return local.date().isoformat()
 
 
+# Координирует сохранённые запросы Photos и разрешённые временные окна.
+# Зависимости конструктора: libraries, originals.
 class PhotosSyncSchedule:
+    # Инициализирует PhotosSyncSchedule и его рабочее состояние.
+    # Изменяет SQLite-таблицы: photos_sync_requests, photos_sync_settings.
     def __init__(self, libraries, originals, *, clock=None):
         self.libraries, self.originals, self.catalog = libraries, originals, libraries.catalog
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -49,6 +57,8 @@ class PhotosSyncSchedule:
         originals.schedule = self
         self.catalog.photos_schedule = self
 
+    # Предоставляет транзакционное соединение каталога с гарантированным закрытием.
+    # Использует db.close, self.catalog.connect.
     @contextmanager
     def _db(self):
         db = self.catalog.connect()
@@ -58,18 +68,26 @@ class PhotosSyncSchedule:
         finally:
             db.close()
 
+    # Возвращает настройки окна медиатеки либо безопасные значения по умолчанию.
+    # Использует self._settings.get.
     def settings(self, source_id):
         with self._lock:
             return dict(self._settings.get(source_id, dict(DEFAULT, source_id=source_id)))
 
+    # Проверяет, запрещает ли текущее время работу выбранной медиатеки.
+    # Использует in_window, self.clock, self.settings.
     def blocked(self, source_id):
         return not in_window(self.settings(source_id), self.clock())
 
+    # Дополняет настройки окна текущей блокировкой и подписью времени МСК.
+    # Поля результата: blocked, window.
     def describe(self, source_id):
         settings = self.settings(source_id)
         return dict(settings, blocked=self.blocked(source_id),
                     window=f"{settings['start_hour']:02d}:00–{settings['end_hour']:02d}:00 МСК")
 
+    # Сохраняет проверенные часы работы и согласует уже запущенные задания.
+    # Изменяет SQLite-таблицы: photos_sync_settings.
     def configure(self, source_id, night_only, start_hour=0, end_hour=7, timezone='Europe/Moscow'):
         self.libraries.profile(source_id)
         if (type(night_only) is not bool or type(start_hour) is not int or type(end_hour) is not int
@@ -97,21 +115,29 @@ class PhotosSyncSchedule:
         self._wake.set()
         return self.describe(source_id)
 
+    # Читает постоянный запрос автоматического сохранения одной копии.
+    # Читает SQLite-таблицы: photos_sync_requests.
     def _request(self, link_id):
         with self._db() as db:
             row = db.execute('SELECT * FROM photos_sync_requests WHERE link_id=?', (link_id,)).fetchone()
         return dict(row) if row else None
 
+    # Проверяет наличие включённого запроса расписания для копии.
+    # Использует self._request.
     def manages(self, link_id):
         row = self._request(link_id)
         return bool(row and row['enabled'])
 
+    # Включает запрос корневой копии и сбрасывает ожидание повторного запуска.
+    # Изменяет SQLite-таблицы: photos_sync_requests.
     def _arm(self, link_id):
         link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('''INSERT INTO photos_sync_requests(link_id) VALUES (?)
                 ON CONFLICT(link_id) DO UPDATE SET enabled=1,last_window=NULL,seen_result=NULL,retry_after=0,error='' ''', (link_id,))
 
+    # Регистрирует ручной запрос работы через расписание и проверяет немедленный запуск.
+    # Изменяет SQLite-таблицы: photos_sync_requests.
     def request(self, link_id, source_id=None):
         self.originals._link(link_id, source_id)
         link_id = self.libraries.root_copy(link_id)
@@ -123,11 +149,15 @@ class PhotosSyncSchedule:
         self._wake.set()
         return self.originals.summary(link_id)
 
+    # Отключает сохранённый запрос автоматической работы корневой копии.
+    # Изменяет SQLite-таблицы: photos_sync_requests.
     def cancel(self, link_id):
         link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE photos_sync_requests SET enabled=0 WHERE link_id=?', (link_id,))
 
+    # Добавляет к состоянию задания ожидание окна и ошибку расписания.
+    # Поля результата: scheduled.
     def decorate(self, link_id, job):
         request = self._request(link_id)
         if not request or not request['enabled']:
@@ -148,6 +178,8 @@ class PhotosSyncSchedule:
                 result['message'] = request['error']
         return result
 
+    # Запрашивает паузу активных оригиналов вне разрешённых часов.
+    # Читает SQLite-таблицы: photos_copy_links, photos_original_jobs.
     def _pause_outside_window(self):
         with self._db() as db:
             rows = list(db.execute('''SELECT j.link_id,l.source_id FROM photos_original_jobs j
@@ -158,11 +190,15 @@ class PhotosSyncSchedule:
                 self._arm_if_missing(row['link_id'])
                 self.originals.pause(row['link_id'], _scheduled=True)
 
+    # Сохраняет отсутствующий запрос для продолжения в следующем окне.
+    # Изменяет SQLite-таблицы: photos_sync_requests.
     def _arm_if_missing(self, link_id):
         link_id = self.libraries.root_copy(link_id)
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT OR IGNORE INTO photos_sync_requests(link_id) VALUES (?)', (link_id,))
 
+    # Выбирает один допустимый корневой запрос и запускает сохранение оригиналов.
+    # Изменяет SQLite-таблицы: photos_sync_requests.
     def tick(self):
         if not self._tick_lock.acquire(blocking=False):
             return
@@ -211,10 +247,14 @@ class PhotosSyncSchedule:
         finally:
             self._tick_lock.release()
 
+    # Запускает фоновый таймер проверки расписания.
+    # Обновляет состояние объекта: _thread.
     def start(self):
         if self._thread:
             return
         self._stop.clear()
+        # Проверяет расписание каждые 15 секунд и сохраняет работоспособность при ошибках.
+        # Обрабатывает ошибки: Exception.
         def run():
             while not self._stop.is_set():
                 try:
@@ -228,6 +268,8 @@ class PhotosSyncSchedule:
         self._thread = threading.Thread(target=run, name='photos-sync-schedule', daemon=True)
         self._thread.start()
 
+    # Останавливает таймер расписания и пробуждает ожидающий поток.
+    # Обновляет состояние объекта: _thread.
     def close(self):
         self._stop.set()
         self._wake.set()

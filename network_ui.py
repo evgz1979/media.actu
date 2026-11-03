@@ -4,6 +4,8 @@ from __future__ import annotations
 from nicegui import ui
 
 
+# Открывает диалог обнаружения серверов и выбора SMB-ресурсов.
+# Обрабатывает ошибки: Exception.
 async def show_network_dialog(request, format_date, on_changed):
     servers = []
     selected = None
@@ -41,10 +43,14 @@ async def show_network_dialog(request, format_date, on_changed):
                 share_list = ui.column().classes('nas-shares gap-0')
         ui.label('«Добавить» сохраняет ресурс в списке томов. «Подключить на M4» открывает Finder на M4; пароль приложение не запрашивает.').classes('s-note w-full')
 
+    # Показывает предупреждение сетевой операции внутри диалога.
+    # Использует warning.set_visibility.
     def show_warning(message):
         warning.text = message or ''
         warning.set_visibility(bool(message))
 
+    # Перерисовывает сохранённые и обнаруженные серверы NAS.
+    # Использует server_list.clear, ui.column, ui.column().classes и ещё 2.
     def render_servers():
         server_list.clear()
         with server_list:
@@ -58,6 +64,8 @@ async def show_network_dialog(request, format_date, on_changed):
                     ui.label(server['host']).classes('s-path s-muted')
                     ui.label('Найден в последнем поиске' if server['discovered'] else 'Сохранён ранее').classes('s-muted text-xs')
 
+    # Перерисовывает ресурсы выбранного сервера и доступные команды.
+    # Использует format_date, server.get, share_list.clear, shares_data.get, show_warning.
     def render_shares():
         share_list.clear()
         if not shares_data:
@@ -86,6 +94,8 @@ async def show_network_dialog(request, format_date, on_changed):
                             ui.button('Добавить', on_click=lambda s=share: remember_share(s)).props('outline dense no-caps color=dark')
                         ui.button('Подключить на M4', on_click=lambda s=share: remember_share(s, True)).props('flat dense no-caps color=dark')
 
+    # Запоминает ресурс и при запросе открывает подключение в Finder на Core.
+    # Обрабатывает ошибки: Exception.
     async def remember_share(share, connect=False):
         server_id = selected
         try:
@@ -101,6 +111,8 @@ async def show_network_dialog(request, format_date, on_changed):
         except Exception:
             show_warning('Не удалось выполнить действие. Проверь соединение с Core M4 и повтори.')
 
+    # Выбирает сервер и загружает его сохранённый список ресурсов.
+    # Асинхронно ожидает: load_shares.
     async def choose_server(server_id):
         nonlocal selected, shares_data
         selected, shares_data = server_id, None
@@ -108,6 +120,8 @@ async def show_network_dialog(request, format_date, on_changed):
         share_list.clear()
         await load_shares(True)
 
+    # Получает ресурсы выбранного сервера с необязательным обновлением.
+    # Обрабатывает ошибки: Exception.
     async def load_shares(refresh):
         nonlocal shares_data
         if not selected:
@@ -127,6 +141,8 @@ async def show_network_dialog(request, format_date, on_changed):
         finally:
             reload_button.set_enabled(bool(selected))
 
+    # Запускает поиск NAS и обновляет список серверов диалога.
+    # Обрабатывает ошибки: Exception.
     async def scan():
         nonlocal servers
         scan_button.disable()

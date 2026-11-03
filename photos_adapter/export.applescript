@@ -1,3 +1,5 @@
+-- Сохраняет прежний сценарий экспорта производной версии объекта Photos.
+-- Текущих вызовов в проекте не найдено; скрипт сохранён для описания старой реализации.
 on run arguments
     set assetIdentifier to item 1 of arguments
     set outputDirectory to item 2 of arguments

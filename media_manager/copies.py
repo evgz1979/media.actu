@@ -57,11 +57,15 @@ CREATE INDEX IF NOT EXISTS released_copy_locations_group ON released_copy_locati
 ''' + FOLDER_MARKER_SCHEMA
 
 
+# Формирует метку main, copy, copy-cold или copy-cloud с номером.
+# Параметры: kind, number.
 def copy_label(kind, number):
     suffix = {'main': 'main', 'copy': 'copy', 'cold': 'copy-cold', 'cloud': 'copy-cloud'}[kind]
     return f'{number:02d}-{suffix}'
 
 
+# Рассчитывает необходимые изменения нумерации с учётом освобождённых номеров.
+# Использует copy_label, count, zip.
 def numbering_changes(copies, released_numbers=()):
     reusable = set(released_numbers) - {location['number'] for location in copies}
     numbers = (number for number in count(1) if number not in reusable)
@@ -70,6 +74,8 @@ def numbering_changes(copies, released_numbers=()):
             for number, location in zip(numbers, copies) if location['number'] != number]
 
 
+# Выбирает свободный номер либо требует предварительного устранения пропусков.
+# Использует numbering_changes.
 def next_copy_number(copies, released_numbers=()):
     if numbering_changes(copies, released_numbers):
         return None
@@ -77,6 +83,8 @@ def next_copy_number(copies, released_numbers=()):
     return min((set(released_numbers) - occupied) | {max(occupied, default=0) + 1})
 
 
+# Находит наиболее глубокую зарегистрированную область, содержащую путь.
+# Поля результата: label, is_root, inherited_from.
 def inherited_location(path, locations):
     parents = [location for location in locations
                if not location['path'] or path == location['path'] or path.startswith(location['path'] + '/')]
@@ -87,6 +95,8 @@ def inherited_location(path, locations):
             'is_root': path == location['path'], 'inherited_from': None if path == location['path'] else location['path']}
 
 
+# Возвращает только подключённые области для наследования ролей в дереве.
+# Читает SQLite-таблицы: copy_locations, disconnected_copy_groups, disconnected_copy_locations.
 def active_locations(db, volume_id):
     """Roles for ordinary browsing; disconnected links remain in the catalog."""
     return [dict(row) for row in db.execute('''
@@ -97,10 +107,16 @@ def active_locations(db, volume_id):
     ''', (volume_id,))]
 
 
+# Управляет связями основных папок и копий в каталоге хранилищ.
+# Зависимости конструктора: storage.
 class CopyCatalog:
+    # Инициализирует CopyCatalog и его рабочее состояние.
+    # Обновляет состояние объекта: storage.
     def __init__(self, storage):
         self.storage = storage
 
+    # Ставит актуальные описания папок набора в транзакционную очередь маркеров.
+    # Читает SQLite-таблицы: copy_locations, disconnected_copy_groups, disconnected_copy_locations, released_copy_locations.
     @staticmethod
     def _queue_folder_markers(db, group_id=None):
         mains = {row['group_id']:row for row in db.execute('SELECT id,group_id,path FROM copy_locations WHERE number=0')}
@@ -121,11 +137,15 @@ class CopyCatalog:
                                   type=location['kind'],label=copy_label(location['kind'],location['number']),
                                   status=status,created_at=location['created_at']))
 
+    # Обновляет очередь служебных описаний всех зарегистрированных папок.
+    # Использует db.execute, self._queue_folder_markers, self.storage.connect.
     def queue_folder_markers(self):
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self._queue_folder_markers(db)
 
+    # Ставит отметку удаления связи в описание прежней папки.
+    # Читает SQLite-таблицы: folder_marker_jobs.
     @staticmethod
     def _queue_removed_marker(db, location_id):
         row = db.execute('SELECT payload FROM folder_marker_jobs WHERE location_id=?',(location_id,)).fetchone()
@@ -135,6 +155,8 @@ class CopyCatalog:
             payload['status'] = 'removed'
             queue_marker(db,payload)
 
+    # Проверяет том и известность папки перед регистрацией связи.
+    # Явно отклоняет недопустимое состояние через ValueError.
     def _folder(self, volume_id, path):
         # metadata validates the relative path and remembered volume without touching files.
         self.storage.metadata(volume_id, path)
@@ -152,6 +174,8 @@ class CopyCatalog:
                 raise ValueError('Выбери известную папку в дереве.')
         return path
 
+    # Запрещает пересечение зарегистрированных областей на одном томе.
+    # Явно отклоняет недопустимое состояние через ValueError.
     @staticmethod
     def _check_overlap(db, volume_id, path):
         for location in db.execute('SELECT path,kind,number FROM copy_locations WHERE volume_id=?', (volume_id,)):
@@ -160,6 +184,8 @@ class CopyCatalog:
                 raise ValueError('Папка пересекается с областью ' + copy_label(location['kind'], location['number']) +
                                  '. Метка должна однозначно распространяться на все вложенные папки.')
 
+    # Собирает наборы папок, доступность, источники, маркеры и состояние нумерации.
+    # Читает SQLite-таблицы: copy_group_settings, copy_groups, copy_locations, copy_sources, disconnected_copy_groups, disconnected_copy_locations и ещё 2.
     def groups(self):
         volumes = {v['id']: v for v in self.storage.refresh()['volumes']}
         with self.storage.connect() as db:
@@ -209,6 +235,8 @@ class CopyCatalog:
                 group['next_number'] = next_copy_number(group['copies'], released)
         return groups
 
+    # Меняет источник копии внутри набора с проверкой доступности и циклов.
+    # Изменяет SQLite-таблицы: copy_sources.
     def set_copy_source(self, location_id, source_id):
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -233,12 +261,16 @@ class CopyCatalog:
                 db.execute('INSERT OR REPLACE INTO copy_sources VALUES (?,?)', (location_id, source_id))
         return self.group(target['group_id'])
 
+    # Возвращает набор папок по ID либо поднимает KeyError.
+    # Явно отклоняет недопустимое состояние через KeyError.
     def group(self, group_id):
         group = next((group for group in self.groups() if group['id'] == group_id), None)
         if group is None:
             raise KeyError('Группа копий не найдена')
         return group
 
+    # Создаёт набор с основной папкой 00-main и очередью её маркера.
+    # Изменяет SQLite-таблицы: copy_groups, copy_locations.
     def create_main(self, volume_id, path):
         with self.storage._lock:
             path = self._folder(volume_id, path)
@@ -258,6 +290,8 @@ class CopyCatalog:
                 self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
+    # Обновляет отслеживание изменений и смысловую метку основной папки.
+    # Изменяет SQLite-таблицы: copy_group_settings.
     def update_group(self, group_id, changes):
         if not changes or set(changes) - {'tracking', 'label'}:
             raise ValueError('Нужна метка папки или настройка отслеживания')
@@ -274,12 +308,16 @@ class CopyCatalog:
                 db.execute(f'UPDATE copy_group_settings SET {key}=? WHERE group_id=?', (value, group_id))
         return self.group(group_id)
 
+    # Фиксирует время замеченного изменения основной папки.
+    # Изменяет SQLite-таблицы: copy_group_settings.
     def mark_changed(self, group_id):
         with self.storage.connect() as db:
             db.execute('''UPDATE copy_group_settings SET changed_at=? WHERE group_id=? AND tracking=1
                           AND NOT EXISTS (SELECT 1 FROM disconnected_copy_groups WHERE group_id=copy_group_settings.group_id)''',
                        (datetime.now(timezone.utc).isoformat(), group_id))
 
+    # Подключает или отключает набор без удаления его истории и файлов.
+    # Изменяет SQLite-таблицы: disconnected_copy_groups.
     def set_group_connected(self, group_id, connected):
         if type(connected) is not bool:
             raise ValueError('Нужно включить или отключить связь')
@@ -295,6 +333,8 @@ class CopyCatalog:
             self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
+    # Меняет подключение отдельной копии с проверкой зависимых источников.
+    # Изменяет SQLite-таблицы: copy_locations, disconnected_copy_locations, released_copy_locations.
     def set_copy_connected(self, location_id, connected):
         if type(connected) is not bool:
             raise ValueError('Нужно включить или отключить связь')
@@ -325,6 +365,8 @@ class CopyCatalog:
             self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
+    # Архивирует отключённую привязку и освобождает подтверждённый номер.
+    # Изменяет SQLite-таблицы: copy_locations, released_copy_locations.
     def release_copy_number(self, location_id, number, kind):
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -352,6 +394,8 @@ class CopyCatalog:
             self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
+    # Снимает уведомление об изменениях только для ожидаемой версии отметки.
+    # Изменяет SQLite-таблицы: copy_group_settings.
     def acknowledge_changes(self, group_id, changed_at):
         with self.storage.connect() as db:
             if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
@@ -361,6 +405,8 @@ class CopyCatalog:
                        (group_id, changed_at))
         return self.group(group_id)
 
+    # Регистрирует непересекающуюся папку копии со следующим допустимым номером.
+    # Изменяет SQLite-таблицы: copy_groups, copy_locations.
     def add_copy(self, group_id, volume_id, path, kind='copy'):
         if kind not in COPY_KINDS:
             raise ValueError('Неизвестный тип копии')
@@ -392,6 +438,8 @@ class CopyCatalog:
                 self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
+    # Меняет тип существующей копии с обновлением служебного описания.
+    # Изменяет SQLite-таблицы: copy_locations.
     def change_kind(self, location_id, kind):
         if kind not in COPY_KINDS:
             raise ValueError('Неизвестный тип копии')
@@ -406,6 +454,8 @@ class CopyCatalog:
             self._queue_folder_markers(db,location['group_id'])
         return self.group(location['group_id'])
 
+    # Удаляет связь копии из учёта и ставит маркер removed.
+    # Изменяет SQLite-таблицы: copy_groups, copy_locations, released_copy_locations.
     def remove_copy(self, location_id):
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -427,6 +477,8 @@ class CopyCatalog:
                                      (location['group_id'],)).fetchone()[0]
             db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (next_number, location['group_id']))
 
+    # Перенумеровывает копии после проверки переданного снимка текущих связей.
+    # Изменяет SQLite-таблицы: copy_groups, copy_locations.
     def renumber_copies(self, group_id, expected_copies):
         with self.storage._lock, self.storage.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -444,6 +496,8 @@ class CopyCatalog:
             self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
+    # Удаляет набор из учёта, сохраняя пользовательские файлы.
+    # Изменяет SQLite-таблицы: copy_groups.
     def remove_group(self, group_id):
         with self.storage._lock, self.storage.connect() as db:
             if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():

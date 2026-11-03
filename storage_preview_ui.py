@@ -31,7 +31,11 @@ PREVIEW_CSS = '''
 '''
 
 
+# Управляет превью выбранного файла или плитками папки одной панели.
+# Зависимости конструктора: pane.
 class StoragePreview:
+    # Инициализирует StoragePreview и его рабочее состояние.
+    # Обновляет состояние объекта: content, data, entry, generation, kind, limit, loading, pane, path, pending_images, preview_revision, volume_id, ws.
     def __init__(self, pane):
         self.pane = pane
         self.ws = pane.workspace
@@ -48,11 +52,15 @@ class StoragePreview:
         self.content = ui.column().classes('storage-preview')
         self.content.set_visibility(False)
 
+    # Возвращает компактное состояние превью для восстановления вкладки.
+    # Поля результата: volume_id, path, kind.
     def snapshot(self):
         if self.volume_id is None:
             return None
         return dict(volume_id=self.volume_id, path=self.path, kind=self.kind)
 
+    # Загружает выбранный объект или папку и отбрасывает устаревшие ответы.
+    # Обновляет состояние объекта: data, entry, generation, kind, limit, loading, path, preview_revision, volume_id.
     async def show(self, volume_id, entry):
         self.generation += 1
         generation = self.generation
@@ -97,16 +105,24 @@ class StoragePreview:
             self.loading = False
             self.render()
 
+    # Открывает папку внутри текущей панели превью.
+    # Асинхронно ожидает: self.show.
     async def open_folder(self, path):
         await self.show(self.volume_id, dict(path=path, kind='directory', name=PurePosixPath(path).name))
 
+    # Переходит к родительскому пути текущего превью.
+    # Асинхронно ожидает: self.open_folder.
     async def parent(self):
         await self.open_folder(relative_path(str(PurePosixPath(self.path).parent)))
 
+    # Повторно загружает текущую папку или объект превью.
+    # Асинхронно ожидает: self.show.
     async def refresh(self):
         if self.volume_id:
             await self.show(self.volume_id, self.entry)
 
+    # Обновляет путь и подписи панели превью.
+    # Использует (self.entry or {}).get, data.get, pane.folder_size.set_visibility, pane.hidden.set_visibility, pane.location.set_visibility.
     def update_header(self):
         pane = self.pane
         pane.heading.text = pane.title
@@ -137,18 +153,24 @@ class StoragePreview:
                             'Сохранённый список · ' + self.ws.format_date(data.get('scanned_at')) if data.get('cached') else
                             f"Элементов: {data.get('total', len(data.get('entries', [])))}" if self.kind == 'directory' else 'Превью · оригинал только для чтения')
 
+    # Выбирает URL готового Photos-превью или производного JPEG файлового тома.
+    # Использует entry.get, quote, self.ws.core_url.rstrip, str(large).lower, urlencode.
     def image_url(self, entry, *, large=False):
         if entry.get('media_id'):
             return self.ws.core_url.rstrip('/') + f"/api/media/{entry['media_id']}/thumbnail?v={self.preview_revision or 0}"
         params = dict(path=entry['path'], large=str(large).lower(), v=entry.get('modified_at') or entry.get('mtime_ns') or '')
         return self.ws.core_url.rstrip('/') + f'/api/storage/volumes/{quote(self.volume_id, safe="")}/preview?' + urlencode(params)
 
+    # Создаёт элемент изображения с выбранным размером превью.
+    # Использует entry.get, preview.add_slot, self.image_url, ui.image, ui.image(self.image_url(entry, large=large)).props.
     def image(self, entry, *, large=False):
         preview = ui.image(self.image_url(entry, large=large)).props('fit=contain loading=lazy').classes('preview-image' if large else '')
         preview.add_slot('error', '<div class="preview-image-error">Превью недоступно</div>')
         if entry.get('media_id') and not entry.get('preview_ready'):
             self.pending_images[entry['media_id']] = (preview, entry)
 
+    # Проверяет готовность ожидаемых Photos-превью и обновляет изображения.
+    # Обновляет состояние объекта: preview_revision.
     async def refresh_pending(self, revision):
         if not self.pending_images or self.preview_revision == revision or self.loading:
             return
@@ -166,6 +188,8 @@ class StoragePreview:
                 preview.set_source(self.image_url(entry))
                 self.pending_images.pop(media_id, None)
 
+    # Догружает следующую страницу плиток текущей папки.
+    # Обновляет состояние объекта: data, limit.
     async def more(self):
         self.limit += 120
         if self.data and self.data.get('has_more') and self.limit > len(self.data['entries']):
@@ -173,6 +197,8 @@ class StoragePreview:
             self.data = dict(data, entries=self.data['entries'] + data['entries'])
         self.render()
 
+    # Перерисовывает выбранный файл, состояние ожидания или плитки папки.
+    # Использует ' · '.join, Path, PurePosixPath, details.append, entry.get.
     def render(self):
         if self.pane.view_mode != 'preview':
             return
@@ -207,6 +233,8 @@ class StoragePreview:
                 details.append(self.ws.format_date(entry['modified_at']))
             ui.label(' · '.join(details)).classes('preview-info')
 
+    # Показывает плитки папок и файлов с командами открытия и выбора.
+    # Использует Path, data.get, e['name'].startswith, entry.get, media_kind.
     def render_folder(self):
         data = self.data or {}
         if data.get('error'):

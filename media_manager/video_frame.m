@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+// Передаёт AVFoundation диапазоны уже проверенного файлового дескриптора.
+// Декодер не открывает исходный путь повторно и не следует заменённым ссылкам.
 @interface DescriptorLoader : NSObject <AVAssetResourceLoaderDelegate>
 @property int descriptor;
 @property long long length;
@@ -12,6 +14,8 @@
 @end
 
 @implementation DescriptorLoader
+// Отвечает на запрос диапазона байтов через pread без изменения позиции дескриптора.
+// Ограничивает чтение длиной файла и завершает запрос ошибкой при неполном чтении.
 - (BOOL)resourceLoader:(AVAssetResourceLoader *)loader shouldWaitForLoadingOfRequestedResource:(AVAssetResourceLoadingRequest *)request {
     AVAssetResourceLoadingContentInformationRequest *info = request.contentInformationRequest;
     info.contentType = self.contentType;
@@ -39,6 +43,8 @@
 
 // The parent passes an already checked, read-only descriptor, never a pathname
 // that a media decoder could follow through a substituted link.
+// Извлекает первый кадр видео и возвращает JPEG через stdout.
+// Получает FD, ширину, высоту и расширение; сохраняет ориентацию и пределы размера.
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         if (argc != 5) return 2;

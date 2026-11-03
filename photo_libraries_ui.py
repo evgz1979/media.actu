@@ -18,6 +18,8 @@ LIBRARY_CSS = '''
 '''
 
 
+# Формирует подпись прогресса превью одной медиатеки.
+# Использует f'Превью {done:,} / {total:,} · {percent}'.replace, library.get.
 def progress_text(library):
     done = int(library.get('thumbnail_done') or 0)
     total = int(library.get('thumbnail_total') or 0)
@@ -25,6 +27,8 @@ def progress_text(library):
     return f'Превью {done:,} / {total:,} · {percent}'.replace(',', ' ')
 
 
+# Форматирует прогресс объектов и ресурсов привязанной копии Photos.
+# Использует copy.get, f' · {done:,} / {total:,}'.replace, job.get.
 def originals_text(copy):
     job = copy.get('originals') or {}
     title = (f"Из {copy.get('source_label','копии')}" if copy.get('source_link_id') else 'Оригиналы из Photos') + f" · {copy['number']:02d}-copy"
@@ -34,6 +38,8 @@ def originals_text(copy):
     return title + f' · {done:,} / {total:,}'.replace(',', ' ')
 
 
+# Преобразует техническое состояние сохранения оригиналов в подпись UI.
+# Использует copy.get, f"Проверка файлов: {job.get('checked_files', 0):,}".replace, job.get.
 def originals_state(copy):
     job = copy.get('originals') or {}
     state = job.get('state', 'idle')
@@ -46,11 +52,15 @@ def originals_state(copy):
     return job.get('message', 'Сохранение ещё не запускалось')
 
 
+# Формирует подпись настройки ночного окна медиатеки.
+# Использует library.get, schedule.get.
 def schedule_text(library):
     schedule = library.get('sync_schedule') or {}
     return 'Только ночью · ' + schedule.get('window', '00:00–07:00 МСК') if schedule.get('night_only') else ''
 
 
+# Определяет пользовательскую подпись доступности и паузы медиатеки.
+# Использует (library.get('sync_schedule') or {}).get, library.get.
 def library_state(library):
     state = library.get('connection_state')
     if state == 'no_access':
@@ -72,7 +82,11 @@ def library_state(library):
     return 'Есть ошибки превью' if library.get('thumbnail_error') else 'Превью готовы'
 
 
+# Показывает медиатеки, привязанные копии, расписание и команды оригиналов.
+# Зависимости конструктора: workspace.
 class PhotoLibrariesUI:
+    # Инициализирует PhotoLibrariesUI и его рабочее состояние.
+    # Обновляет состояние объекта: busy, copy_roles_signature, libraries, refreshing, rows, signature, ws.
     def __init__(self, workspace):
         self.ws = workspace
         self.libraries = []
@@ -81,6 +95,8 @@ class PhotoLibrariesUI:
         self.copy_roles_signature = None
         self.busy = self.refreshing = False
 
+    # Находит копию медиатеки, содержащую выбранный файловый путь.
+    # Поля результата: label, is_root, inherited_from, media_library.
     def copy_membership(self, volume_id, path):
         for library in self.libraries:
             for copy in library.get('copies', []):
@@ -89,6 +105,8 @@ class PhotoLibrariesUI:
                                 inherited_from=None, media_library=library.get('label') or 'Photos')
         return None
 
+    # Обновляет метки копий Photos в уже загруженных деревьях.
+    # Обновляет состояние объекта: copy_roles_signature.
     def refresh_copy_roles(self):
         signature = tuple((library['id'], library.get('label'),
                            tuple((c['id'], c['volume_id'], c['path'], c['number'], c.get('connected', True))
@@ -101,12 +119,16 @@ class PhotoLibrariesUI:
             if pane.view_mode == 'tree' and pane.volume_id and not self.ws.is_photos(pane.volume_id):
                 pane.render()
 
+    # Представляет сохранённые медиатеки как виртуальные тома рабочего пространства.
+    # Использует s.get.
     def volumes(self):
         return [dict(id=f"photos-{s['id']}", source_id=s['id'], kind='photos',
                      name=s.get('label') or 'Photos', display_name=s.get('label') or 'Photos',
                      mount_path=None, availability='online' if s['active'] else 'offline',
                      mounted=False, identity_status='virtual', library=s) for s in self.libraries]
 
+    # Создаёт сворачиваемую секцию списка медиатек.
+    # Обновляет состояние объекта: add_button, cards, connect_button, note, permission_button, section.
     def build(self):
         ui.add_css(LIBRARY_CSS)
         with self.ws.sidebar_expansion('libraries', 'Медиатеки', icon='photo_library').props('dense').classes('copy-section w-full') as self.section:
@@ -118,6 +140,8 @@ class PhotoLibrariesUI:
                 self.add_button = ui.button('Добавить текущую медиатеку', icon='add', on_click=self.add).props('flat no-caps color=dark')
         self.permission_button.set_visibility(False)
 
+    # Обновляет данные медиатек и перерисовывает изменившиеся состояния.
+    # Обновляет состояние объекта: libraries, refreshing, signature.
     async def refresh(self):
         if self.refreshing or self.ws.client.is_deleted:
             return
@@ -172,12 +196,16 @@ class PhotoLibrariesUI:
         finally:
             self.refreshing = False
 
+    # Создаёт общие команды доступа, подключения и добавления медиатеки.
+    # Использует menu.on, ui.context_menu.
     def menu(self):
         menu = ui.context_menu()
         menu.on('show', lambda: setattr(self.ws, 'context_menu_open', True))
         menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
         return menu
 
+    # Перерисовывает записи медиатек, индикаторы и контекстные меню копий.
+    # Использует (copy.get('originals') or {}).get, (library.get('sync_schedule') or {}).get, copy.get, job.get, library.get.
     def render(self):
         self.cards.clear()
         self.rows.clear()
@@ -238,6 +266,8 @@ class PhotoLibrariesUI:
                                 ui.separator()
                                 ui.menu_item('Отвязать копию', on_click=lambda sid=source_id, c=copy: self.unbind(sid, c))
 
+    # Исполняет запрос Photos с единым обновлением UI и обработкой ошибки.
+    # Обновляет состояние объекта: busy, signature.
     async def action(self, method, path, *, timeout=45, **kwargs):
         if self.busy:
             return
@@ -251,22 +281,32 @@ class PhotoLibrariesUI:
             self.signature = None
             await self.refresh()
 
+    # Запрашивает разрешение на доступ к Photos через Core.
+    # Асинхронно ожидает: self.action.
     async def authorize(self):
         await self.action('POST', '/api/photos/authorize', timeout=700)
 
+    # Повторяет сопоставление текущей системной медиатеки с сохранённым профилем.
+    # Асинхронно ожидает: self.action.
     async def connect(self):
         await self.action('POST', '/api/photos/libraries/connect')
 
+    # Переключает ручную паузу выбранной медиатеки.
+    # Асинхронно ожидает: self.action.
     async def toggle(self, library):
         action = 'resume' if library['paused'] or not library['active'] else 'pause'
         await self.action('POST', f"/api/photos/libraries/{library['id']}/{action}")
 
+    # Включает или выключает ограничение синхронизации ночным окном.
+    # Асинхронно ожидает: self.action.
     async def toggle_schedule(self, library):
         settings = library.get('sync_schedule') or {}
         await self.action('PATCH', f"/api/photos/libraries/{library['id']}/sync-schedule", json={
             'night_only': not settings.get('night_only', False),
             'start_hour': settings.get('start_hour', 0), 'end_hour': settings.get('end_hour', 7)})
 
+    # Показывает настройку часов разрешённого окна по Москве.
+    # Асинхронно ожидает: self.action.
     async def schedule_dialog(self, library):
         settings = library.get('sync_schedule') or {}
         with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
@@ -283,9 +323,13 @@ class PhotoLibrariesUI:
             await self.action('PATCH', f"/api/photos/libraries/{library['id']}/sync-schedule", json={
                 'night_only': enabled.value, 'start_hour': start.value, 'end_hour': end.value})
 
+    # Запрашивает ручное обновление индекса выбранной медиатеки.
+    # Асинхронно ожидает: self.action.
     async def scan(self, source_id):
         await self.action('POST', f'/api/sources/{source_id}/scan', timeout=650)
 
+    # Показывает ввод названия медиатеки и возвращает подтверждённое значение.
+    # Использует title.startswith, ui.button, ui.button('Отмена', on_click=lambda : dialog.submit(None)).props и ещё 2.
     async def name_dialog(self, title, value):
         with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
             ui.label(title).classes('text-lg font-semibold')
@@ -297,16 +341,22 @@ class PhotoLibrariesUI:
                 ui.button('Сохранить', on_click=lambda: dialog.submit((name.value or '').strip())).props('unelevated no-caps color=green-9')
         return await dialog
 
+    # Добавляет текущую системную медиатеку под выбранным названием.
+    # Асинхронно ожидает: self.action, self.name_dialog.
     async def add(self):
         name = await self.name_dialog('Сохранить текущую медиатеку Photos', f'Photos {len(self.libraries) + 1}')
         if name:
             await self.action('POST', '/api/photos/libraries', json={'label': name})
 
+    # Меняет пользовательское название сохранённой медиатеки.
+    # Асинхронно ожидает: self.action, self.name_dialog.
     async def rename(self, library):
         name = await self.name_dialog('Название медиатеки', library.get('label') or 'Photos')
         if name:
             await self.action('PATCH', f"/api/photos/libraries/{library['id']}", json={'label': name})
 
+    # Привязывает выбранную файловую папку к медиатеке после проверки выбора.
+    # Асинхронно ожидает: self.action.
     async def bind(self, library):
         scope = self.ws.panes[1].scope()
         if not scope or not scope['path']:
@@ -324,14 +374,20 @@ class PhotoLibrariesUI:
         if await dialog:
             await self.action('POST', f"/api/photos/libraries/{library['id']}/copies", json=scope)
 
+    # Отключает выбранную привязку копии медиатеки через Core.
+    # Асинхронно ожидает: self.action.
     async def unbind(self, source_id, copy):
         await self.action('DELETE', f"/api/photos/libraries/{source_id}/copies/{copy['id']}")
 
 
+    # Запускает или приостанавливает сохранение оригиналов выбранной копии.
+    # Асинхронно ожидает: self.action.
     async def originals_action(self, source_id, copy, running):
         action = 'pause' if running else 'start'
         await self.action('POST', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/{action}")
 
+    # Показывает выбор Photos или другой копии как источника оригиналов.
+    # Асинхронно ожидает: self.action.
     async def copy_source_dialog(self, library, copy):
         choices = {'photos':'Photos · системная медиатека'}
         choices.update({c['id']:f"{c['number']:02d}-copy · {c['volume_name']} /{c['path']}"
@@ -348,6 +404,8 @@ class PhotoLibrariesUI:
         if value:
             await self.action('PATCH',f"/api/photos/libraries/{library['id']}/copies/{copy['id']}/source",json={'source_id':None if value=='photos' else value})
 
+    # Показывает события сохранения и пути незавершённых оригиналов.
+    # Обрабатывает ошибки: Exception.
     async def originals_journal(self, source_id, copy):
         try:
             data = await self.ws.request('GET', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/journal")

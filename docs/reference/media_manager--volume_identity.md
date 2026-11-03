@@ -1,0 +1,302 @@
+# Идентичность носителей: `media_manager/volume_identity.py`
+
+Проверяет и создаёт маркеры сменных носителей, ограничивает пути и открывает корень тома по дескриптору. Отделяет служебные файлы приложения от пользовательского дерева.
+
+[Исходный модуль](../../media_manager/volume_identity.py)
+ · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
+
+## Связи модуля
+
+Импортирует из проекта: прямых импортов нет.
+Импортируется модулями: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/directory_sizes.py](media_manager--directory_sizes.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/folder_tracking.py](media_manager--folder_tracking.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/storage.py](media_manager--storage.md), [workspace_ui.py](workspace_ui.md).
+Тестовые модули с прямым импортом: [tests/test_folder_markers.py](../../tests/test_folder_markers.py#L17), [tests/test_volume_identity.py](../../tests/test_volume_identity.py#L17).
+
+## Оглавление определений
+
+- [copy_temporary](#symbol-copy-temporary) — Распознаёт только собственный формат промежуточного имени копирования.
+- [service_file](#symbol-service-file) — Определяет служебные файлы приложения, исключаемые из обхода и сверок.
+- [usb_share](#symbol-usb-share) — Распознаёт имя сменного USB-ресурса NAS вида usbshare.
+- [canonical_host](#symbol-canonical-host) — Нормализует адрес сервера, включая суффикс Bonjour SMB.
+- [mounted_root](#symbol-mounted-root) — Открывает корневой каталог без symlink и проверяет ожидаемый device.
+- [_read_marker_document](#symbol--read-marker-document) — Читает ограниченный JSON носителя и проверяет UUID, версию и имя.
+- [read_marker](#symbol-read-marker) — Возвращает проверенный ID и название маркера носителя либо None.
+- [validate_name](#symbol-validate-name) — Проверяет длину и допустимые символы названия носителя.
+- [verify_identity](#symbol-verify-identity) — Проверяет подтверждённость тома и соответствие текущего служебного ID.
+- [create_marker](#symbol-create-marker) — Создаёт новый маркер носителя без замены существующего файла.
+- [rename_marker](#symbol-rename-marker) — Атомарно меняет название только у подтверждённого маркера носителя.
+- [read_capacity](#symbol-read-capacity) — Вычисляет ёмкость и доступное место по fstatvfs открытого тома.
+
+## Константы и значения по умолчанию
+
+| Имя | Выражение в коде |
+| --- | --- |
+| [MARKER_NAME](../../media_manager/volume_identity.py#L13) | `'.media-actu-volume.json'` |
+| [MARKER_FILES](../../media_manager/volume_identity.py#L14) | `frozenset((MARKER_NAME, '._' + MARKER_NAME))` |
+| [FOLDER_MARKER_NAME](../../media_manager/volume_identity.py#L15) | `'.media-actu-folder.json'` |
+| [FOLDER_MARKER_FILES](../../media_manager/volume_identity.py#L16) | `frozenset((FOLDER_MARKER_NAME, '._' + FOLDER_MARKER_NAME))` |
+| [MARKER_LIMIT](../../media_manager/volume_identity.py#L17) | `4096` |
+| [COPY_TEMP_PATTERN](../../media_manager/volume_identity.py#L18) | `re.compile('\\.media-actu-copy-[a-f0-9]{32}-[a-f0-9]{32}\\.part\\Z')` |
+
+<a id="symbol-copy-temporary"></a>
+
+## `copy_temporary`
+
+[media_manager/volume_identity.py:23](../../media_manager/volume_identity.py#L23)
+
+Распознаёт только собственный формат промежуточного имени копирования. Использует COPY_TEMP_PATTERN.fullmatch.
+
+```python
+def copy_temporary(name: str) -> bool
+```
+
+Прямые выражения вызова: `COPY_TEMP_PATTERN.fullmatch`, `bool`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `bool(COPY_TEMP_PATTERN.fullmatch(name))`
+
+
+<a id="symbol-service-file"></a>
+
+## `service_file`
+
+[media_manager/volume_identity.py:29](../../media_manager/volume_identity.py#L29)
+
+Определяет служебные файлы приложения, исключаемые из обхода и сверок. Использует copy_temporary.
+
+```python
+def service_file(name: str, *, volume_root: bool=False) -> bool
+```
+
+Прямые выражения вызова: [copy_temporary](../../media_manager/volume_identity.py#L23).
+
+Выражения возврата (ветви, без исполнения):
+
+- `copy_temporary(name) or name in FOLDER_MARKER_FILES or (volume_root and name in MARKER_FILES)`
+
+
+<a id="symbol-usb-share"></a>
+
+## `usb_share`
+
+[media_manager/volume_identity.py:35](../../media_manager/volume_identity.py#L35)
+
+Распознаёт имя сменного USB-ресурса NAS вида usbshare. Использует re.fullmatch.
+
+```python
+def usb_share(name: str) -> bool
+```
+
+Прямые выражения вызова: `bool`, `re.fullmatch`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `bool(re.fullmatch('usbshare\\d+(?:[-_].*)?', name, re.IGNORECASE))`
+
+
+<a id="symbol-canonical-host"></a>
+
+## `canonical_host`
+
+[media_manager/volume_identity.py:41](../../media_manager/volume_identity.py#L41)
+
+Нормализует адрес сервера, включая суффикс Bonjour SMB. Использует host.endswith, host.rstrip, host.rstrip('.').casefold, host[:-len(suffix)].removesuffix.
+
+```python
+def canonical_host(host: str) -> str
+```
+
+Прямые выражения вызова: `host.endswith`, `host.rstrip`, `host.rstrip('.').casefold`, `host[:-len(suffix)].removesuffix`, `len`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `host`
+
+
+<a id="symbol-mounted-root"></a>
+
+## `mounted_root`
+
+[media_manager/volume_identity.py:52](../../media_manager/volume_identity.py#L52)
+
+Открывает корневой каталог без symlink и проверяет ожидаемый device. Явно отклоняет недопустимое состояние через OSError.
+
+```python
+def mounted_root(path: str, device: int | None=None)
+```
+
+Декораторы: `contextmanager`.
+
+Прямые выражения вызова: `OSError`, `os.close`, `os.fstat`, `os.open`.
+
+Явные `raise`:
+
+- `OSError('Том был отключён или заменён')`
+
+Передаёт управление через `yield`; ресурс и освобождение см. в теле контекстного менеджера.
+
+
+<a id="symbol--read-marker-document"></a>
+
+## `_read_marker_document`
+
+[media_manager/volume_identity.py:64](../../media_manager/volume_identity.py#L64)
+
+Читает ограниченный JSON носителя и проверяет UUID, версию и имя. Явно отклоняет недопустимое состояние через OSError, ValueError.
+
+```python
+def _read_marker_document(root: int) -> dict | None
+```
+
+Прямые выражения вызова: `OSError`, `ValueError`, `isinstance`, `json.loads`, `len`, `marker.get`, `os.close`, `os.fdopen`, `os.fstat`, `os.open`, `stat.S_ISREG`, `str`, `stream.read`, `type`, `uuid.UUID`, [validate_name](../../media_manager/volume_identity.py#L102).
+
+Явные `raise`:
+
+- `OSError('Некорректный служебный файл носителя')`
+- `OSError('Служебный файл носителя слишком большой')`
+- `ValueError('version')`
+- `ValueError('empty UUID')`
+- `OSError('Не удалось подтвердить ID в служебном файле носителя')`
+
+Перехватываемые типы: `FileNotFoundError`, `(ValueError, TypeError, KeyError, AttributeError)`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+- `marker`
+
+
+<a id="symbol-read-marker"></a>
+
+## `read_marker`
+
+[media_manager/volume_identity.py:95](../../media_manager/volume_identity.py#L95)
+
+Возвращает проверенный ID и название маркера носителя либо None. Использует _read_marker_document, marker['name'].strip, uuid.UUID.
+
+```python
+def read_marker(root: int) -> dict | None
+```
+
+Прямые выражения вызова: [_read_marker_document](../../media_manager/volume_identity.py#L64), `marker['name'].strip`, `str`, `uuid.UUID`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `{'id': str(uuid.UUID(marker['id'])), 'name': marker['name'].strip()} if marker else None`
+
+
+<a id="symbol-validate-name"></a>
+
+## `validate_name`
+
+[media_manager/volume_identity.py:102](../../media_manager/volume_identity.py#L102)
+
+Проверяет длину и допустимые символы названия носителя. Явно отклоняет недопустимое состояние через ValueError.
+
+```python
+def validate_name(name: str) -> None
+```
+
+Прямые выражения вызова: `ValueError`, `any`, `isinstance`, `len`, `name.strip`, `ord`.
+
+Явные `raise`:
+
+- `ValueError('Нужно имя носителя длиной от 1 до 120 символов без управляющих знаков')`
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-verify-identity"></a>
+
+## `verify_identity`
+
+[media_manager/volume_identity.py:109](../../media_manager/volume_identity.py#L109)
+
+Проверяет подтверждённость тома и соответствие текущего служебного ID. Явно отклоняет недопустимое состояние через OSError.
+
+```python
+def verify_identity(root: int, volume: dict) -> None
+```
+
+Прямые выражения вызова: `OSError`, [read_marker](../../media_manager/volume_identity.py#L95), `volume.get`.
+
+Явные `raise`:
+
+- `OSError('Носитель не подтверждён. Сначала зарегистрируй сменный диск.')`
+- `OSError('Сменный диск был отключён или заменён')`
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-create-marker"></a>
+
+## `create_marker`
+
+[media_manager/volume_identity.py:120](../../media_manager/volume_identity.py#L120)
+
+Создаёт новый маркер носителя без замены существующего файла. Явно отклоняет недопустимое состояние через OSError.
+
+```python
+def create_marker(path: str, device: int | None, name: str) -> dict
+```
+
+Прямые выражения вызова: `(json.dumps(marker, ensure_ascii=False, indent=2) + '\n').encode`, `OSError`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `json.dumps`, [mounted_root](../../media_manager/volume_identity.py#L52), `name.strip`, `os.fdopen`, `os.fsync`, `os.open`, [read_marker](../../media_manager/volume_identity.py#L95), `str`, `stream.fileno`, `stream.flush`, `stream.write`, `uuid.uuid4`, [validate_name](../../media_manager/volume_identity.py#L102).
+
+Явные `raise`:
+
+- `OSError('Диск изменился во время регистрации')`
+
+Выражения возврата (ветви, без исполнения):
+
+- `marker`
+
+
+<a id="symbol-rename-marker"></a>
+
+## `rename_marker`
+
+[media_manager/volume_identity.py:141](../../media_manager/volume_identity.py#L141)
+
+Атомарно меняет название только у подтверждённого маркера носителя. Явно отклоняет недопустимое состояние через OSError, ValueError.
+
+```python
+def rename_marker(path: str, device: int | None, marker_id: str, name: str) -> dict
+```
+
+Прямые выражения вызова: `(json.dumps(updated, ensure_ascii=False, indent=2) + '\n').encode`, `OSError`, `ValueError`, [_read_marker_document](../../media_manager/volume_identity.py#L64), `json.dumps`, `len`, [mounted_root](../../media_manager/volume_identity.py#L52), `name.strip`, `os.fdopen`, `os.fsync`, `os.open`, `os.replace`, `os.stat`, `os.unlink`, [read_marker](../../media_manager/volume_identity.py#L95), `stat.S_IMODE`, `str`, `stream.fileno`, `stream.flush`, `stream.write`, `uuid.UUID`, `uuid.uuid4`, [validate_name](../../media_manager/volume_identity.py#L102).
+
+Явные `raise`:
+
+- `OSError('Сменный диск был отключён или заменён')`
+- `ValueError('Новое имя не помещается в служебный файл носителя')`
+- `OSError('Служебный файл диска изменился во время переименования')`
+- `OSError('Не удалось подтвердить новое имя диска')`
+
+Перехватываемые типы: `FileNotFoundError`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `confirmed`
+
+
+<a id="symbol-read-capacity"></a>
+
+## `read_capacity`
+
+[media_manager/volume_identity.py:178](../../media_manager/volume_identity.py#L178)
+
+Вычисляет ёмкость и доступное место по fstatvfs открытого тома. Явно отклоняет недопустимое состояние через OSError.
+
+```python
+def read_capacity(root: int) -> dict
+```
+
+Прямые выражения вызова: `OSError`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `os.fstatvfs`.
+
+Явные `raise`:
+
+- `OSError('Том не сообщил корректные сведения о свободном месте')`
+
+Выражения возврата (ветви, без исполнения):
+
+- `{'total_bytes': total, 'used_bytes': total - free, 'free_bytes': free, 'available_bytes': available, 'checked_at': datetime.now(timezone.utc).isoformat()}`

@@ -18,33 +18,49 @@ from typing import Any
 from media_manager.scanner import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 
 
+# Обозначает ошибку сборки, транспорта или ответа адаптера Photos.
+# Базовые типы: RuntimeError.
 class PhotosAdapterError(RuntimeError):
     pass
 
 
+# Обозначает отсутствие системного разрешения на чтение Photos.
+# Базовые типы: PhotosAdapterError.
 class PhotosAccessDenied(PhotosAdapterError):
     pass
 
 
+# Обозначает смену или временную недоступность нужной медиатеки.
+# Базовые типы: PhotosAdapterError.
 class PhotosLibraryUnavailable(PhotosAdapterError):
     pass
 
 
+# Обозначает отсутствие локальной миниатюры без загрузки оригинала.
+# Базовые типы: PhotosAdapterError.
 class PhotosThumbnailPending(PhotosAdapterError):
     pass
 
 
+# Обозначает кооперативную остановку потоковой передачи оригинала.
+# Базовые типы: PhotosAdapterError.
 class PhotosTransferStopped(PhotosAdapterError):
     pass
 
 
+# Обозначает превышение времени ожидания ответа локального helper.
+# Базовые типы: PhotosAdapterError.
 class PhotosResponseTimeout(PhotosAdapterError):
     pass
 
 
+# Обменивается запросами с локальным PhotoKit-helper и открывает объекты в Photos.
+# Зависимости конструктора: source_directory, build_directory.
 class SystemPhotosAdapter:
     BUNDLE_IDENTIFIER = "actu.media.photos-adapter"
 
+    # Инициализирует SystemPhotosAdapter и его рабочее состояние.
+    # Обновляет состояние объекта: _backend, _buffer, _build_lock, _gui_pid, _operation_lock, _process, _socket, _socket_directory, _socket_path, app_directory и ещё 4.
     def __init__(self, source_directory: Path, build_directory: Path) -> None:
         self.source_directory = source_directory
         self.build_directory = build_directory
@@ -61,13 +77,19 @@ class SystemPhotosAdapter:
         self._socket_directory = None
         self._gui_pid = None
 
+    # Проверяет доступность macOS и компилятора clang для нативного адаптера.
+    # Использует os.uname, shutil.which.
     @property
     def supported(self) -> bool:
         return os.uname().sysname == "Darwin" and shutil.which("clang") is not None
 
+    # Сбрасывает прежнее поле выбора backend; вызовов в текущем проекте не найдено.
+    # Обновляет состояние объекта: _backend.
     def reuse_indexed_backend(self) -> None:
         self._backend = None
 
+    # Собирает и локально подписывает app-bundle при изменении исходников helper.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def ensure_built(self) -> None:
         if not self.supported:
             raise PhotosAdapterError("PhotoKit доступен только на macOS")
@@ -128,6 +150,8 @@ class SystemPhotosAdapter:
                 check=True,
             )
 
+    # Исполняет одноразовую команду helper и разбирает её JSON-ответ.
+    # Явно отклоняет недопустимое состояние через PhotosAccessDenied, PhotosAdapterError.
     def _run(self, *arguments: str, timeout: int = 120) -> dict[str, Any]:
         self.ensure_built()
         result = subprocess.run(
@@ -148,6 +172,8 @@ class SystemPhotosAdapter:
             raise PhotosAdapterError(str(payload.get("error") or output))
         return payload
 
+    # Проверяет или запрашивает разрешение PhotoKit без scripting fallback.
+    # Явно отклоняет недопустимое состояние через PhotosAccessDenied.
     def status(self, *, request_authorization: bool = False) -> dict[str, Any]:
         if self.use_gui:
             payload = self._request(dict(op='authorize' if request_authorization else 'probe'), timeout=305)
@@ -168,6 +194,8 @@ class SystemPhotosAdapter:
             return {**payload, "backend": self._backend}
         raise PhotosAccessDenied('Разреши доступ media.actu Photos adapter в macOS → Конфиденциальность → Фото')
 
+    # Закрывает клиентский канал и принадлежащий клиенту дочерний процесс.
+    # Обновляет состояние объекта: _buffer, _gui_pid, _process, _socket, _socket_directory, _socket_path.
     def close(self):
         with self._operation_lock:
             connection, self._socket = self._socket, None
@@ -198,9 +226,13 @@ class SystemPhotosAdapter:
                     if stream:
                         stream.close()
 
+    # Возвращает отдельный каталог Unix-сокета для текущего пользователя.
+    # Использует Path, os.getuid, os.uname, tempfile.gettempdir.
     def _ipc_directory(self):
         return Path('/private/tmp' if os.uname().sysname == 'Darwin' else tempfile.gettempdir()) / f'media-actu-photos-v2-{os.getuid()}'
 
+    # Подключает клиент к GUI-службе после проверки приватности IPC-каталога.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def _connect_gui(self):
         self.close()
         self.ensure_built()
@@ -227,6 +259,8 @@ class SystemPhotosAdapter:
                 time.sleep(.05)
         raise PhotosAdapterError('Не удалось подключить GUI-помощник PhotoKit')
 
+    # Подготавливает GUI-соединение или stdin/stdout-процесс и отправляет запрос.
+    # Обновляет состояние объекта: _process.
     def _begin(self, request):
         if self.use_gui:
             if self._socket is None:
@@ -238,6 +272,8 @@ class SystemPhotosAdapter:
                                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         self._send(request)
 
+    # Передаёт один JSON-запрос с разделителем строки в текущий канал.
+    # Использует (json.dumps(request) + '\n').encode, json.dumps, self._process.stdin.flush, self._process.stdin.write, self._socket.sendall.
     def _send(self, request):
         data = (json.dumps(request) + '\n').encode()
         if self.use_gui:
@@ -246,6 +282,8 @@ class SystemPhotosAdapter:
             self._process.stdin.write(data)
             self._process.stdin.flush()
 
+    # Читает ограниченную строку ответа с тайм-аутом и сохранением остатка буфера.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError, PhotosResponseTimeout.
     def _receive(self, timeout, *, limit=128 * 1024 * 1024):
         stream = self._socket if self.use_gui else self._process.stdout
         deadline = time.monotonic() + timeout
@@ -269,6 +307,8 @@ class SystemPhotosAdapter:
             self._gui_pid = payload['pid']
         return payload
 
+    # Преобразует статус helper в подходящий тип исключения Python.
+    # Явно отклоняет недопустимое состояние через PhotosAccessDenied, PhotosAdapterError, PhotosLibraryUnavailable, PhotosThumbnailPending и ещё 1.
     @staticmethod
     def _check_response(payload):
         status = payload.get('status')
@@ -283,6 +323,8 @@ class SystemPhotosAdapter:
         if payload.get('error'):
             raise PhotosAdapterError(str(payload['error']))
 
+    # Выполняет сериализованный запрос и закрывает клиентский канал при транспортном сбое.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def _request(self, request, *, timeout=30):
         with self._operation_lock:
             try:
@@ -294,6 +336,8 @@ class SystemPhotosAdapter:
             self._check_response(payload)
             return payload
 
+    # Принимает события потока до завершающего ответа с поддержкой отмены.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError, PhotosTransferStopped.
     def _stream_request(self, request, receive, stopped):
         with self._operation_lock:
             token = uuid.uuid4().hex
@@ -327,13 +371,21 @@ class SystemPhotosAdapter:
                 self.close()
                 raise
 
+    # Запрашивает поток манифеста оригиналов и передаёт объекты обработчику.
+    # Использует self._stream_request.
     def original_manifest(self, anchors, receive_asset, stopped):
+        # Передаёт объект события манифеста вызывающему обработчику.
+        # Использует payload.get, receive_asset.
         def receive(payload):
             if payload.get('event') == 'asset':
                 receive_asset(payload['asset'])
         return self._stream_request(dict(op='original_manifest', anchors=list(anchors)), receive, stopped)
 
+    # Декодирует ограниченные блоки оригинала и передаёт данные и прогресс в Core.
+    # Использует self._stream_request.
     def stream_original(self, identifier, resource_id, version, anchors, write, progress, stopped):
+        # Проверяет размер декодированного блока и распределяет события данных и прогресса.
+        # Явно отклоняет недопустимое состояние через PhotosAdapterError.
         def receive(payload):
             if payload.get('event') == 'chunk':
                 chunk = base64.b64decode(payload['data'], validate=True)
@@ -345,15 +397,21 @@ class SystemPhotosAdapter:
         return self._stream_request(dict(op='original_resource', identifier=identifier,
             resource_id=resource_id, version=version, anchors=list(anchors)), receive, stopped)
 
+    # Проверяет текущую медиатеку по якорным ID с возможностью переподключения.
+    # Использует self._request, self.close.
     def probe(self, identifiers=(), *, restart=False):
         with self._operation_lock:
             if restart:
                 self.close()
             return self._request(dict(op='probe', identifiers=list(identifiers)))
 
+    # Получает индекс объектов подтверждённой медиатеки через постоянный helper.
+    # Использует self._request, self._request(dict(op='scan', anchors=list(anchors)), timeout=600).get.
     def scan(self, anchors=()) -> list[dict[str, Any]]:
         return list(self._request(dict(op='scan', anchors=list(anchors)), timeout=600).get('assets', []))
 
+    # Получает JPEG-превью PhotoKit и атомарно сохраняет его в кэш.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def create_thumbnail(
         self, asset_identifier: str, target: Path, width: int = 640, height: int = 480, *, anchors=()
     ) -> Path:
@@ -375,6 +433,8 @@ class SystemPhotosAdapter:
                 temporary.unlink(missing_ok=True)
             return target
 
+    # Выделяет объект в Photos через действующий open.applescript.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def open_asset(self, asset_identifier: str) -> None:
         result = subprocess.run(
             [
@@ -392,6 +452,8 @@ class SystemPhotosAdapter:
                 result.stderr.strip() or "Не удалось открыть объект в Photos"
             )
 
+    # Сохраняет прежнюю проверку Photos через scripting API без текущих вызовов.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def _applescript_status(self) -> dict[str, Any]:
         result = subprocess.run(
             ["osascript", "-e", 'tell application "Photos" to count media items'],
@@ -404,6 +466,8 @@ class SystemPhotosAdapter:
             raise PhotosAdapterError(result.stderr.strip() or "Нет доступа к Photos")
         return {"status": "authorized", "count": int(result.stdout.strip() or 0)}
 
+    # Сохраняет прежнее чтение каталога через scan.js без текущих вызовов.
+    # Явно отклоняет недопустимое состояние через PhotosAdapterError.
     def _applescript_scan(self) -> list[dict[str, Any]]:
         result = subprocess.run(
             [

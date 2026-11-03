@@ -12,6 +12,8 @@ CORE_URL = "http://127.0.0.1:18765"
 _core_client: httpx.AsyncClient | None = None
 
 
+# Закрывает общий HTTP-пул UI при завершении процесса.
+# Асинхронно ожидает: _core_client.aclose.
 async def close_core_client() -> None:
     global _core_client
     if _core_client is not None:
@@ -22,6 +24,8 @@ async def close_core_client() -> None:
 nicegui_app.on_shutdown(close_core_client)
 
 
+# Форматирует размер в двоичных ступенях с русскими единицами.
+# Использует float.
 def format_bytes(value: int) -> str:
     if not value:
         return "0 Б"
@@ -36,12 +40,16 @@ def format_bytes(value: int) -> str:
     return f"{size:.{precision}f} {unit}"
 
 
+# Преобразует ISO-время в локальную подпись даты и часов.
+# Использует datetime.fromisoformat, datetime.fromisoformat(value).astimezone, datetime.fromisoformat(value).astimezone().strftime.
 def format_date(value: str | None) -> str:
     if not value:
         return "—"
     return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M")
 
 
+# Форматирует отношение готового к общему с дополнительной точностью малых значений.
+# Параметры: done, total.
 def format_percent(done: int, total: int) -> str:
     if not total:
         return "0.0%"
@@ -50,6 +58,8 @@ def format_percent(done: int, total: int) -> str:
     return f"{percent:.{precision}f}%"
 
 
+# Выполняет JSON-запрос Core через повторно используемый асинхронный пул соединений.
+# Асинхронно ожидает: _core_client.request.
 async def core_request(
     method: str, path: str, *, timeout: float = 20, **kwargs: Any
 ) -> dict[str, Any]:
@@ -62,6 +72,8 @@ async def core_request(
     return response.json()
 
 
+# Перенаправляет прежний адрес /media к медиатеке на общей главной странице.
+# Использует RedirectResponse.
 @nicegui_app.get('/media', include_in_schema=False)
 async def old_media_page(source: int | None = None):
     return RedirectResponse('/?source=photos-' + str(source) if source is not None else '/')
