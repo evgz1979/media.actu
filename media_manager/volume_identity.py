@@ -18,26 +18,26 @@ MARKER_LIMIT = 4096
 COPY_TEMP_PATTERN = re.compile(r'\.media-actu-copy-[a-f0-9]{32}-[a-f0-9]{32}\.part\Z')
 
 
-# Распознаёт только собственный формат промежуточного имени копирования.
-# Использует COPY_TEMP_PATTERN.fullmatch.
+#: Распознаёт только собственный формат промежуточного имени копирования.
+#: Использует COPY_TEMP_PATTERN.fullmatch.
 def copy_temporary(name: str) -> bool:
     return bool(COPY_TEMP_PATTERN.fullmatch(name))
 
 
-# Определяет служебные файлы приложения, исключаемые из обхода и сверок.
-# Использует copy_temporary.
+#: Определяет служебные файлы приложения, исключаемые из обхода и сверок.
+#: Использует copy_temporary.
 def service_file(name: str, *, volume_root: bool = False) -> bool:
     return copy_temporary(name) or name in FOLDER_MARKER_FILES or (volume_root and name in MARKER_FILES)
 
 
-# Распознаёт имя сменного USB-ресурса NAS вида usbshare.
-# Использует re.fullmatch.
+#: Распознаёт имя сменного USB-ресурса NAS вида usbshare.
+#: Использует re.fullmatch.
 def usb_share(name: str) -> bool:
     return bool(re.fullmatch(r'usbshare\d+(?:[-_].*)?', name, re.IGNORECASE))
 
 
-# Нормализует адрес сервера, включая суффикс Bonjour SMB.
-# Использует host.endswith, host.rstrip, host.rstrip('.').casefold, host[:-len(suffix)].removesuffix.
+#: Нормализует адрес сервера, включая суффикс Bonjour SMB.
+#: Использует host.endswith, host.rstrip, host.rstrip('.').casefold, host[:-len(suffix)].removesuffix.
 def canonical_host(host: str) -> str:
     host = host.rstrip('.').casefold()
     suffix = '._smb._tcp.local'
@@ -46,8 +46,8 @@ def canonical_host(host: str) -> str:
     return host
 
 
-# Открывает корневой каталог без symlink и проверяет ожидаемый device.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Открывает корневой каталог без symlink и проверяет ожидаемый device.
+#: Явно отклоняет недопустимое состояние через OSError.
 @contextmanager
 def mounted_root(path: str, device: int | None = None):
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -59,8 +59,8 @@ def mounted_root(path: str, device: int | None = None):
         os.close(descriptor)
 
 
-# Читает ограниченный JSON носителя и проверяет UUID, версию и имя.
-# Явно отклоняет недопустимое состояние через OSError, ValueError.
+#: Читает ограниченный JSON носителя и проверяет UUID, версию и имя.
+#: Явно отклоняет недопустимое состояние через OSError, ValueError.
 def _read_marker_document(root: int) -> dict | None:
     try:
         descriptor = os.open(MARKER_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
@@ -90,22 +90,22 @@ def _read_marker_document(root: int) -> dict | None:
         os.close(descriptor)
 
 
-# Возвращает проверенный ID и название маркера носителя либо None.
-# Использует _read_marker_document, marker['name'].strip, uuid.UUID.
+#: Возвращает проверенный ID и название маркера носителя либо None.
+#: Использует _read_marker_document, marker['name'].strip, uuid.UUID.
 def read_marker(root: int) -> dict | None:
     marker = _read_marker_document(root)
     return {'id': str(uuid.UUID(marker['id'])), 'name': marker['name'].strip()} if marker else None
 
 
-# Проверяет длину и допустимые символы названия носителя.
-# Явно отклоняет недопустимое состояние через ValueError.
+#: Проверяет длину и допустимые символы названия носителя.
+#: Явно отклоняет недопустимое состояние через ValueError.
 def validate_name(name: str) -> None:
     if not isinstance(name, str) or not name.strip() or len(name) > 120 or any(ord(c) < 32 for c in name):
         raise ValueError('Нужно имя носителя длиной от 1 до 120 символов без управляющих знаков')
 
 
-# Проверяет подтверждённость тома и соответствие текущего служебного ID.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Проверяет подтверждённость тома и соответствие текущего служебного ID.
+#: Явно отклоняет недопустимое состояние через OSError.
 def verify_identity(root: int, volume: dict) -> None:
     if volume.get('identity_status') in {'unverified', 'legacy'}:
         raise OSError('Носитель не подтверждён. Сначала зарегистрируй сменный диск.')
@@ -115,8 +115,8 @@ def verify_identity(root: int, volume: dict) -> None:
             raise OSError('Сменный диск был отключён или заменён')
 
 
-# Создаёт новый маркер носителя без замены существующего файла.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Создаёт новый маркер носителя без замены существующего файла.
+#: Явно отклоняет недопустимое состояние через OSError.
 def create_marker(path: str, device: int | None, name: str) -> dict:
     validate_name(name)
     marker = {'version': 1, 'id': str(uuid.uuid4()), 'name': name.strip(),
@@ -136,8 +136,8 @@ def create_marker(path: str, device: int | None, name: str) -> dict:
     return marker
 
 
-# Атомарно меняет название только у подтверждённого маркера носителя.
-# Явно отклоняет недопустимое состояние через OSError, ValueError.
+#: Атомарно меняет название только у подтверждённого маркера носителя.
+#: Явно отклоняет недопустимое состояние через OSError, ValueError.
 def rename_marker(path: str, device: int | None, marker_id: str, name: str) -> dict:
     validate_name(name)
     with mounted_root(path, device) as root:
@@ -173,8 +173,8 @@ def rename_marker(path: str, device: int | None, marker_id: str, name: str) -> d
         return confirmed
 
 
-# Вычисляет ёмкость и доступное место по fstatvfs открытого тома.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Вычисляет ёмкость и доступное место по fstatvfs открытого тома.
+#: Явно отклоняет недопустимое состояние через OSError.
 def read_capacity(root: int) -> dict:
     info = os.fstatvfs(root)
     block = info.f_frsize or info.f_bsize

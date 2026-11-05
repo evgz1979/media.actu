@@ -1,5 +1,5 @@
-// Прежний JXA-скрипт собирает метаданные всех объектов через scripting API Photos.
-// Вызывается только сохранённым _applescript_scan, до которого текущих вызовов не найдено.
+//: Прежний JXA-скрипт собирает метаданные всех объектов через scripting API Photos.
+//: Вызывается только сохранённым _applescript_scan, до которого текущих вызовов не найдено.
 const photos = Application('Photos');
 const items = photos.mediaItems;
 const identifiers = items.id();

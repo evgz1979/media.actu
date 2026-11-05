@@ -2,16 +2,16 @@
 
 ## Процесс UI и клиент Core
 
-[`core_request`](../../ui.py#L63) лениво создаёт один `httpx.AsyncClient` на процесс UI:
+[`core_request`](../reference/ui.md#symbol-core_request) лениво создаёт один `httpx.AsyncClient` на процесс UI:
 base_url=CORE_URL, до 30 соединений, 10 keep-alive, срок keep-alive 60 секунд.
 Каждая операция передаёт свой timeout; после ответа вызывается raise_for_status,
 затем response.json. При остановке UI пул закрывается через on_shutdown.
 Это серверный HTTP-клиент; браузер отдельно получает JPEG по URL Core.
 
-[`register_workspace_page`](../../workspace_ui.py#L2279) задаёт reconnect_timeout=120.
+[`register_workspace_page`](../reference/workspace_ui.md#symbol-register_workspace_page) задаёт reconnect_timeout=120.
 Краткий обрыв WebSocket не равен перезапуску UI: клиент может восстановиться,
 а периодические запросы проверяют has_socket_connection/is_deleted.
-[`StorageWorkspace.poll_connected`](../../workspace_ui.py#L1725) не запускает обработку для
+[`StorageWorkspace.poll_connected`](../reference/workspace_ui.md#symbol-StorageWorkspace.poll_connected) не запускает обработку для
 уже удалённого клиента. Полный перезапуск процесса требует новой страницы.
 
 ## Объекты интерфейса
@@ -29,7 +29,7 @@ base_url=CORE_URL, до 30 соединений, 10 keep-alive, срок keep-al
 
 ## Обычное дерево и поколения запросов
 
-[`BrowserPane.show_volume`](../../workspace_ui.py#L640) увеличивает generation, сбрасывает
+[`BrowserPane.show_volume`](../reference/workspace_ui.md#symbol-BrowserPane.show_volume) увеличивает generation, сбрасывает
 контекст прежнего тома и сначала получает сохранённый список. Если том доступен,
 запускает фоновое обновление. В `load_folder` ответ принимается только если
 generation всё ещё совпадает. Быстрый переход к другой папке не должен позволить
@@ -47,7 +47,7 @@ tree/target-tree, которые читают сохранённый индек�
 ## Выбор, путь и превью
 
 Выбор в дереве меняет path/kind/entry и активную панель. Если соседняя панель в
-preview, [`StorageWorkspace.preview_selection`](../../workspace_ui.py#L1265) передаёт ей объект.
+preview, [`StorageWorkspace.preview_selection`](../reference/workspace_ui.md#symbol-StorageWorkspace.preview_selection) передаёт ей объект.
 Превью не заменяет сохранённое состояние собственного дерева: при возвращении
 tree восстанавливаются путь, раскрытие и прокрутка. Одновременно в режиме preview
 может быть только одна сторона; включение другой возвращает прежнюю к дереву.
@@ -56,14 +56,14 @@ tree восстанавливаются путь, раскрытие и прок
 корень стороны, для Photos — виртуальная иерархия, для обычного тома — его корень.
 `scope()` исключает Photos и неподтверждённые носители из обычных файловых операций.
 
-[`StoragePreview.image_url`](../../storage_preview_ui.py#L158) выбирает готовое media-thumbnail
+[`StoragePreview.image_url`](../reference/storage_preview_ui.md#symbol-StoragePreview.image_url) выбирает готовое media-thumbnail
 для Photos и storage-preview для обычного файла. Photos-плитки могут ожидать JPEG;
 preview-status сообщает готовые media_id без повторной сборки всей сетки.
 Папки открываются плитками, файлы — крупно, остальные типы получают информационное состояние.
 
 ## Связанные панели
 
-[`PairedWorkspace.link`](../../paired_workspace_ui.py#L211) выбирает актуальный источник копии,
+[`PairedWorkspace.link`](../reference/paired_workspace_ui.md#symbol-PairedWorkspace.link) выбирает актуальный источник копии,
 сохраняет независимые состояния панелей и связывает области. Открытие связи само
 не запускает рекурсивную сверку. `unlink` останавливает активную работу, очищает
 связанный вид и восстанавливает прежние деревья, не удаляя сохранённую связь.
@@ -112,7 +112,7 @@ IME, поля ввода и открытое меню, чтобы не пере�
 | Раскрытие Тома/Медиатеки/Основные папки/архивов | app.storage.user, media-actu.sidebar.v1 | Предпочтение браузерного пользователя на UI-сервере |
 | Списки файлов, сверки, копии, медиаданные | SQLite Core | Не являются браузерным снимком навигации |
 
-[`StorageWorkspace.persist_workspace`](../../workspace_ui.py#L1273) сериализует компактный снимок
+[`StorageWorkspace.persist_workspace`](../reference/workspace_ui.md#symbol-StorageWorkspace.persist_workspace) сериализует компактный снимок
 и не пишет его повторно при том же payload. `normalize_state` проверяет версию,
 ID, относительные пути и две панели, ограничивает список раскрытых папок 2000.
 Некорректный снимок отклоняется целиком. Списки файлов и содержимое не сохраняются

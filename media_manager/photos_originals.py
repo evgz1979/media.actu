@@ -28,21 +28,21 @@ SPACE_RESERVE_BYTES = 64 * 1024 * 1024
 COPY_BATCH_RESOURCES = 256
 
 
-# Сериализует данные задания в стабильный JSON с сохранением Unicode.
-# Использует json.dumps.
+#: Сериализует данные задания в стабильный JSON с сохранением Unicode.
+#: Использует json.dumps.
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-# Сравнивает размер, mtime, inode и device сохранённого файла.
-# ctime исключён: SMB может уточнять его после успешного завершения записи.
+#: Сравнивает размер, mtime, inode и device сохранённого файла.
+#: ctime исключён: SMB может уточнять его после успешного завершения записи.
 def same_file(left, right):
     # ctime can settle after a successful SMB write. It is not a content version.
     return all(left.get(key) == right.get(key) for key in ('size', 'mtime_ns', 'inode', 'device'))
 
 
-# Очищает имя ресурса от опасных символов и ограничивает длину в UTF-8.
-# Использует (stem + ext).encode, os.path.splitext, re.sub, re.sub('[\\x00-\\x1f/\\\\:]', '_', str(value)).strip.
+#: Очищает имя ресурса от опасных символов и ограничивает длину в UTF-8.
+#: Использует (stem + ext).encode, os.path.splitext, re.sub, re.sub('[\\x00-\\x1f/\\\\:]', '_', str(value)).strip.
 def safe_name(value):
     value = re.sub(r'[\x00-\x1f/\\:]', '_', str(value)).strip(' .')
     # Leave room for a deterministic collision suffix on common filesystems.
@@ -54,11 +54,11 @@ def safe_name(value):
     return (stem + ext) or 'original'
 
 
-# Сохраняет оригинальные ресурсы Photos и продолжает работу по квитанциям метаданных.
-# Зависимости конструктора: libraries, adapter.
+#: Сохраняет оригинальные ресурсы Photos и продолжает работу по квитанциям метаданных.
+#: Зависимости конструктора: libraries, adapter.
 class PhotosOriginals:
-    # Инициализирует PhotosOriginals и его рабочее состояние.
-    # Изменяет SQLite-таблицы: photos_original_inventory, photos_original_jobs, photos_original_log, photos_original_resources, photos_original_staging и ещё 1.
+    #: Инициализирует PhotosOriginals и его рабочее состояние.
+    #: Изменяет SQLite-таблицы: photos_original_inventory, photos_original_jobs, photos_original_log, photos_original_resources, photos_original_staging и ещё 1.
     def __init__(self, libraries, adapter):
         self.libraries, self.catalog, self.storage = libraries, libraries.catalog, libraries.storage
         self.adapter = adapter
@@ -114,8 +114,8 @@ class PhotosOriginals:
         for job in jobs:
             self._restore_receipts(job)
 
-    # Восстанавливает готовность ресурсов по сохранённым версиям и квитанциям SQLite.
-    # Изменяет SQLite-таблицы: photos_original_resources.
+    #: Восстанавливает готовность ресурсов по сохранённым версиям и квитанциям SQLite.
+    #: Изменяет SQLite-таблицы: photos_original_resources.
     def _restore_receipts(self, job):
         with self.catalog._write_lock, self._db() as db:
             db.execute('''UPDATE photos_original_resources AS r SET state='reused'
@@ -127,8 +127,8 @@ class PhotosOriginals:
                         AND v.version=json_extract(r.data,'$.version'))''', (job,))
         self._update(job, **self._counts(job))
 
-    # Предоставляет транзакционное соединение каталога с гарантированным закрытием.
-    # Использует connection.close, self.catalog.connect.
+    #: Предоставляет транзакционное соединение каталога с гарантированным закрытием.
+    #: Использует connection.close, self.catalog.connect.
     @contextmanager
     def _db(self):
         connection = self.catalog.connect()
@@ -138,8 +138,8 @@ class PhotosOriginals:
         finally:
             connection.close()
 
-    # Проверяет существование, медиатеку и подключение привязанной копии.
-    # Явно отклоняет недопустимое состояние через KeyError, PhotosLibraryUnavailable.
+    #: Проверяет существование, медиатеку и подключение привязанной копии.
+    #: Явно отклоняет недопустимое состояние через KeyError, PhotosLibraryUnavailable.
     def _link(self, link_id, source_id=None):
         with self._db() as db:
             row = db.execute('SELECT * FROM photos_copy_links WHERE id=?', (link_id,)).fetchone()
@@ -149,8 +149,8 @@ class PhotosOriginals:
             raise PhotosLibraryUnavailable('Папка копии отвязана')
         return dict(row)
 
-    # Возвращает последнее состояние копии с незавершёнными файлами и расписанием.
-    # Читает SQLite-таблицы: photos_original_jobs, photos_original_staging.
+    #: Возвращает последнее состояние копии с незавершёнными файлами и расписанием.
+    #: Читает SQLite-таблицы: photos_original_jobs, photos_original_staging.
     def summary(self, link_id, *, raw=False):
         with self._db() as db:
             row = db.execute('SELECT * FROM photos_original_jobs WHERE link_id=? ORDER BY updated_at DESC LIMIT 1', (link_id,)).fetchone()
@@ -162,8 +162,8 @@ class PhotosOriginals:
         result = dict(json.loads(row['data']), id=row['id'], state=row['state'], updated_at=row['updated_at'], incomplete_files=incomplete)
         return self.schedule.decorate(self.libraries.root_copy(link_id), result) if self.schedule and not raw else result
 
-    # Возвращает последние события задания и пути незавершённых конечных файлов.
-    # Поля результата: job, items, incomplete_paths.
+    #: Возвращает последние события задания и пути незавершённых конечных файлов.
+    #: Поля результата: job, items, incomplete_paths.
     def journal(self, link_id, source_id=None):
         self._link(link_id, source_id)
         job = self.summary(link_id)
@@ -172,30 +172,30 @@ class PhotosOriginals:
             incomplete = [r[0] for r in db.execute("SELECT s.path FROM photos_original_staging s JOIN photos_original_jobs j ON j.id=s.job_id WHERE j.link_id=? AND json_extract(s.data,'$.final')=1 ORDER BY s.path", (link_id,))]
         return dict(job=job, items=rows, incomplete_paths=incomplete)
 
-    # Обновляет состояние и JSON-поля задания сохранения оригиналов.
-    # Изменяет SQLite-таблицы: photos_original_jobs.
+    #: Обновляет состояние и JSON-поля задания сохранения оригиналов.
+    #: Изменяет SQLite-таблицы: photos_original_jobs.
     def _update(self, job, state=None, **values):
         with self.catalog._write_lock, self._db() as db:
             row = db.execute('SELECT state,data FROM photos_original_jobs WHERE id=?', (job,)).fetchone()
             data = dict(json.loads(row['data']), **values)
             db.execute('UPDATE photos_original_jobs SET state=?,data=?,updated_at=? WHERE id=?', (state or row['state'], encoded(data), now(), job))
 
-    # Добавляет событие оригиналов с уровнем, путём и временем.
-    # Изменяет SQLite-таблицы: photos_original_log.
+    #: Добавляет событие оригиналов с уровнем, путём и временем.
+    #: Изменяет SQLite-таблицы: photos_original_log.
     def _log(self, job, level, path, message):
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT INTO photos_original_log(job_id,created_at,level,path,message) VALUES (?,?,?,?,?)', (job, now(), level, path, message))
 
-    # Возвращает доступный том копии из уже обнаруженного состояния.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Возвращает доступный том копии из уже обнаруженного состояния.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def _volume(self, link):
         volume = next((v for v in self.storage.refresh(cached_only=True)['volumes'] if v['id'] == link['volume_id']), None)
         if not volume or volume['availability'] != 'online':
             raise PhotosLibraryUnavailable('Том копии отключён. Подключи его и продолжи сохранение.')
         return volume
 
-    # Запускает или продолжает корневую цепочку сохранения с учётом расписания.
-    # Изменяет SQLite-таблицы: photos_original_jobs.
+    #: Запускает или продолжает корневую цепочку сохранения с учётом расписания.
+    #: Изменяет SQLite-таблицы: photos_original_jobs.
     def start(self, link_id, source_id=None, *, background=True, _scheduled=False):
         root_id = self.libraries.root_copy(link_id)
         if root_id != link_id:
@@ -244,8 +244,8 @@ class PhotosOriginals:
             self.run(job, link)
         return self.summary(link_id)
 
-    # Ставит корневую цепочку на паузу и при ручном вызове снимает запрос расписания.
-    # Использует self._link, self._stop.set, self._update, self.libraries.root_copy, self.schedule.cancel.
+    #: Ставит корневую цепочку на паузу и при ручном вызове снимает запрос расписания.
+    #: Использует self._link, self._stop.set, self._update, self.libraries.root_copy, self.schedule.cancel.
     def pause(self, link_id, source_id=None, *, _scheduled=False):
         with self._lock:
             self._link(link_id, source_id)
@@ -258,8 +258,8 @@ class PhotosOriginals:
                 self._update(job['id'], state='pausing', message='Приостанавливаю сохранение…')
         return self.summary(link_id)
 
-    # Запрашивает остановку воркера оригиналов при завершении Core.
-    # Использует self._stop.set, self._thread.join.
+    #: Запрашивает остановку воркера оригиналов при завершении Core.
+    #: Использует self._stop.set, self._thread.join.
     def close(self):
         self._stop.set()
         if self._thread:
@@ -267,20 +267,20 @@ class PhotosOriginals:
         # The worker closes its own channel after cancellation. Never block on
         # its operation lock while an unavailable network disk is unwinding.
 
-    # Прерывает передачу при ручной остановке или закрытии разрешённого окна.
-    # Явно отклоняет недопустимое состояние через PhotosTransferStopped.
+    #: Прерывает передачу при ручной остановке или закрытии разрешённого окна.
+    #: Явно отклоняет недопустимое состояние через PhotosTransferStopped.
     def _check(self):
         if self._stopped():
             raise PhotosTransferStopped('Сохранение приостановлено')
 
-    # Проверяет ручной флаг остановки и временное окно медиатеки.
-    # Использует self._stop.is_set, self.schedule.blocked.
+    #: Проверяет ручной флаг остановки и временное окно медиатеки.
+    #: Использует self._stop.is_set, self.schedule.blocked.
     def _stopped(self):
         return self._stop.is_set() or bool(self.schedule and self._source_id is not None
                                           and self.schedule.blocked(self._source_id))
 
-    # Проверяет актуальность привязки, активность медиатеки, том и корневую папку.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Проверяет актуальность привязки, активность медиатеки, том и корневую папку.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def _validate(self, job, link, volume, *, force=False):
         self._check()
         if not force and self._validation_link == link['id'] and time.monotonic() - self._validate_at < .5:
@@ -298,29 +298,29 @@ class PhotosOriginals:
         self._validate_at = time.monotonic()
         self._validation_link = link['id']
 
-    # Сохраняет промежуточный прогресс с ограничением частоты обновлений.
-    # Обновляет состояние объекта: _progress_at.
+    #: Сохраняет промежуточный прогресс с ограничением частоты обновлений.
+    #: Обновляет состояние объекта: _progress_at.
     def _progress(self, job, **values):
         if time.monotonic() - self._progress_at > .5:
             self._update(job, **values)
             self._progress_at = time.monotonic()
 
-    # Открывает готовый ресурс внутри папки копии только для чтения.
-    # Использует PurePosixPath, open_readonly.
+    #: Открывает готовый ресурс внутри папки копии только для чтения.
+    #: Использует PurePosixPath, open_readonly.
     @contextmanager
     def _file(self, volume, link, path):
         with open_readonly(volume, str(PurePosixPath(link['path']) / path)) as fd:
             yield fd
 
-    # Сохраняет параметры и поколение обнаруженного файла назначения.
-    # Изменяет SQLite-таблицы: photos_original_inventory.
+    #: Сохраняет параметры и поколение обнаруженного файла назначения.
+    #: Изменяет SQLite-таблицы: photos_original_inventory.
     def _inventory_record(self, link, path, fp, seen):
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT OR REPLACE INTO photos_original_inventory VALUES (?,?,?,?,?,?)',
                        (link['id'], path, encoded(fp), fp['size'], '', seen))
 
-    # Удаляет подтверждённые старые временные файлы, сохраняя конечные незавершённые пути.
-    # Изменяет SQLite-таблицы: photos_original_staging.
+    #: Удаляет подтверждённые старые временные файлы, сохраняя конечные незавершённые пути.
+    #: Изменяет SQLite-таблицы: photos_original_staging.
     def _cleanup(self, job, link, volume):
         with self._db() as db:
             rows = list(db.execute('SELECT * FROM photos_original_staging WHERE job_id IN (SELECT id FROM photos_original_jobs WHERE link_id=?)', (link['id'],)))
@@ -341,8 +341,8 @@ class PhotosOriginals:
             with self.catalog._write_lock, self._db() as db:
                 db.execute('DELETE FROM photos_original_staging WHERE job_id=? AND path=?', (row['job_id'], row['path']))
 
-    # Индексирует имена и stat-параметры файлов копии без чтения содержимого.
-    # Изменяет SQLite-таблицы: photos_original_inventory.
+    #: Индексирует имена и stat-параметры файлов копии без чтения содержимого.
+    #: Изменяет SQLite-таблицы: photos_original_inventory.
     def _inventory(self, job, link, volume):
         self._update(job, state='inventory', message='Сверяю параметры файлов', checked_files=0, checked_bytes=0)
         inventory = self._inventories[link['id']] = dict(files={}, names={}, recorded=set())
@@ -352,8 +352,8 @@ class PhotosOriginals:
         with self._db() as db:
             incomplete = {r['path'] for r in db.execute('SELECT path FROM photos_original_staging WHERE job_id IN (SELECT id FROM photos_original_jobs WHERE link_id=?)', (link['id'],))}
         count = size = 0
-        # Рекурсивно перечисляет обычные файлы и папки копии через дескрипторы.
-        # Явно отклоняет недопустимое состояние через OSError.
+        #: Рекурсивно перечисляет обычные файлы и папки копии через дескрипторы.
+        #: Явно отклоняет недопустимое состояние через OSError.
         def walk(fd, prefix=''):
             nonlocal count, size
             with os.scandir(fd) as entries:
@@ -389,8 +389,8 @@ class PhotosOriginals:
             db.execute('DELETE FROM photos_original_inventory WHERE link_id=? AND seen<>?', (link['id'], generation))
         self._update(job, checked_files=count, checked_bytes=size)
 
-    # Фиксирует готовый ресурс, версию, параметры файла и завершение записи.
-    # Изменяет SQLite-таблицы: photos_copy_files, photos_original_resources, photos_original_staging, photos_original_versions.
+    #: Фиксирует готовый ресурс, версию, параметры файла и завершение записи.
+    #: Изменяет SQLite-таблицы: photos_copy_files, photos_original_resources, photos_original_staging, photos_original_versions.
     def _receipt(self, job, link, asset, resource, version, path, fp, reused):
         self._validate(job, link, self._volume(link), force=True)
         with self.catalog._write_lock, self._db() as db:
@@ -402,8 +402,8 @@ class PhotosOriginals:
             self._inventories[link['id']]['recorded'].add(path)
         self._inventory_record(link, path, fp, job)
 
-    # Принимает готовый ресурс повторно после проверки версии и параметров файла.
-    # Обрабатывает ошибки: FileNotFoundError.
+    #: Принимает готовый ресурс повторно после проверки версии и параметров файла.
+    #: Обрабатывает ошибки: FileNotFoundError.
     def _reuse_receipt(self, job, link, volume, asset, resource, version):
         with self._db() as db:
             row = db.execute('''SELECT f.*,v.version,v.fingerprint FROM photos_copy_files f JOIN photos_original_versions v
@@ -421,14 +421,14 @@ class PhotosOriginals:
         self._receipt(job, link, asset, resource, version, row['path'], fp, True)
         return True
 
-    # Журналирует созданный путь и его идентичность до передачи содержимого.
-    # Изменяет SQLite-таблицы: photos_original_staging.
+    #: Журналирует созданный путь и его идентичность до передачи содержимого.
+    #: Изменяет SQLite-таблицы: photos_original_staging.
     def _stage(self, job, path, identity, final=False):
         with self.catalog._write_lock, self._db() as db:
             db.execute('INSERT OR REPLACE INTO photos_original_staging VALUES (?,?,?)', (job, path, encoded(dict(identity=identity, final=final))))
 
-    # Исключительно создаёт свободное конечное имя и фиксирует намерение записи.
-    # Явно отклоняет недопустимое состояние через OSError.
+    #: Исключительно создаёт свободное конечное имя и фиксирует намерение записи.
+    #: Явно отклоняет недопустимое состояние через OSError.
     def _create_original(self, job, link, volume, parent, parent_path, name):
         # Collision names do not depend on a file's position in an enumeration.
         for index in range(10000):
@@ -452,8 +452,8 @@ class PhotosOriginals:
             return fd, path, identity
         raise OSError('Не удалось выбрать свободное имя оригинала')
 
-    # Полностью записывает блок через memoryview с проверкой остановки.
-    # Явно отклоняет недопустимое состояние через OSError.
+    #: Полностью записывает блок через memoryview с проверкой остановки.
+    #: Явно отклоняет недопустимое состояние через OSError.
     def _write(self, fd, chunk):
         view = memoryview(chunk)
         try:
@@ -468,8 +468,8 @@ class PhotosOriginals:
         finally:
             view.release()
 
-    # Ищет квитанцию подходящего ресурса в разрешённой копии-источнике.
-    # Читает SQLite-таблицы: photos_copy_files, photos_copy_links, photos_original_versions.
+    #: Ищет квитанцию подходящего ресурса в разрешённой копии-источнике.
+    #: Читает SQLite-таблицы: photos_copy_files, photos_copy_links, photos_original_versions.
     def _peer(self, link, item):
         upstream = self.libraries.copy_source(link['id'])
         with self._db() as db:
@@ -481,15 +481,15 @@ class PhotosOriginals:
                 (link['source_id'],link['id'],item['asset'],item['resource'],item['version'],upstream,upstream)))
         return dict(rows[0]) if rows else None
 
-    # Передаёт готовый оригинал из другой копии с проверками источника.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Передаёт готовый оригинал из другой копии с проверками источника.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def _stream_peer(self, peer, write):
         source = self._link(peer['link_id'])
         volume = self._volume(source)
         job = self.summary(source['id'], raw=True)
         expected = json.loads(peer['fingerprint'])
-        # Проверяет остановку, привязку, том и корень копии-источника между блоками.
-        # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+        #: Проверяет остановку, привязку, том и корень копии-источника между блоками.
+        #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
         def check():
             self._check()
             if self._link(source['id']) != source:
@@ -519,8 +519,8 @@ class PhotosOriginals:
         except OSError as error:
             raise PhotosLibraryUnavailable('Не удалось передать оригинал из копии: ' + str(error)) from error
 
-    # Повторно использует ресурс либо сохраняет поток в новый конечный файл.
-    # Буфер ограничен 64 МиБ; после fsync проверяются размер и ID без чтения содержимого.
+    #: Повторно использует ресурс либо сохраняет поток в новый конечный файл.
+    #: Буфер ограничен 64 МиБ; после fsync проверяются размер и ID без чтения содержимого.
     def _save(self, job, link, volume, profile, item):
         asset, resource, version = item['asset'], item['resource'], item['version']
         if self._reuse_receipt(job, link, volume, asset, resource, version):
@@ -547,8 +547,8 @@ class PhotosOriginals:
             count = written = batches = 0
             space_at, space_left = None, 0
 
-            # Проверяет свободное место и записывает накопленный буфер в конечный файл.
-            # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+            #: Проверяет свободное место и записывает накопленный буфер в конечный файл.
+            #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
             def flush():
                 nonlocal fd, path, identity, written, batches, space_at, space_left
                 if not buffer:
@@ -570,8 +570,8 @@ class PhotosOriginals:
                 buffer.clear()
                 self._progress(job, current_bytes=count, buffered_bytes=0, written_bytes=written, write_batches=batches)
 
-            # Разбивает принятые данные на ограниченный буфер и публикует прогресс.
-            # Использует buffer.extend, flush, memoryview, self._check, self._progress.
+            #: Разбивает принятые данные на ограниченный буфер и публикует прогресс.
+            #: Использует buffer.extend, flush, memoryview, self._check, self._progress.
             def write(chunk):
                 nonlocal count
                 self._validate(job, link, volume)
@@ -636,8 +636,8 @@ class PhotosOriginals:
                     os.close(fd)
                 buffer.clear()
 
-    # Пересчитывает готовые объекты и ресурсы по состояниям манифеста.
-    # Читает SQLite-таблицы: photos_original_resources.
+    #: Пересчитывает готовые объекты и ресурсы по состояниям манифеста.
+    #: Читает SQLite-таблицы: photos_original_resources.
     def _counts(self, job):
         with self._db() as db:
             row = db.execute('''SELECT COUNT(*) total_resources,
@@ -648,8 +648,8 @@ class PhotosOriginals:
                 (SELECT asset,MIN(state IN ('saved','reused')) ready FROM photos_original_resources WHERE job_id=? GROUP BY asset)''', (job,)).fetchone()
         return dict(row) | dict(assets)
 
-    # Подготавливает задание зависимой копии и сверяет её квитанции с манифестом.
-    # Изменяет SQLite-таблицы: photos_original_jobs, photos_original_resources.
+    #: Подготавливает задание зависимой копии и сверяет её квитанции с манифестом.
+    #: Изменяет SQLite-таблицы: photos_original_jobs, photos_original_resources.
     def _prepare_replica(self, parent_job, link):
         volume = self._volume(link)
         with open_readonly(volume,link['path'],directory=True) as fd:
@@ -688,8 +688,8 @@ class PhotosOriginals:
         self._update(job,state='waiting_primary',message='Ожидаю новые оригиналы из копии-источника',**self._counts(job))
         return job,volume
 
-    # Дополняет зависимые копии готовыми ресурсами в порядке источников.
-    # Обрабатывает ошибки: (OSError, ValueError, PhotosAdapterError, KeyError), PhotosTransferStopped.
+    #: Дополняет зависимые копии готовыми ресурсами в порядке источников.
+    #: Обрабатывает ошибки: (OSError, ValueError, PhotosAdapterError, KeyError), PhotosTransferStopped.
     def _replicate_all(self, master_job, master):
         with self._db() as db:
             links = {r['id']:dict(r) for r in db.execute('SELECT * FROM photos_copy_links WHERE source_id=? AND connected=1',(master['source_id'],))}
@@ -739,8 +739,8 @@ class PhotosOriginals:
                         self._update(current['id'],state='waiting',message=str(error),current_bytes=0,buffered_bytes=0)
                         self._log(current['id'],'error','',str(error))
 
-    # Обновляет манифест, сохраняет недостающие ресурсы и обслуживает цепочку копий.
-    # Изменяет SQLite-таблицы: photos_original_resources.
+    #: Обновляет манифест, сохраняет недостающие ресурсы и обслуживает цепочку копий.
+    #: Изменяет SQLite-таблицы: photos_original_resources.
     def run(self, job, link):
         state, message = 'completed', 'Оригиналы сохранены'
         manifest_ready = False
@@ -759,8 +759,8 @@ class PhotosOriginals:
             self._update(job, state='manifest', message='Обновляю список оригиналов Photos', current_path='')
             generation = uuid4().hex
             received = 0
-            # Сохраняет ресурсы поступившего объекта манифеста и восстанавливает готовность.
-            # Изменяет SQLite-таблицы: photos_original_resources.
+            #: Сохраняет ресурсы поступившего объекта манифеста и восстанавливает готовность.
+            #: Изменяет SQLite-таблицы: photos_original_resources.
             def asset_received(asset):
                 nonlocal received
                 self._validate(job, link, volume)

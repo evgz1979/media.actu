@@ -11,14 +11,14 @@ from urllib.parse import urlsplit
 from media_manager.storage import now, volume_key
 
 
-# Обозначает ошибку проверки адреса, обнаружения сервера или чтения SMB-ресурсов.
-# Базовые типы: RuntimeError.
+#: Обозначает ошибку проверки адреса, обнаружения сервера или чтения SMB-ресурсов.
+#: Базовые типы: RuntimeError.
 class NetworkError(RuntimeError):
     pass
 
 
-# Проверяет допустимость имени сервера перед передачей системным командам.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Проверяет допустимость имени сервера перед передачей системным командам.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def validate_host(host: str) -> str:
     host = host.rstrip('.').lower()
     if len(host) > 253 or not re.fullmatch(r'[a-z0-9_](?:[a-z0-9_.()-]*[a-z0-9_])?', host):
@@ -26,16 +26,16 @@ def validate_host(host: str) -> str:
     return host
 
 
-# Проверяет имя SMB-ресурса и исключает управляющие символы и разделители.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Проверяет имя SMB-ресурса и исключает управляющие символы и разделители.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def validate_share(name: str) -> str:
     if not name or name in {'.', '..'} or len(name) > 255 or any(ord(c) < 32 or c in '/\\' for c in name):
         raise NetworkError('Некорректное имя сетевого ресурса')
     return name
 
 
-# Разбирает вывод Bonjour в список экземпляров серверов SMB.
-# Использует instances.pop, instances.values, match.groups, output.splitlines, re.match.
+#: Разбирает вывод Bonjour в список экземпляров серверов SMB.
+#: Использует instances.pop, instances.values, match.groups, output.splitlines, re.match.
 def parse_browse(output: str) -> list[dict]:
     instances = {}
     for line in output.splitlines():
@@ -52,8 +52,8 @@ def parse_browse(output: str) -> list[dict]:
     return list(unique.values())
 
 
-# Извлекает адрес и порт из ответа разрешения Bonjour.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Извлекает адрес и порт из ответа разрешения Bonjour.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def parse_resolve(output: str) -> tuple[str, int]:
     match = re.search(r'can be reached at ([^\s:]+):(\d+)\s+\(interface', output)
     if not match:
@@ -64,8 +64,8 @@ def parse_resolve(output: str) -> tuple[str, int]:
     return validate_host(host), int(port)
 
 
-# Разбирает список дисковых SMB-ресурсов, исключая служебные записи.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Разбирает список дисковых SMB-ресурсов, исключая служебные записи.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def parse_shares(output: str) -> list[dict]:
     shares = []
     in_table = False
@@ -90,8 +90,8 @@ def parse_shares(output: str) -> list[dict]:
     return shares
 
 
-# Исполняет сетевую системную команду с тайм-аутом и нормализацией ошибок.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Исполняет сетевую системную команду с тайм-аутом и нормализацией ошибок.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def run(command: list[str], timeout: int) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
@@ -105,16 +105,16 @@ def run(command: list[str], timeout: int) -> str:
     return result.stdout
 
 
-# Обнаруживает серверы SMB и параллельно разрешает их адреса.
-# Явно отклоняет недопустимое состояние через NetworkError.
+#: Обнаруживает серверы SMB и параллельно разрешает их адреса.
+#: Явно отклоняет недопустимое состояние через NetworkError.
 def discover_servers() -> list[dict]:
     output = run(['/usr/bin/dns-sd', '-t', '4', '-B', '_smb._tcp', 'local.'], 7)
     instances = parse_browse(output)
     if len(instances) > 32:
         raise NetworkError('Найдено больше 32 SMB-серверов; поиск нужно сузить')
 
-    # Разрешает один Bonjour-экземпляр в адрес, порт и отображаемое имя сервера.
-    # Поля результата: id, name, host, port, aliases.
+    #: Разрешает один Bonjour-экземпляр в адрес, порт и отображаемое имя сервера.
+    #: Поля результата: id, name, host, port, aliases.
     def resolve(instance):
         if instance['name'].startswith('-') or any(ord(c) < 32 for c in instance['name']):
             return None
@@ -142,18 +142,18 @@ def discover_servers() -> list[dict]:
     return list(servers.values())
 
 
-# Запрашивает ресурсы сервера через существующий доступ macOS.
-# Использует parse_shares, run, validate_host.
+#: Запрашивает ресурсы сервера через существующий доступ macOS.
+#: Использует parse_shares, run, validate_host.
 def list_server_shares(server: dict) -> list[dict]:
     host = validate_host(server['host'])
     return parse_shares(run(['/usr/bin/smbutil', 'view', '-N', f'//{host}'], 12))
 
 
-# Хранит серверы и ресурсы NAS и связывает их с известными томами.
-# Зависимости конструктора: storage, discover, list_shares.
+#: Хранит серверы и ресурсы NAS и связывает их с известными томами.
+#: Зависимости конструктора: storage, discover, list_shares.
 class NetworkCatalog:
-    # Инициализирует NetworkCatalog и его рабочее состояние.
-    # Изменяет SQLite-таблицы: network_servers, network_shares.
+    #: Инициализирует NetworkCatalog и его рабочее состояние.
+    #: Изменяет SQLite-таблицы: network_servers, network_shares.
     def __init__(self, storage, discover=discover_servers, list_shares=list_server_shares):
         self.storage = storage
         self.discover = discover
@@ -174,8 +174,8 @@ class NetworkCatalog:
                 );
             ''')
 
-    # Возвращает запомненные серверы и результат последнего обнаружения.
-    # Поля результата: servers.
+    #: Возвращает запомненные серверы и результат последнего обнаружения.
+    #: Поля результата: servers.
     def servers(self) -> dict:
         with self.storage.connect() as db:
             rows = [dict(r) for r in db.execute('SELECT * FROM network_servers ORDER BY name COLLATE NOCASE')]
@@ -183,16 +183,16 @@ class NetworkCatalog:
             row['aliases'] = json.loads(row['aliases'])
         return {'servers': rows}
 
-    # Возвращает сервер по ID либо поднимает KeyError.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает сервер по ID либо поднимает KeyError.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def server(self, server_id: str) -> dict:
         server = next((r for r in self.servers()['servers'] if r['id'] == server_id), None)
         if server is None:
             raise KeyError('NAS не найден')
         return server
 
-    # Обновляет обнаруженные серверы, сохраняя известные записи при ошибках.
-    # Изменяет SQLite-таблицы: network_servers.
+    #: Обновляет обнаруженные серверы, сохраняя известные записи при ошибках.
+    #: Изменяет SQLite-таблицы: network_servers.
     def scan(self) -> dict:
         if not self._scan_lock.acquire(blocking=False):
             return {**self.servers(), 'error': 'Поиск NAS уже выполняется', 'scanning': True}
@@ -217,8 +217,8 @@ class NetworkCatalog:
         finally:
             self._scan_lock.release()
 
-    # Возвращает кэш ресурсов сервера или запрашивает обновление.
-    # Изменяет SQLite-таблицы: network_servers, network_shares.
+    #: Возвращает кэш ресурсов сервера или запрашивает обновление.
+    #: Изменяет SQLite-таблицы: network_servers, network_shares.
     def shares(self, server_id: str, refresh: bool = False) -> dict:
         server = self.server(server_id)
         error = server['error']
@@ -249,8 +249,8 @@ class NetworkCatalog:
             row['volume_id'] = known['id'] if known else None
         return {'server': server, 'shares': rows, 'error': error, 'cached': not refresh or bool(error)}
 
-    # Запоминает выбранный SMB-ресурс в каталоге томов.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Запоминает выбранный SMB-ресурс в каталоге томов.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def remember(self, server_id: str, name: str) -> dict:
         server = self.server(server_id)
         name = validate_share(name)
@@ -258,8 +258,8 @@ class NetworkCatalog:
             raise KeyError('Ресурс не найден в сохранённом списке NAS')
         return self.storage.remember_network_volume(server['host'], server['aliases'], name)
 
-    # Открывает сохранённый сетевой адрес в Finder для подключения ресурса.
-    # Явно отклоняет недопустимое состояние через NetworkError, ValueError.
+    #: Открывает сохранённый сетевой адрес в Finder для подключения ресурса.
+    #: Явно отклоняет недопустимое состояние через NetworkError, ValueError.
     def open_in_finder(self, volume_id: str) -> dict:
         volume = self.storage.get_volume(volume_id)
         url = volume.get('network_url')

@@ -18,27 +18,27 @@ from .paired_comparison import absolute_scope_path
 from .storage import now, relative_path
 
 
-# Обозначает кооперативную остановку копирования отсутствующих элементов.
-# Базовые типы: Exception.
+#: Обозначает кооперативную остановку копирования отсутствующих элементов.
+#: Базовые типы: Exception.
 class CopyStopped(Exception):
     pass
 
 
-# Запрашивает переход к исключительному созданию конечного файла на SMB.
-# Базовые типы: Exception.
+#: Запрашивает переход к исключительному созданию конечного файла на SMB.
+#: Базовые типы: Exception.
 class DirectCopyRequired(Exception):
     pass
 
 
-# Возвращает сериализуемую пару device/inode файлового объекта.
-# Использует fingerprint.
+#: Возвращает сериализуемую пару device/inode файлового объекта.
+#: Использует fingerprint.
 def object_id(info):
     data = fingerprint(info)
     return {key: data[key] for key in ('device', 'inode')}
 
 
-# Атомарно публикует подготовленный файл с запретом замены существующего пути.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Атомарно публикует подготовленный файл с запретом замены существующего пути.
+#: Явно отклоняет недопустимое состояние через OSError.
 def publish_exclusive(parent, temporary, name):
     """Publish a complete file atomically, including when a target appears concurrently."""
     libc = ctypes.CDLL(None, use_errno=True)
@@ -55,8 +55,8 @@ def publish_exclusive(parent, temporary, name):
         os.unlink(temporary, dir_fd=parent)
 
 
-# Открывает или создаёт дочерние каталоги внутри проверенного корня копии.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Открывает или создаёт дочерние каталоги внутри проверенного корня копии.
+#: Явно отклоняет недопустимое состояние через OSError.
 @contextmanager
 def destination_directory(volume, scope, path, *, create=False):
     """Create only children of the selected copy root, traversing without symlinks."""
@@ -81,11 +81,11 @@ def destination_directory(volume, scope, path, *, create=False):
                 os.close(descriptor)
 
 
-# Ведёт планы, исполнение и журнал создания отсутствующих копий.
-# Зависимости конструктора: pairs.
+#: Ведёт планы, исполнение и журнал создания отсутствующих копий.
+#: Зависимости конструктора: pairs.
 class MissingCopyCatalog:
-    # Инициализирует MissingCopyCatalog и его рабочее состояние.
-    # Изменяет SQLite-таблицы: copy_operation_items, copy_operations.
+    #: Инициализирует MissingCopyCatalog и его рабочее состояние.
+    #: Изменяет SQLite-таблицы: copy_operation_items, copy_operations.
     def __init__(self, pairs):
         self.pairs, self.storage = pairs, pairs.storage
         self._thread = None
@@ -117,21 +117,21 @@ class MissingCopyCatalog:
                        ('Копирование прервано перезапуском. Заново сверь файлы перед повтором.', now()))
         pairs.transfers = self
 
-    # Сообщает, работает ли поток копирования отсутствующих элементов.
-    # Использует self._thread.is_alive.
+    #: Сообщает, работает ли поток копирования отсутствующих элементов.
+    #: Использует self._thread.is_alive.
     def busy(self):
         return self._thread is not None and self._thread.is_alive()
 
-    # Сохраняет поля и время изменения операции копирования.
-    # Изменяет SQLite-таблицы: copy_operations.
+    #: Сохраняет поля и время изменения операции копирования.
+    #: Изменяет SQLite-таблицы: copy_operations.
     def _update(self, operation, **values):
         values['updated_at'] = now()
         with self.storage.connect() as db:
             db.execute('UPDATE copy_operations SET ' + ','.join(key + '=?' for key in values) + ' WHERE id=?',
                        (*values.values(), operation))
 
-    # Возвращает план, прогресс и количество незавершённых файлов операции.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает план, прогресс и количество незавершённых файлов операции.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def job(self, operation):
         with self.storage.connect() as db:
             row = db.execute('SELECT * FROM copy_operations WHERE id=?', (operation,)).fetchone()
@@ -144,8 +144,8 @@ class MissingCopyCatalog:
                 "SELECT staging FROM copy_operation_items WHERE operation_id=? AND staging IS NOT NULL AND state!='done'", (operation,)))
         return result
 
-    # Собирает незавершённые прямые записи выбранной копии.
-    # Читает SQLite-таблицы: copy_operation_items, copy_operations.
+    #: Собирает незавершённые прямые записи выбранной копии.
+    #: Читает SQLite-таблицы: copy_operation_items, copy_operations.
     def incomplete(self, copy_id):
         with self.storage.connect() as db:
             rows = db.execute('''SELECT i.path,i.staging,i.state FROM copy_operation_items i JOIN copy_operations o
@@ -159,16 +159,16 @@ class MissingCopyCatalog:
                     result[row['path']] = value['identity']
             return result
 
-    # Возвращает последнюю операцию копирования по отчёту сверки.
-    # Читает SQLite-таблицы: copy_operations.
+    #: Возвращает последнюю операцию копирования по отчёту сверки.
+    #: Читает SQLite-таблицы: copy_operations.
     def latest(self, report):
         with self.storage.connect() as db:
             row = db.execute('''SELECT id FROM copy_operations WHERE report_id=? OR verification_id=?
                                 ORDER BY created_at DESC LIMIT 1''', (report, report)).fetchone()
         return self.job(row[0]) if row else None
 
-    # Возвращает страницу элементов зафиксированного плана копирования.
-    # Поля результата: items, total, offset.
+    #: Возвращает страницу элементов зафиксированного плана копирования.
+    #: Поля результата: items, total, offset.
     def items(self, operation, offset=0, limit=200):
         job = self.job(operation)
         with self.storage.connect() as db:
@@ -178,8 +178,8 @@ class MissingCopyCatalog:
                                         (operation, limit, offset))]
         return {'items': rows, 'total': job['total_files'] + job['total_directories'], 'offset': offset}
 
-    # Проверяет доступность и идентичность томов обеих сторон операции.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Проверяет доступность и идентичность томов обеих сторон операции.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def _volumes(self, scopes):
         current = {v['id']: v for v in self.storage.refresh(True)['volumes']}
         result = {}
@@ -192,8 +192,8 @@ class MissingCopyCatalog:
             result[side] = volume
         return result
 
-    # Открывает корни обеих областей и проверяет отсутствие пересечения.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Открывает корни обеих областей и проверяет отсутствие пересечения.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     @staticmethod
     def _roots(scopes, volumes):
         result, descriptors = {}, {}
@@ -220,16 +220,16 @@ class MissingCopyCatalog:
                         os.close(current)
         return result
 
-    # Проверяет соответствие текущей связи областям сохранённого плана.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Проверяет соответствие текущей связи областям сохранённого плана.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def _binding(self, job):
         current = self.pairs._pair(job['copy_id'])
         if any(current[side][key] != job['scopes'][side][key]
                for side in ('left', 'right') for key in ('id', 'volume_id', 'path')):
             raise ValueError('Связь папок изменилась. Заново сверь файлы.')
 
-    # Выбирает отсутствующие в копии элементы из завершённой файловой сверки.
-    # Читает SQLite-таблицы: paired_rows.
+    #: Выбирает отсутствующие в копии элементы из завершённой файловой сверки.
+    #: Читает SQLite-таблицы: paired_rows.
     def candidates(self, report_id):
         with self.storage.connect() as db:
             blocked = {r['path'] for r in db.execute("SELECT path FROM paired_rows WHERE job_id=? AND status IN ('conflict','unverified','skipped','copy_incomplete')", (report_id,))}
@@ -246,8 +246,8 @@ class MissingCopyCatalog:
             items.append(dict(path=path, kind=source['kind'], source=source, size=source.get('size') or 0))
         return items
 
-    # Фиксирует состав копирования, версии исходников и идентичность корней.
-    # Изменяет SQLite-таблицы: copy_operation_items, copy_operations.
+    #: Фиксирует состав копирования, версии исходников и идентичность корней.
+    #: Изменяет SQLite-таблицы: copy_operation_items, copy_operations.
     def plan(self, report_id):
         with self.pairs._lock:
             self.pairs._idle()
@@ -283,8 +283,8 @@ class MissingCopyCatalog:
                                [(operation, position, i['path'], i['kind'], json.dumps(i, ensure_ascii=False)) for position, i in enumerate(items)])
             return self.job(operation)
 
-    # Запускает подтверждённый план после проверки связи, томов и состояния служб.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Запускает подтверждённый план после проверки связи, томов и состояния служб.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def start(self, operation, *, background=True):
         with self.pairs._lock:
             self.pairs._idle()
@@ -301,8 +301,8 @@ class MissingCopyCatalog:
                 self._thread.start()
         return self.job(operation)
 
-    # Повторно проверяет связь и идентичность корней во время копирования.
-    # Явно отклоняет недопустимое состояние через OSError.
+    #: Повторно проверяет связь и идентичность корней во время копирования.
+    #: Явно отклоняет недопустимое состояние через OSError.
     def _validate(self, job, volumes):
         self._binding(job)
         if self._roots(job['scopes'], volumes) != job['roots']:
@@ -311,8 +311,8 @@ class MissingCopyCatalog:
             if any(volume.get(key) != job['volumes'][side].get(key) for key in ('mount_path', 'device', 'marker_id')):
                 raise OSError('Том изменился после подготовки плана. Заново сверь файлы.')
 
-    # Запрашивает остановку операции после текущего шага.
-    # Использует self._stop.set, self._update, self.job.
+    #: Запрашивает остановку операции после текущего шага.
+    #: Использует self._stop.set, self._update, self.job.
     def stop(self, operation):
         with self.pairs._lock:
             if self.job(operation)['state'] == 'running':
@@ -320,29 +320,29 @@ class MissingCopyCatalog:
                 self._update(operation, state='stopping', message='Останавливаем копирование')
         return self.job(operation)
 
-    # Останавливает копирование при завершении Core и запрещает финальную пересверку.
-    # Обновляет состояние объекта: _closing.
+    #: Останавливает копирование при завершении Core и запрещает финальную пересверку.
+    #: Обновляет состояние объекта: _closing.
     def close(self):
         self._closing = True
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5)
 
-    # Прерывает текущий шаг при установленном флаге остановки.
-    # Явно отклоняет недопустимое состояние через CopyStopped.
+    #: Прерывает текущий шаг при установленном флаге остановки.
+    #: Явно отклоняет недопустимое состояние через CopyStopped.
     def _check(self):
         if self._stop.is_set():
             raise CopyStopped()
 
-    # Обновляет результат отдельного элемента плана копирования.
-    # Изменяет SQLite-таблицы: copy_operation_items.
+    #: Обновляет результат отдельного элемента плана копирования.
+    #: Изменяет SQLite-таблицы: copy_operation_items.
     def _item(self, operation, path, **values):
         with self.storage.connect() as db:
             db.execute('UPDATE copy_operation_items SET ' + ','.join(k + '=?' for k in values) + ' WHERE operation_id=? AND path=?',
                        (*values.values(), operation, path))
 
-    # Удаляет только собственные подтверждённые промежуточные файлы операции.
-    # Явно отклоняет недопустимое состояние через OSError.
+    #: Удаляет только собственные подтверждённые промежуточные файлы операции.
+    #: Явно отклоняет недопустимое состояние через OSError.
     def _cleanup_staging(self, job, volumes):
         with self.storage.connect() as db:
             rows = list(db.execute('''SELECT i.operation_id,i.path,i.staging FROM copy_operation_items i
@@ -363,8 +363,8 @@ class MissingCopyCatalog:
                 pass
             self._item(row['operation_id'], row['path'], staging=None)
 
-    # Пробует атомарную публикацию файла и при необходимости включает прямую запись.
-    # Обрабатывает ошибки: DirectCopyRequired.
+    #: Пробует атомарную публикацию файла и при необходимости включает прямую запись.
+    #: Обрабатывает ошибки: DirectCopyRequired.
     def _copy_file(self, job, item, volumes, completed_bytes):
         direct = volumes['right'].get('kind') == 'network'
         try:
@@ -372,8 +372,8 @@ class MissingCopyCatalog:
         except DirectCopyRequired:
             return self._write_file(job, item, volumes, completed_bytes, direct=True)
 
-    # Копирует файл с проверками источника, назначения и исключительного создания.
-    # Явно отклоняет недопустимое состояние через DirectCopyRequired, OSError.
+    #: Копирует файл с проверками источника, назначения и исключительного создания.
+    #: Явно отклоняет недопустимое состояние через DirectCopyRequired, OSError.
     def _write_file(self, job, item, volumes, completed_bytes, *, direct):
         path, source = item['path'], item['source']
         parent = str(PurePosixPath(path).parent)
@@ -461,8 +461,8 @@ class MissingCopyCatalog:
                     if not direct or complete:
                         self._item(job['id'], path, staging=None)
 
-    # Исполняет элементы плана и создаёт итоговую сверку по имени и размеру.
-    # Обновляет состояние объекта: _thread.
+    #: Исполняет элементы плана и создаёт итоговую сверку по имени и размеру.
+    #: Обновляет состояние объекта: _thread.
     def run(self, operation, *, recheck=True):
         state, message = 'completed', 'Копирование завершено'
         counters = dict(copied_files=0, copied_directories=0, copied_bytes=0, checked_items=0, skipped=0, errors=0)

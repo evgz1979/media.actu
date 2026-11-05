@@ -7,7 +7,7 @@
 
 Решение действует для двух пользовательских сервисов Core/UI. Дополнительно работает локальный нативный PhotoKit-helper; это вспомогательный процесс Core, а не перенос файловой логики в UI.
 
-Код: [`lifespan`](../../app.py#L131), [`core_request`](../../ui.py#L63).
+Код: [`lifespan`](../reference/app.md#symbol-lifespan), [`core_request`](../reference/ui.md#symbol-core_request).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

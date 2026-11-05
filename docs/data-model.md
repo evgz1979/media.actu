@@ -1,14 +1,14 @@
 # Схема данных
 
-Снято 2026-11-03 с двух пустых временных баз после создания служб Core. `lifespan` FastAPI не запускался: наблюдатели, сканирование и PhotoKit не работали. Это итоговая схема текущего кода после его миграций, а не выгрузка пользовательских данных.
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
 
-В базе `catalog.sqlite3` 17 таблиц, в `storage.sqlite3` — 32. Базы независимы: `volume_id` в копиях Photos ссылается на каталог хранилищ логически, внешнего ключа между файлами SQLite нет. Отдельные службы также держат очереди и блокировки в памяти; наличие результата в таблице не означает, что соответствующий поток сейчас работает.
+Схема получена на пустых временных базах после инициализации служб Core. PhotoKit отключён, lifespan не запускается.
 
-Связанные объяснения: [архитектура](architecture.md), [транзакции и ресурсы](development/data-and-files.md), [совместимость старых полей](legacy.md).
+Базы независимы. volume_id в копиях Photos проверяется прикладным кодом. Состояние потоков и очередей в памяти описано в [архитектуре](architecture.md).
 
 ## Владение и транзакции
 
-`Catalog.connect` включает `foreign_keys=ON`, `journal_mode=WAL` и `sqlite3.Row`, тайм-аут 30 секунд. `StorageCatalog.connect` — контекстный менеджер: включает внешние ключи, фиксирует успешный блок либо откатывает исключение и всегда закрывает соединение. WAL для storage этим методом явно не включается. Записи медиаиндекса используют `Catalog._write_lock`, многие изменения связей — `StorageCatalog._lock` и `BEGIN IMMEDIATE`; это локальные блокировки процесса, а не распределённая транзакция двух баз.
+`Catalog.connect` включает внешние ключи, WAL, sqlite3.Row и тайм-аут 30 секунд. `StorageCatalog.connect` фиксирует или откатывает блок и закрывает соединение. WAL для storage этим методом явно не включается. Блокировки процесса и BEGIN IMMEDIATE согласуют изменения в пределах соответствующей базы.
 
 ## Оглавление таблиц
 
@@ -71,7 +71,7 @@
 
 ## `media_files`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:28](../media_manager/catalog.py#L28).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Одна строка на объект источника. В обычной папке relative_path — путь файла, у Photos — ID объекта; parent_path задаёт виртуальный год/месяц. seen_token позволяет удалять исчезнувшие записи после полного успешного скана. В Photos modified_at сейчас формируется из created_at скана (либо времени скана при отсутствии даты), а не из assetVersion манифеста оригиналов; это разные версии для разных сценариев.
 
@@ -87,7 +87,7 @@
 | `modified_at` | `TEXT` | True | не задано | 0 |
 | `seen_token` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE media_files (
@@ -114,7 +114,7 @@ CREATE TABLE media_files (
 
 ## `metadata`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:44](../media_manager/catalog.py#L44).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Служебные ключи медиаиндекса: catalog_revision и общая пауза превью. Это не EXIF и не пользовательские теги файлов.
 
@@ -123,7 +123,7 @@ CREATE TABLE media_files (
 | `key` | `TEXT` | False | не задано | 1 |
 | `value` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE metadata (
@@ -138,7 +138,7 @@ CREATE TABLE metadata (
 
 ## `photos_copy_files`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:92](../media_manager/catalog.py#L92).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Квитанции готовых ресурсов: link, asset ID, resource ID, путь, размер и время проверки. Поле sha256 оставлено для совместимости и сейчас заполняется пустой строкой.
 
@@ -152,7 +152,7 @@ CREATE TABLE metadata (
 | `sha256` | `TEXT` | False | не задано | 0 |
 | `verified_at` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_copy_files (
@@ -177,7 +177,7 @@ CREATE TABLE photos_copy_files (
 
 ## `photos_copy_links`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:81](../media_manager/catalog.py#L81).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Привязанные папки назначения Photos. Связь отключается через connected, чтобы сохранить квитанции и историю; номер уникален внутри медиатеки.
 
@@ -191,7 +191,7 @@ CREATE TABLE photos_copy_files (
 | `created_at` | `TEXT` | True | не задано | 0 |
 | `connected` | `INTEGER` | True | `1` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_copy_links (
@@ -211,13 +211,13 @@ CREATE TABLE photos_copy_links (
 
 - `source_id` → `photos_libraries.source_id`, ON DELETE `NO ACTION`, ON UPDATE `NO ACTION`.
 
-Индексы: `sqlite_autoindex_photos_copy_links_3` (unique=True, partial=False), `sqlite_autoindex_photos_copy_links_2` (unique=True, partial=False), `sqlite_autoindex_photos_copy_links_1` (unique=True, partial=False).
+Индексы: `sqlite_autoindex_photos_copy_links_1` (unique=True, partial=False), `sqlite_autoindex_photos_copy_links_2` (unique=True, partial=False), `sqlite_autoindex_photos_copy_links_3` (unique=True, partial=False).
 
 <a id="table-photos-copy-sources"></a>
 
 ## `photos_copy_sources`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photo_libraries.py:60](../media_manager/photo_libraries.py#L60).
+База: `catalog.sqlite3`. Определение: [media_manager/photo_libraries.py / PhotoLibraries._migrate](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries._migrate).
 
 Явное ребро от назначения к копии-источнику. Отсутствие строки означает прямой источник Photos. При изменении проверяются принадлежность медиатеке и отсутствие цикла.
 
@@ -226,7 +226,7 @@ CREATE TABLE photos_copy_links (
 | `link_id` | `TEXT` | False | не задано | 1 |
 | `source_link_id` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_copy_sources (
@@ -244,7 +244,7 @@ CREATE TABLE photos_copy_sources (
 
 ## `photos_libraries`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:65](../media_manager/catalog.py#L65).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Идентичность и доступность медиатеки, якорные ID в JSON, ручная пауза. Частичный уникальный индекс допускает только одну активную запись.
 
@@ -259,7 +259,7 @@ CREATE TABLE photos_copy_sources (
 | `error` | `TEXT` | False | не задано | 0 |
 | `checked_at` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_libraries (
@@ -284,7 +284,7 @@ CREATE TABLE photos_libraries (
 
 ## `photos_original_inventory`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:88](../media_manager/photos_originals.py#L88).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 Индекс файлов папки назначения по пути, stat-fingerprint и поколению обхода. Поле sha256 историческое; текущий обход читает метаданные.
 
@@ -297,7 +297,7 @@ CREATE TABLE photos_libraries (
 | `sha256` | `TEXT` | True | не задано | 0 |
 | `seen` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_inventory (
@@ -312,7 +312,7 @@ CREATE TABLE photos_original_inventory (
 
 ## `photos_original_jobs`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:76](../media_manager/photos_originals.py#L76).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 Состояние задания оригиналов и JSON прогресса, включая идентичность корня, счётчики, текущий ресурс и буфер. Для продолжения используется последняя запись копии.
 
@@ -324,7 +324,7 @@ CREATE TABLE photos_original_inventory (
 | `updated_at` | `TEXT` | True | не задано | 0 |
 | `data` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_jobs (
@@ -342,7 +342,7 @@ CREATE TABLE photos_original_jobs (
 
 ## `photos_original_log`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:95](../media_manager/photos_originals.py#L95).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 События сохранения оригиналов, ошибки и причины ожидания. API показывает последние 200 записей текущего задания и отдельно незавершённые пути.
 
@@ -355,7 +355,7 @@ CREATE TABLE photos_original_jobs (
 | `path` | `TEXT` | True | не задано | 0 |
 | `message` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_log (
@@ -369,7 +369,7 @@ CREATE TABLE photos_original_log (
 
 ## `photos_original_resources`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:80](../media_manager/photos_originals.py#L80).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 Рабочий манифест конкретного задания: объект, ресурс, JSON версии и параметров, состояние pending/saved/reused/error и поколение seen.
 
@@ -382,7 +382,7 @@ CREATE TABLE photos_original_log (
 | `state` | `TEXT` | True | `'pending'` | 0 |
 | `seen` | `TEXT` | True | `''` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_resources (
@@ -401,7 +401,7 @@ CREATE TABLE photos_original_resources (
 
 ## `photos_original_staging`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:92](../media_manager/photos_originals.py#L92).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 Намерения записи и идентичность созданных файлов. JSON final=true означает конечный путь, который нельзя удалять или повторно принимать после незавершённой записи.
 
@@ -411,7 +411,7 @@ CREATE TABLE photos_original_resources (
 | `path` | `TEXT` | True | не задано | 2 |
 | `data` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_staging (
@@ -425,7 +425,7 @@ CREATE TABLE photos_original_staging (
 
 ## `photos_original_versions`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py:84](../media_manager/photos_originals.py#L84).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_originals.py / PhotosOriginals.__init__](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.__init__).
 
 Ожидаемая версия ресурса Photos и stat-fingerprint готового файла по link/asset/resource. Используется совместно с квитанцией без повторного хеширования содержимого.
 
@@ -437,7 +437,7 @@ CREATE TABLE photos_original_staging (
 | `version` | `TEXT` | True | не задано | 0 |
 | `fingerprint` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_original_versions (
@@ -452,7 +452,7 @@ CREATE TABLE photos_original_versions (
 
 ## `photos_sync_requests`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_schedule.py:48](../media_manager/photos_schedule.py#L48).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_schedule.py / PhotosSyncSchedule.__init__](reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.__init__).
 
 Постоянные запросы расписания по корневой копии, дата обработанного окна, версия замеченного результата, отложенный повтор и текст ошибки.
 
@@ -465,7 +465,7 @@ CREATE TABLE photos_original_versions (
 | `retry_after` | `REAL` | True | `0` | 0 |
 | `error` | `TEXT` | True | `''` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_sync_requests (
@@ -485,7 +485,7 @@ CREATE TABLE photos_sync_requests (
 
 ## `photos_sync_settings`
 
-База: `catalog.sqlite3`. Определение: [media_manager/photos_schedule.py:44](../media_manager/photos_schedule.py#L44).
+База: `catalog.sqlite3`. Определение: [media_manager/photos_schedule.py / PhotosSyncSchedule.__init__](reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.__init__).
 
 Настройки окна работы по медиатеке: night_only, часы и Europe/Moscow. Они не совпадают с ручной паузой.
 
@@ -497,7 +497,7 @@ CREATE TABLE photos_sync_requests (
 | `end_hour` | `INTEGER` | True | не задано | 0 |
 | `timezone` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE photos_sync_settings (
@@ -516,7 +516,7 @@ CREATE TABLE photos_sync_settings (
 
 ## `sources`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:15](../media_manager/catalog.py#L15).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Зарегистрированные источники медиаиндекса. kind различает folder и photos; role — прежнее назначение source/storage. path уникален, у Photos это виртуальный URI.
 
@@ -533,7 +533,7 @@ CREATE TABLE photos_sync_settings (
 | `status` | `TEXT` | True | `'idle'` | 0 |
 | `error` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE sources (
@@ -556,7 +556,7 @@ CREATE TABLE sources (
 
 ## `thumbnail_jobs`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:49](../media_manager/catalog.py#L49).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Постоянная очередь JPEG-превью, одна строка на media_id и ожидаемую media_version. Состояния pending/running/done/error, приоритет и число попыток.
 
@@ -572,7 +572,7 @@ CREATE TABLE sources (
 | `started_at` | `TEXT` | False | не задано | 0 |
 | `finished_at` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE thumbnail_jobs (
@@ -599,7 +599,7 @@ CREATE TABLE thumbnail_jobs (
 
 ## `thumbnail_waits`
 
-База: `catalog.sqlite3`. Определение: [media_manager/catalog.py:76](../media_manager/catalog.py#L76).
+База: `catalog.sqlite3`. Определение: [media_manager/catalog.py / SCHEMA](reference/media_manager--catalog.md#constant-SCHEMA).
 
 Срок и причина временной отсрочки задания превью. Отличается от окончательной ошибки и ручной паузы.
 
@@ -609,7 +609,7 @@ CREATE TABLE thumbnail_jobs (
 | `retry_at` | `REAL` | True | не задано | 0 |
 | `reason` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE thumbnail_waits (
@@ -629,7 +629,7 @@ CREATE TABLE thumbnail_waits (
 
 ## `annotations`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:180](../media_manager/storage.py#L180).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Прежние назначения и роли, пользовательские флаги и комментарии. При отображении часть полей наследуется от ближайшего предка; современный учёт копий хранится отдельно.
 
@@ -643,7 +643,7 @@ CREATE TABLE thumbnail_waits (
 | `planned_move` | `INTEGER` | False | не задано | 0 |
 | `comment` | `TEXT` | True | `''` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE annotations (
@@ -659,7 +659,7 @@ CREATE TABLE annotations (
 
 ## `comparison_entries`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:125](../media_manager/comparison.py#L125).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Сохранённые элементы области: пути, имена, тип, stat-параметры, ошибки, прежние хеши и нормализованные ключи поиска.
 
@@ -683,7 +683,7 @@ CREATE TABLE annotations (
 | `name_key` | `TEXT` | True | `''` | 0 |
 | `parent_key` | `TEXT` | True | `''` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_entries (
@@ -695,13 +695,13 @@ CREATE TABLE comparison_entries (
                 );
 ```
 
-Индексы: `comparison_names` (unique=False, partial=False), `comparison_content` (unique=False, partial=False), `comparison_parent` (unique=False, partial=False), `sqlite_autoindex_comparison_entries_1` (unique=True, partial=False).
+Индексы: `comparison_content` (unique=False, partial=False), `comparison_names` (unique=False, partial=False), `comparison_parent` (unique=False, partial=False), `sqlite_autoindex_comparison_entries_1` (unique=True, partial=False).
 
 <a id="table-comparison-events"></a>
 
 ## `comparison_events`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:144](../media_manager/comparison.py#L144).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Постоянный журнал общей сверки с монотонным ID для обратной пагинации.
 
@@ -714,7 +714,7 @@ CREATE TABLE comparison_entries (
 | `message` | `TEXT` | True | не задано | 0 |
 | `path` | `TEXT` | True | `''` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_events (
@@ -729,7 +729,7 @@ CREATE TABLE comparison_events (
 
 ## `comparison_hashes`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:138](../media_manager/comparison.py#L138).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Исторический кэш хешей прежней общей сверки содержимого. В текущем Python-коде найдено создание таблицы, но новых чтений/записей этого кэша нет; SHA-256 пар использует paired_entries.
 
@@ -745,7 +745,7 @@ CREATE TABLE comparison_events (
 | `digest` | `TEXT` | True | не задано | 0 |
 | `hashed_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_hashes (
@@ -762,7 +762,7 @@ CREATE TABLE comparison_hashes (
 
 ## `comparison_jobs`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:114](../media_manager/comparison.py#L114).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Задания общей сверки. Новые задания имеют mode=names; content остаётся для чтения старых отчётов. reread и поля хеширования сохранены для совместимости.
 
@@ -781,7 +781,7 @@ CREATE TABLE comparison_hashes (
 | `mode` | `TEXT` | True | `'content'` | 0 |
 | `reuse_index` | `INTEGER` | True | `1` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_jobs (
@@ -798,7 +798,7 @@ CREATE TABLE comparison_jobs (
 
 ## `comparison_results`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:135](../media_manager/comparison.py#L135).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Классификация исходных элементов общей сверки по entry_id. Смысл статуса зависит от mode отчёта.
 
@@ -808,7 +808,7 @@ CREATE TABLE comparison_jobs (
 | `status` | `TEXT` | True | не задано | 0 |
 | `reason` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_results (
@@ -822,7 +822,7 @@ CREATE TABLE comparison_results (
 
 ## `comparison_scans`
 
-База: `storage.sqlite3`. Определение: [media_manager/comparison.py:120](../media_manager/comparison.py#L120).
+База: `storage.sqlite3`. Определение: [media_manager/comparison.py / ComparisonCatalog.__init__](reference/media_manager--comparison.md#symbol-ComparisonCatalog.__init__).
 
 Выбранные области общей сверки, сторона source/target, состояние полноты индекса и reused_from для повторно использованных списков.
 
@@ -839,7 +839,7 @@ CREATE TABLE comparison_results (
 | `error` | `TEXT` | False | не задано | 0 |
 | `reused_from` | `INTEGER` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE comparison_scans (
@@ -855,7 +855,7 @@ CREATE TABLE comparison_scans (
 
 ## `copy_group_settings`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:34](../media_manager/copies.py#L34).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Отслеживание основной папки, её метка temporary/inbox/archive и время обнаруженного изменения.
 
@@ -866,7 +866,7 @@ CREATE TABLE comparison_scans (
 | `label` | `TEXT` | True | `''` | 0 |
 | `changed_at` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_group_settings (
@@ -887,7 +887,7 @@ CREATE TABLE copy_group_settings (
 
 ## `copy_groups`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:16](../media_manager/copies.py#L16).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Наборы одной основной папки и её копий. next_number — сохранённое историческое поле; текущая выдача номера вычисляется из связей и освобождённых номеров.
 
@@ -897,7 +897,7 @@ CREATE TABLE copy_group_settings (
 | `next_number` | `INTEGER` | True | `1` | 0 |
 | `created_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_groups (
@@ -912,7 +912,7 @@ CREATE TABLE copy_groups (
 
 ## `copy_locations`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:20](../media_manager/copies.py#L20).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Зарегистрированные области обычных наборов: main имеет номер 0, остальные — положительный номер и copy/cold/cloud. Пересечения областей проверяются кодом.
 
@@ -926,7 +926,7 @@ CREATE TABLE copy_groups (
 | `number` | `INTEGER` | True | не задано | 0 |
 | `created_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_locations (
@@ -945,13 +945,13 @@ CREATE TABLE copy_locations (
 - `volume_id` → `volumes.id`, ON DELETE `NO ACTION`, ON UPDATE `NO ACTION`.
 - `group_id` → `copy_groups.id`, ON DELETE `CASCADE`, ON UPDATE `NO ACTION`.
 
-Индексы: `copy_locations_volume` (unique=False, partial=False), `sqlite_autoindex_copy_locations_3` (unique=True, partial=False), `sqlite_autoindex_copy_locations_2` (unique=True, partial=False), `sqlite_autoindex_copy_locations_1` (unique=True, partial=False).
+Индексы: `copy_locations_volume` (unique=False, partial=False), `sqlite_autoindex_copy_locations_1` (unique=True, partial=False), `sqlite_autoindex_copy_locations_2` (unique=True, partial=False), `sqlite_autoindex_copy_locations_3` (unique=True, partial=False).
 
 <a id="table-copy-operation-items"></a>
 
 ## `copy_operation_items`
 
-База: `storage.sqlite3`. Определение: [media_manager/copy_files.py:109](../media_manager/copy_files.py#L109).
+База: `storage.sqlite3`. Определение: [media_manager/copy_files.py / MissingCopyCatalog.__init__](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.__init__).
 
 Каждый элемент зафиксированного плана: порядок, тип, JSON data с ожидаемыми параметрами источника, state/message. JSON staging хранит имя и identity созданного файла; final=true помечает конечную незавершённую запись.
 
@@ -966,7 +966,7 @@ CREATE TABLE copy_locations (
 | `message` | `TEXT` | True | `''` | 0 |
 | `staging` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_operation_items (
@@ -981,13 +981,13 @@ CREATE TABLE copy_operation_items (
 
 - `operation_id` → `copy_operations.id`, ON DELETE `NO ACTION`, ON UPDATE `NO ACTION`.
 
-Индексы: `sqlite_autoindex_copy_operation_items_2` (unique=True, partial=False), `sqlite_autoindex_copy_operation_items_1` (unique=True, partial=False).
+Индексы: `sqlite_autoindex_copy_operation_items_1` (unique=True, partial=False), `sqlite_autoindex_copy_operation_items_2` (unique=True, partial=False).
 
 <a id="table-copy-operations"></a>
 
 ## `copy_operations`
 
-База: `storage.sqlite3`. Определение: [media_manager/copy_files.py:97](../media_manager/copy_files.py#L97).
+База: `storage.sqlite3`. Определение: [media_manager/copy_files.py / MissingCopyCatalog.__init__](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.__init__).
 
 Сохранённый план и прогресс копирования отсутствующего, снимок областей и корней, счётчики и ссылка на итоговую пересверку.
 
@@ -1013,7 +1013,7 @@ CREATE TABLE copy_operation_items (
 | `errors` | `INTEGER` | True | `0` | 0 |
 | `verification_id` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_operations (
@@ -1040,7 +1040,7 @@ CREATE TABLE copy_operations (
 
 ## `copy_sources`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:30](../media_manager/copies.py#L30).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Явные источники обычных копий внутри набора. Нет строки — источник 00-main; направленный цикл запрещён кодом.
 
@@ -1049,7 +1049,7 @@ CREATE TABLE copy_operations (
 | `location_id` | `TEXT` | False | не задано | 1 |
 | `source_id` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE copy_sources (
@@ -1068,7 +1068,7 @@ CREATE TABLE copy_sources (
 
 ## `directories`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:176](../media_manager/storage.py#L176).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Снимок непосредственных entries папки в JSON. Сохранённый список доступен при отключённом носителе и помечается как cached.
 
@@ -1079,7 +1079,7 @@ CREATE TABLE copy_sources (
 | `scanned_at` | `TEXT` | True | не задано | 0 |
 | `entries` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE directories (
@@ -1094,7 +1094,7 @@ CREATE TABLE directories (
 
 ## `directory_sizes`
 
-База: `storage.sqlite3`. Определение: [media_manager/directory_sizes.py:35](../media_manager/directory_sizes.py#L35).
+База: `storage.sqlite3`. Определение: [media_manager/directory_sizes.py / DirectorySizeService.__init__](reference/media_manager--directory_sizes.md#symbol-DirectorySizeService.__init__).
 
 Сохранённые логические размеры папок, количество файлов, полнота, ошибка, время расчёта и stale. Очередь пересчёта живёт отдельно в памяти.
 
@@ -1109,7 +1109,7 @@ CREATE TABLE directories (
 | `error` | `TEXT` | False | не задано | 0 |
 | `stale` | `INTEGER` | True | `0` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE directory_sizes (
@@ -1125,7 +1125,7 @@ CREATE TABLE directory_sizes (
 
 ## `directory_tags`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:185](../media_manager/storage.py#L185).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Пользовательские метки old_copy/sort/check конкретной папки, сохранённые списком JSON.
 
@@ -1135,7 +1135,7 @@ CREATE TABLE directory_sizes (
 | `path` | `TEXT` | True | не задано | 2 |
 | `tags` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE directory_tags (
@@ -1154,7 +1154,7 @@ CREATE TABLE directory_tags (
 
 ## `disconnected_copy_groups`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:40](../media_manager/copies.py#L40).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Логическое отключение набора без удаления связей, данных и истории.
 
@@ -1163,7 +1163,7 @@ CREATE TABLE directory_tags (
 | `group_id` | `TEXT` | False | не задано | 1 |
 | `disconnected_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE disconnected_copy_groups (
@@ -1182,7 +1182,7 @@ CREATE TABLE disconnected_copy_groups (
 
 ## `disconnected_copy_locations`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:44](../media_manager/copies.py#L44).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Логическое отключение конкретной копии без освобождения её номера.
 
@@ -1191,7 +1191,7 @@ CREATE TABLE disconnected_copy_groups (
 | `location_id` | `TEXT` | False | не задано | 1 |
 | `disconnected_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE disconnected_copy_locations (
@@ -1210,7 +1210,7 @@ CREATE TABLE disconnected_copy_locations (
 
 ## `folder_marker_jobs`
 
-База: `storage.sqlite3`. Определение: [media_manager/folder_markers.py:19](../media_manager/folder_markers.py#L19).
+База: `storage.sqlite3`. Определение: [media_manager/folder_markers.py / FOLDER_MARKER_SCHEMA](reference/media_manager--folder_markers.md#constant-FOLDER_MARKER_SCHEMA).
 
 Постоянная очередь записи .media-actu-folder.json с JSON payload, ревизией, состоянием, ошибкой и сроком следующей попытки.
 
@@ -1227,7 +1227,7 @@ CREATE TABLE disconnected_copy_locations (
 | `synced_at` | `TEXT` | False | не задано | 0 |
 | `next_check` | `REAL` | True | `0` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE folder_marker_jobs (
@@ -1244,7 +1244,7 @@ CREATE TABLE folder_marker_jobs (
 
 ## `network_servers`
 
-База: `storage.sqlite3`. Определение: [media_manager/network.py:165](../media_manager/network.py#L165).
+База: `storage.sqlite3`. Определение: [media_manager/network.py / NetworkCatalog.__init__](reference/media_manager--network.md#symbol-NetworkCatalog.__init__).
 
 Запомненные серверы Bonjour/SMB, адреса, доступность и ошибки последней проверки.
 
@@ -1260,7 +1260,7 @@ CREATE TABLE folder_marker_jobs (
 | `shares_at` | `TEXT` | False | не задано | 0 |
 | `error` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE network_servers (
@@ -1276,7 +1276,7 @@ CREATE TABLE network_servers (
 
 ## `network_shares`
 
-База: `storage.sqlite3`. Определение: [media_manager/network.py:170](../media_manager/network.py#L170).
+База: `storage.sqlite3`. Определение: [media_manager/network.py / NetworkCatalog.__init__](reference/media_manager--network.md#symbol-NetworkCatalog.__init__).
 
 Кэш ресурсов сервера с их видом и примечанием; используется при недоступности сети.
 
@@ -1288,7 +1288,7 @@ CREATE TABLE network_servers (
 | `last_seen` | `TEXT` | True | не задано | 0 |
 | `present` | `INTEGER` | True | `1` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE network_shares (
@@ -1304,7 +1304,7 @@ CREATE TABLE network_shares (
 
 ## `network_volume_links`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:190](../media_manager/storage.py#L190).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Сохранённый URL SMB-ресурса для подключения Finder. Пароли в эту таблицу не записываются.
 
@@ -1313,7 +1313,7 @@ CREATE TABLE network_shares (
 | `volume_id` | `TEXT` | False | не задано | 1 |
 | `url` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL);
@@ -1325,7 +1325,7 @@ CREATE TABLE network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL
 
 ## `paired_decisions`
 
-База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py:69](../media_manager/paired_comparison.py#L69).
+База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py / PairedComparisonCatalog.__init__](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.__init__).
 
 Плановые решения keep/add_main/move/remove для extra_copy. Они наследуются вложенными элементами и сами не запускают файловые операции.
 
@@ -1336,7 +1336,7 @@ CREATE TABLE network_volume_links (volume_id TEXT PRIMARY KEY, url TEXT NOT NULL
 | `action` | `TEXT` | True | не задано | 0 |
 | `updated_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE paired_decisions (
@@ -1355,7 +1355,7 @@ CREATE TABLE paired_decisions (
 
 ## `paired_entries`
 
-База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py:60](../media_manager/paired_comparison.py#L60).
+База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py / PairedComparisonCatalog.__init__](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.__init__).
 
 Сохранённые метаданные и дополнительные digest одной стороны пары по относительному пути.
 
@@ -1366,7 +1366,7 @@ CREATE TABLE paired_decisions (
 | `path` | `TEXT` | True | не задано | 3 |
 | `data` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE paired_entries (
@@ -1385,7 +1385,7 @@ CREATE TABLE paired_entries (
 
 ## `paired_jobs`
 
-База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py:48](../media_manager/paired_comparison.py#L48).
+База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py / PairedComparisonCatalog.__init__](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.__init__).
 
 Задания парной сверки: выбранные области в JSON, режим folders/files, метод size/sha256, полнота сторон, счётчики и состояние.
 
@@ -1412,7 +1412,7 @@ CREATE TABLE paired_entries (
 | `errors` | `INTEGER` | True | `0` | 0 |
 | `method` | `TEXT` | True | `'sha256'` | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE paired_jobs (
@@ -1434,7 +1434,7 @@ CREATE TABLE paired_jobs (
 
 ## `paired_rows`
 
-База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py:64](../media_manager/paired_comparison.py#L64).
+База: `storage.sqlite3`. Определение: [media_manager/paired_comparison.py / PairedComparisonCatalog.__init__](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.__init__).
 
 Выровненные строки результата с устойчивым порядком position, статусом и JSON обеих сторон.
 
@@ -1447,7 +1447,7 @@ CREATE TABLE paired_jobs (
 | `status` | `TEXT` | True | не задано | 0 |
 | `data` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE paired_rows (
@@ -1461,13 +1461,13 @@ CREATE TABLE paired_rows (
 
 - `job_id` → `paired_jobs.id`, ON DELETE `NO ACTION`, ON UPDATE `NO ACTION`.
 
-Индексы: `sqlite_autoindex_paired_rows_2` (unique=True, partial=False), `sqlite_autoindex_paired_rows_1` (unique=True, partial=False).
+Индексы: `sqlite_autoindex_paired_rows_1` (unique=True, partial=False), `sqlite_autoindex_paired_rows_2` (unique=True, partial=False).
 
 <a id="table-released-copy-locations"></a>
 
 ## `released_copy_locations`
 
-База: `storage.sqlite3`. Определение: [media_manager/copies.py:48](../media_manager/copies.py#L48).
+База: `storage.sqlite3`. Определение: [media_manager/copies.py / COPY_SCHEMA](reference/media_manager--copies.md#constant-COPY_SCHEMA).
 
 Архив прежних отключённых привязок с освобождённым номером. Их история остаётся, но новые сверки и копирование запрещены.
 
@@ -1483,7 +1483,7 @@ CREATE TABLE paired_rows (
 | `disconnected_at` | `TEXT` | True | не задано | 0 |
 | `released_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE released_copy_locations (
@@ -1507,7 +1507,7 @@ CREATE TABLE released_copy_locations (
 
 ## `volume_aliases`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:191](../media_manager/storage.py#L191).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Сопоставление прежних ID сетевого ресурса с устойчивой записью тома при изменении адреса сервера.
 
@@ -1516,7 +1516,7 @@ CREATE TABLE released_copy_locations (
 | `alias_id` | `TEXT` | False | не задано | 1 |
 | `volume_id` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL);
@@ -1528,7 +1528,7 @@ CREATE TABLE volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL)
 
 ## `volume_capacity`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:196](../media_manager/storage.py#L196).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Последний успешный замер ёмкости: полный, занятый, свободный и доступный объём плюс checked_at. Сохраняется после отключения.
 
@@ -1541,7 +1541,7 @@ CREATE TABLE volume_aliases (alias_id TEXT PRIMARY KEY, volume_id TEXT NOT NULL)
 | `available_bytes` | `INTEGER` | True | не задано | 0 |
 | `checked_at` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE volume_capacity (
@@ -1555,7 +1555,7 @@ CREATE TABLE volume_capacity (
 
 ## `volume_details`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:193](../media_manager/storage.py#L193).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Идентичность носителя: removable, verified/resource/unverified/legacy, marker_id, имя ресурса и ошибка подтверждения.
 
@@ -1568,7 +1568,7 @@ CREATE TABLE volume_capacity (
 | `share_name` | `TEXT` | False | не задано | 0 |
 | `identity_error` | `TEXT` | False | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE volume_details (
@@ -1582,7 +1582,7 @@ CREATE TABLE volume_details (
 
 ## `volume_origins`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:192](../media_manager/storage.py#L192).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Запомненный сервер происхождения сетевого тома для группировки после отключения.
 
@@ -1591,7 +1591,7 @@ CREATE TABLE volume_details (
 | `volume_id` | `TEXT` | False | не задано | 1 |
 | `host` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE volume_origins (volume_id TEXT PRIMARY KEY, host TEXT NOT NULL);
@@ -1603,7 +1603,7 @@ CREATE TABLE volume_origins (volume_id TEXT PRIMARY KEY, host TEXT NOT NULL);
 
 ## `volumes`
 
-База: `storage.sqlite3`. Определение: [media_manager/storage.py:172](../media_manager/storage.py#L172).
+База: `storage.sqlite3`. Определение: [media_manager/storage.py / StorageCatalog.__init__](reference/media_manager--storage.md#symbol-StorageCatalog.__init__).
 
 Устойчивые записи обнаруженных и запомненных томов. last_seen — время обнаружения, а не доказательство текущей доступности.
 
@@ -1616,7 +1616,7 @@ CREATE TABLE volume_origins (volume_id TEXT PRIMARY KEY, host TEXT NOT NULL);
 | `first_seen` | `TEXT` | True | не задано | 0 |
 | `last_seen` | `TEXT` | True | не задано | 0 |
 
-Полное DDL (включает действующие CHECK, UNIQUE и добавленные поля):
+Полное DDL с CHECK, UNIQUE и добавленными полями:
 
 ```sql
 CREATE TABLE volumes (

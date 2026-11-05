@@ -2,6 +2,8 @@
 
 Связывает компонент paired_tree.js с NiceGUI: свойства строк и обработчики выбора, открытия, раскрытия, контекстного меню и файлов корня.
 
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
+
 [Исходный модуль](../../paired_tree.py)
  · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
 
@@ -9,19 +11,19 @@
 
 Импортирует из проекта: прямых импортов нет.
 Импортируется модулями: [paired_workspace_ui.py](paired_workspace_ui.md).
-Тестовые модули с прямым импортом: нет; возможна косвенная проверка через вызывающие компоненты.
+Тестовые модули с прямым импортом: прямых импортов нет.
 
 ## Оглавление определений
 
-- [PairedTree](#symbol-pairedtree) — Связывает виртуальное дерево Vue с событиями и данными NiceGUI.
-- [PairedTree.__init__](#symbol-pairedtree---init--) — Инициализирует PairedTree и его рабочее состояние.
-- [PairedTree.set_rows](#symbol-pairedtree-set-rows) — Передаёт компоненту новый список строк и текущий выбранный путь.
+- [PairedTree](#symbol-PairedTree) — Связывает виртуальное дерево Vue с событиями и данными NiceGUI.
+- [PairedTree.__init__](#symbol-PairedTree.__init__) — Инициализирует PairedTree и его рабочее состояние.
+- [PairedTree.set_rows](#symbol-PairedTree.set_rows) — Передаёт компоненту новый список строк и текущий выбранный путь.
 
-<a id="symbol-pairedtree"></a>
+<a id="symbol-PairedTree"></a>
 
 ## `PairedTree`
 
-[paired_tree.py:6](../../paired_tree.py#L6)
+[paired_tree.py](../../paired_tree.py) · `PairedTree`
 
 Связывает виртуальное дерево Vue с событиями и данными NiceGUI. Зависимости конструктора: side, on_select, on_open, on_toggle, on_context, on_toggle_files, on_menu_state.
 
@@ -32,11 +34,11 @@
 
 Именованные методы: `__init__`, `set_rows`.
 
-<a id="symbol-pairedtree---init--"></a>
+<a id="symbol-PairedTree.__init__"></a>
 
 ## `PairedTree.__init__`
 
-[paired_tree.py:11](../../paired_tree.py#L11)
+[paired_tree.py](../../paired_tree.py) · `PairedTree.__init__`
 
 Инициализирует PairedTree и его рабочее состояние. Использует self._props.update, self.on, super, super().__init__.
 
@@ -49,11 +51,11 @@ def __init__(self, side, on_select, on_open, on_toggle, on_context, on_toggle_fi
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-pairedtree-set-rows"></a>
+<a id="symbol-PairedTree.set_rows"></a>
 
 ## `PairedTree.set_rows`
 
-[paired_tree.py:23](../../paired_tree.py#L23)
+[paired_tree.py](../../paired_tree.py) · `PairedTree.set_rows`
 
 Передаёт компоненту новый список строк и текущий выбранный путь. Использует self._props.update, self.update.
 

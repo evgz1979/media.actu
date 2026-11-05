@@ -2,6 +2,8 @@
 
 Постоянная очередь заданий находится в Catalog; потоки берут её независимо для folder и photos, сохраняют завершение, временное ожидание и ошибки.
 
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
+
 [Исходный модуль](../../media_manager/thumbnail_workers.py)
  · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
 
@@ -9,25 +11,25 @@
 
 Импортирует из проекта: [media_manager/catalog.py](media_manager--catalog.md), [media_manager/photos_adapter.py](media_manager--photos_adapter.md), [media_manager/thumbnails.py](media_manager--thumbnails.md).
 Импортируется модулями: [app.py](app.md).
-Тестовые модули с прямым импортом: нет; возможна косвенная проверка через вызывающие компоненты.
+Тестовые модули с прямым импортом: прямых импортов нет.
 
 ## Оглавление определений
 
-- [ThumbnailWorkerPool](#symbol-thumbnailworkerpool) — Обрабатывает постоянную очередь обычными и отдельными Photos-воркерами.
-- [ThumbnailWorkerPool.__init__](#symbol-thumbnailworkerpool---init--) — Инициализирует ThumbnailWorkerPool и его рабочее состояние.
-- [ThumbnailWorkerPool.start](#symbol-thumbnailworkerpool-start) — Восстанавливает очередь после перезапуска и запускает настроенные потоки.
-- [ThumbnailWorkerPool.stop](#symbol-thumbnailworkerpool-stop) — Запрашивает остановку воркеров и пробуждает ожидающие потоки.
-- [ThumbnailWorkerPool.wake](#symbol-thumbnailworkerpool-wake) — Сигнализирует о новых заданиях или изменении условий обработки.
-- [ThumbnailWorkerPool.status](#symbol-thumbnailworkerpool-status) — Собирает постоянные счётчики очереди и текущее состояние потоков.
-- [ThumbnailWorkerPool._work](#symbol-thumbnailworkerpool--work) — Выдаёт и обрабатывает задания одного вида с разбором временных ошибок.
-- [ThumbnailWorkerPool._wait](#symbol-thumbnailworkerpool--wait) — Ожидает сигнал пробуждения или истечение короткого интервала опроса.
-- [ThumbnailWorkerPool._set_state](#symbol-thumbnailworkerpool--set-state) — Потокобезопасно обновляет диагностическое состояние одного воркера.
+- [ThumbnailWorkerPool](#symbol-ThumbnailWorkerPool) — Обрабатывает постоянную очередь обычными и отдельными Photos-воркерами.
+- [ThumbnailWorkerPool.__init__](#symbol-ThumbnailWorkerPool.__init__) — Инициализирует ThumbnailWorkerPool и его рабочее состояние.
+- [ThumbnailWorkerPool._set_state](#symbol-ThumbnailWorkerPool._set_state) — Потокобезопасно обновляет диагностическое состояние одного воркера.
+- [ThumbnailWorkerPool._wait](#symbol-ThumbnailWorkerPool._wait) — Ожидает сигнал пробуждения или истечение короткого интервала опроса.
+- [ThumbnailWorkerPool._work](#symbol-ThumbnailWorkerPool._work) — Выдаёт и обрабатывает задания одного вида с разбором временных ошибок.
+- [ThumbnailWorkerPool.start](#symbol-ThumbnailWorkerPool.start) — Восстанавливает очередь после перезапуска и запускает настроенные потоки.
+- [ThumbnailWorkerPool.status](#symbol-ThumbnailWorkerPool.status) — Собирает постоянные счётчики очереди и текущее состояние потоков.
+- [ThumbnailWorkerPool.stop](#symbol-ThumbnailWorkerPool.stop) — Запрашивает остановку воркеров и пробуждает ожидающие потоки.
+- [ThumbnailWorkerPool.wake](#symbol-ThumbnailWorkerPool.wake) — Сигнализирует о новых заданиях или изменении условий обработки.
 
-<a id="symbol-thumbnailworkerpool"></a>
+<a id="symbol-ThumbnailWorkerPool"></a>
 
 ## `ThumbnailWorkerPool`
 
-[media_manager/thumbnail_workers.py:12](../../media_manager/thumbnail_workers.py#L12)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool`
 
 Обрабатывает постоянную очередь обычными и отдельными Photos-воркерами. Зависимости конструктора: catalog, thumbnails.
 
@@ -38,11 +40,11 @@
 
 Именованные методы: `__init__`, `start`, `stop`, `wake`, `status`, `_work`, `_wait`, `_set_state`.
 
-<a id="symbol-thumbnailworkerpool---init--"></a>
+<a id="symbol-ThumbnailWorkerPool.__init__"></a>
 
 ## `ThumbnailWorkerPool.__init__`
 
-[media_manager/thumbnail_workers.py:15](../../media_manager/thumbnail_workers.py#L15)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool.__init__`
 
 Инициализирует ThumbnailWorkerPool и его рабочее состояние. Обновляет состояние объекта: _state_lock, _states, _stop, _threads, _wake, catalog, folder_workers, photos_workers, thumbnails.
 
@@ -57,11 +59,66 @@ def __init__(self, catalog: Catalog, thumbnails: ThumbnailService, *, folder_wor
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-thumbnailworkerpool-start"></a>
+<a id="symbol-ThumbnailWorkerPool._set_state"></a>
+
+## `ThumbnailWorkerPool._set_state`
+
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool._set_state`
+
+Потокобезопасно обновляет диагностическое состояние одного воркера. Параметры: worker_name, state.
+
+```python
+def _set_state(self, worker_name: str, state: str) -> None
+```
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-ThumbnailWorkerPool._wait"></a>
+
+## `ThumbnailWorkerPool._wait`
+
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool._wait`
+
+Ожидает сигнал пробуждения или истечение короткого интервала опроса. Использует self._wake.clear, self._wake.wait.
+
+```python
+def _wait(self) -> None
+```
+
+Прямые выражения вызова: `self._wake.clear`, `self._wake.wait`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-ThumbnailWorkerPool._work"></a>
+
+## `ThumbnailWorkerPool._work`
+
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool._work`
+
+Выдаёт и обрабатывает задания одного вида с разбором временных ошибок. Явно отклоняет недопустимое состояние через RuntimeError.
+
+```python
+def _work(self, source_kind: str) -> None
+```
+
+Прямые выражения вызова: `RuntimeError`, [self._set_state](media_manager--thumbnail_workers.md#symbol-ThumbnailWorkerPool._set_state), `self._stop.is_set`, [self._wait](media_manager--thumbnail_workers.md#symbol-ThumbnailWorkerPool._wait), `self._wake.clear`, `self._wake.wait`, `self.catalog.claim_thumbnail_job`, `self.catalog.defer_thumbnail_job`, `self.catalog.finish_thumbnail_job`, `self.catalog.photos_queue_paused`, `self.catalog.release_thumbnail_job`, `self.catalog.thumbnail_queue_paused`, `self.thumbnails.get_or_create`, `str`, `threading.current_thread`.
+
+Явные `raise`:
+
+- `RuntimeError('Превью недоступно')`
+
+Перехватываемые типы: `PhotosThumbnailPending`, `(PhotosAccessDenied, PhotosLibraryUnavailable)`, `ThumbnailCacheUnavailable`, `Exception`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-ThumbnailWorkerPool.start"></a>
 
 ## `ThumbnailWorkerPool.start`
 
-[media_manager/thumbnail_workers.py:35](../../media_manager/thumbnail_workers.py#L35)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool.start`
 
 Восстанавливает очередь после перезапуска и запускает настроенные потоки. Использует self._stop.clear, self._threads.append, self.catalog.enqueue_all_thumbnails, self.catalog.reset_running_thumbnail_jobs, thread.start.
 
@@ -76,45 +133,11 @@ def start(self) -> None
 - `None`
 
 
-<a id="symbol-thumbnailworkerpool-stop"></a>
-
-## `ThumbnailWorkerPool.stop`
-
-[media_manager/thumbnail_workers.py:56](../../media_manager/thumbnail_workers.py#L56)
-
-Запрашивает остановку воркеров и пробуждает ожидающие потоки. Использует self._states.clear, self._stop.set, self._threads.clear, self._wake.set, thread.join.
-
-```python
-def stop(self) -> None
-```
-
-Прямые выражения вызова: `self._states.clear`, `self._stop.set`, `self._threads.clear`, `self._wake.set`, `thread.join`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-thumbnailworkerpool-wake"></a>
-
-## `ThumbnailWorkerPool.wake`
-
-[media_manager/thumbnail_workers.py:67](../../media_manager/thumbnail_workers.py#L67)
-
-Сигнализирует о новых заданиях или изменении условий обработки. Использует self._wake.set.
-
-```python
-def wake(self) -> None
-```
-
-Прямые выражения вызова: `self._wake.set`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-thumbnailworkerpool-status"></a>
+<a id="symbol-ThumbnailWorkerPool.status"></a>
 
 ## `ThumbnailWorkerPool.status`
 
-[media_manager/thumbnail_workers.py:72](../../media_manager/thumbnail_workers.py#L72)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool.status`
 
 Собирает постоянные счётчики очереди и текущее состояние потоков. Использует result.update, self._states.values, self.catalog.list_sources, self.catalog.photos_queue_paused, self.catalog.thumbnail_queue_summary.
 
@@ -129,56 +152,35 @@ def status(self) -> dict[str, object]
 - `result`
 
 
-<a id="symbol-thumbnailworkerpool--work"></a>
+<a id="symbol-ThumbnailWorkerPool.stop"></a>
 
-## `ThumbnailWorkerPool._work`
+## `ThumbnailWorkerPool.stop`
 
-[media_manager/thumbnail_workers.py:114](../../media_manager/thumbnail_workers.py#L114)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool.stop`
 
-Выдаёт и обрабатывает задания одного вида с разбором временных ошибок. Явно отклоняет недопустимое состояние через RuntimeError.
+Запрашивает остановку воркеров и пробуждает ожидающие потоки. Использует self._states.clear, self._stop.set, self._threads.clear, self._wake.set, thread.join.
 
 ```python
-def _work(self, source_kind: str) -> None
+def stop(self) -> None
 ```
 
-Прямые выражения вызова: `RuntimeError`, [self._set_state](../../media_manager/thumbnail_workers.py#L155), `self._stop.is_set`, [self._wait](../../media_manager/thumbnail_workers.py#L149), `self._wake.clear`, `self._wake.wait`, `self.catalog.claim_thumbnail_job`, `self.catalog.defer_thumbnail_job`, `self.catalog.finish_thumbnail_job`, `self.catalog.photos_queue_paused`, `self.catalog.release_thumbnail_job`, `self.catalog.thumbnail_queue_paused`, `self.thumbnails.get_or_create`, `str`, `threading.current_thread`.
-
-Явные `raise`:
-
-- `RuntimeError('Превью недоступно')`
-
-Перехватываемые типы: `PhotosThumbnailPending`, `(PhotosAccessDenied, PhotosLibraryUnavailable)`, `ThumbnailCacheUnavailable`, `Exception`.
+Прямые выражения вызова: `self._states.clear`, `self._stop.set`, `self._threads.clear`, `self._wake.set`, `thread.join`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-thumbnailworkerpool--wait"></a>
+<a id="symbol-ThumbnailWorkerPool.wake"></a>
 
-## `ThumbnailWorkerPool._wait`
+## `ThumbnailWorkerPool.wake`
 
-[media_manager/thumbnail_workers.py:149](../../media_manager/thumbnail_workers.py#L149)
+[media_manager/thumbnail_workers.py](../../media_manager/thumbnail_workers.py) · `ThumbnailWorkerPool.wake`
 
-Ожидает сигнал пробуждения или истечение короткого интервала опроса. Использует self._wake.clear, self._wake.wait.
-
-```python
-def _wait(self) -> None
-```
-
-Прямые выражения вызова: `self._wake.clear`, `self._wake.wait`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-thumbnailworkerpool--set-state"></a>
-
-## `ThumbnailWorkerPool._set_state`
-
-[media_manager/thumbnail_workers.py:155](../../media_manager/thumbnail_workers.py#L155)
-
-Потокобезопасно обновляет диагностическое состояние одного воркера. Параметры: worker_name, state.
+Сигнализирует о новых заданиях или изменении условий обработки. Использует self._wake.set.
 
 ```python
-def _set_state(self, worker_name: str, state: str) -> None
+def wake(self) -> None
 ```
+
+Прямые выражения вызова: `self._wake.set`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.

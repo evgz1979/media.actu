@@ -2,6 +2,8 @@
 
 Нормализует компактные снимки навигации; не переносит файловые списки и содержимое с Core в хранилище вкладки.
 
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
+
 [Исходный модуль](../../workspace_state.py)
  · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
 
@@ -9,48 +11,42 @@
 
 Импортирует из проекта: [media_manager/storage.py](media_manager--storage.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: [tests/test_sidebar_state.py](../../tests/test_sidebar_state.py#L10), [tests/test_storage_previews.py](../../tests/test_storage_previews.py#L18), [tests/test_workspace_state.py](../../tests/test_workspace_state.py#L6).
+Тестовые модули с прямым импортом: [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state), [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
 
 ## Оглавление определений
 
-- [normalize_sidebar](#symbol-normalize-sidebar) — Восстанавливает только известные булевы настройки раскрытия боковых секций.
 - [identifier](#symbol-identifier) — Проверяет формат ID из сохранённого состояния или допускает None.
+- [normalize_sidebar](#symbol-normalize_sidebar) — Восстанавливает только известные булевы настройки раскрытия боковых секций.
+- [normalize_state](#symbol-normalize_state) — Проверяет версию и структуру снимка двух панелей, пары и отчёта.
+- [pane_snapshot](#symbol-pane_snapshot) — Собирает компактный снимок панели и её режима превью.
 - [path](#symbol-path) — Проверяет длину и нормализует относительный путь снимка вкладки.
-- [pane_snapshot](#symbol-pane-snapshot) — Собирает компактный снимок панели и её режима превью.
-- [normalize_state](#symbol-normalize-state) — Проверяет версию и структуру снимка двух панелей, пары и отчёта.
 
 ## Константы и значения по умолчанию
 
-| Имя | Выражение в коде |
-| --- | --- |
-| [STORAGE_KEY](../../workspace_state.py#L7) | `'media-actu.workspace.v1'` |
-| [SIDEBAR_STORAGE_KEY](../../workspace_state.py#L8) | `'media-actu.sidebar.v1'` |
-| [SIDEBAR_DEFAULTS](../../workspace_state.py#L9) | `dict(volumes=False, volume_archive=False, libraries=True, copy_groups=True, copy_archive=False)` |
+<a id="constant-SIDEBAR_DEFAULTS"></a>
 
-<a id="symbol-normalize-sidebar"></a>
+### `SIDEBAR_DEFAULTS`
 
-## `normalize_sidebar`
+`dict(volumes=False, volume_archive=False, libraries=True, copy_groups=True, copy_archive=False)`
 
-[workspace_state.py:15](../../workspace_state.py#L15)
+<a id="constant-SIDEBAR_STORAGE_KEY"></a>
 
-Восстанавливает только известные булевы настройки раскрытия боковых секций. Использует SIDEBAR_DEFAULTS.items, value.get.
+### `SIDEBAR_STORAGE_KEY`
 
-```python
-def normalize_sidebar(value)
-```
+`'media-actu.sidebar.v1'`
 
-Прямые выражения вызова: `SIDEBAR_DEFAULTS.items`, `isinstance`, `value.get`.
+<a id="constant-STORAGE_KEY"></a>
 
-Выражения возврата (ветви, без исполнения):
+### `STORAGE_KEY`
 
-- `{key: value[key] if isinstance(value.get(key), bool) else default for (key, default) in SIDEBAR_DEFAULTS.items()}`
+`'media-actu.workspace.v1'`
 
 
 <a id="symbol-identifier"></a>
 
 ## `identifier`
 
-[workspace_state.py:23](../../workspace_state.py#L23)
+[workspace_state.py](../../workspace_state.py) · `identifier`
 
 Проверяет формат ID из сохранённого состояния или допускает None. Явно отклоняет недопустимое состояние через ValueError.
 
@@ -70,11 +66,71 @@ def identifier(value)
 - `value`
 
 
+<a id="symbol-normalize_sidebar"></a>
+
+## `normalize_sidebar`
+
+[workspace_state.py](../../workspace_state.py) · `normalize_sidebar`
+
+Восстанавливает только известные булевы настройки раскрытия боковых секций. Использует SIDEBAR_DEFAULTS.items, value.get.
+
+```python
+def normalize_sidebar(value)
+```
+
+Прямые выражения вызова: `SIDEBAR_DEFAULTS.items`, `isinstance`, `value.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `{key: value[key] if isinstance(value.get(key), bool) else default for key, default in SIDEBAR_DEFAULTS.items()}`
+
+
+<a id="symbol-normalize_state"></a>
+
+## `normalize_state`
+
+[workspace_state.py](../../workspace_state.py) · `normalize_state`
+
+Проверяет версию и структуру снимка двух панелей, пары и отчёта. Обрабатывает ошибки: (KeyError, TypeError, ValueError, AttributeError).
+
+```python
+def normalize_state(value)
+```
+
+Прямые выражения вызова: `bool`, `dict`, [identifier](workspace_state.md#symbol-identifier), `isinstance`, `len`, `original.get`, `p.get`, `pair.get`, [path](workspace_state.md#symbol-path), `preview.get`, `str`, `value.get`, `zip`.
+
+Перехватываемые типы: `(KeyError, TypeError, ValueError, AttributeError)`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+- `result`
+
+
+<a id="symbol-pane_snapshot"></a>
+
+## `pane_snapshot`
+
+[workspace_state.py](../../workspace_state.py) · `pane_snapshot`
+
+Собирает компактный снимок панели и её режима превью. Использует data.get, preview.snapshot, vars.
+
+```python
+def pane_snapshot(pane)
+```
+
+Прямые выражения вызова: `bool`, `data.get`, `dict`, `isinstance`, `preview.snapshot`, `vars`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `result`
+
+
 <a id="symbol-path"></a>
 
 ## `path`
 
-[workspace_state.py:33](../../workspace_state.py#L33)
+[workspace_state.py](../../workspace_state.py) · `path`
 
 Проверяет длину и нормализует относительный путь снимка вкладки. Явно отклоняет недопустимое состояние через ValueError.
 
@@ -91,44 +147,3 @@ def path(value)
 Выражения возврата (ветви, без исполнения):
 
 - `relative_path(value)`
-
-
-<a id="symbol-pane-snapshot"></a>
-
-## `pane_snapshot`
-
-[workspace_state.py:41](../../workspace_state.py#L41)
-
-Собирает компактный снимок панели и её режима превью. Использует data.get, preview.snapshot, vars.
-
-```python
-def pane_snapshot(pane)
-```
-
-Прямые выражения вызова: `bool`, `data.get`, `dict`, `isinstance`, `preview.snapshot`, `vars`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `result`
-
-
-<a id="symbol-normalize-state"></a>
-
-## `normalize_state`
-
-[workspace_state.py:56](../../workspace_state.py#L56)
-
-Проверяет версию и структуру снимка двух панелей, пары и отчёта. Обрабатывает ошибки: (KeyError, TypeError, ValueError, AttributeError).
-
-```python
-def normalize_state(value)
-```
-
-Прямые выражения вызова: `bool`, `dict`, [identifier](../../workspace_state.py#L23), `isinstance`, `len`, `original.get`, `p.get`, `pair.get`, [path](../../workspace_state.py#L33), `preview.get`, `str`, `value.get`, `zip`.
-
-Перехватываемые типы: `(KeyError, TypeError, ValueError, AttributeError)`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
-- `result`

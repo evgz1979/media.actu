@@ -8,7 +8,7 @@
 
 Буфер 64 МиБ, новая конечная цель, fsync и проверка ID/размера после закрытия действуют. Неполные конечные файлы сохраняются для ручного разбора; helper не получает пути назначения.
 
-Код: [`PhotosOriginals._save`](../../media_manager/photos_originals.py#L524), [`PhotosOriginals._create_original`](../../media_manager/photos_originals.py#L432).
+Код: [`PhotosOriginals._save`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._save), [`PhotosOriginals._create_original`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._create_original).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

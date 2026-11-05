@@ -6,14 +6,14 @@ from nicegui import ui
 from media_manager.copies import COPY_KINDS, FOLDER_LABELS, copy_label, inherited_location
 
 
-# Проверяет отключение связи по совместимым полям ответа Core.
-# Использует location.get.
+#: Проверяет отключение связи по совместимым полям ответа Core.
+#: Использует location.get.
 def disconnected(location):
     return not location.get('connected', True) or location.get('availability') == 'offline'
 
 
-# Разделяет наборы и копии на подключённые и архивные секции.
-# Использует active.append, disconnected, group.get, offline.append.
+#: Разделяет наборы и копии на подключённые и архивные секции.
+#: Использует active.append, disconnected, group.get, offline.append.
 def sidebar_sections(groups):
     active, offline, count = [], [], 0
     for group in groups:
@@ -29,11 +29,11 @@ def sidebar_sections(groups):
     return active, offline, count
 
 
-# Показывает наборы папок и выполняет команды учёта через Core API.
-# Зависимости конструктора: workspace.
+#: Показывает наборы папок и выполняет команды учёта через Core API.
+#: Зависимости конструктора: workspace.
 class CopyGroupsUI:
-    # Инициализирует CopyGroupsUI и его рабочее состояние.
-    # Обновляет состояние объекта: control_signature, controls, groups, kind, kind_context, workspace.
+    #: Инициализирует CopyGroupsUI и его рабочее состояние.
+    #: Обновляет состояние объекта: control_signature, controls, groups, kind, kind_context, workspace.
     def __init__(self, workspace):
         self.workspace = workspace
         self.groups = []
@@ -42,56 +42,56 @@ class CopyGroupsUI:
         self.kind_context = None
         self.kind = 'copy'
 
-    # Создаёт боковые секции основных папок и отключённых связей.
-    # Обновляет состояние объекта: disconnected, disconnected_list, list, section.
+    #: Создаёт боковые секции основных папок и отключённых связей.
+    #: Обновляет состояние объекта: disconnected, disconnected_list, list, section.
     def build_sidebar(self):
         with self.workspace.sidebar_expansion('copy_groups', 'Основные папки · 0', icon='folder_copy').props('dense').classes('copy-section w-full') as self.section:
             self.list = ui.column().classes('copy-group-list w-full gap-0')
             with self.workspace.sidebar_expansion('copy_archive', 'Отключённые · 0', icon='link_off').props('dense').classes('s-volume-archive w-full') as self.disconnected:
                 self.disconnected_list = ui.column().classes('copy-group-list w-full gap-0')
 
-    # Создаёт контейнер команд назначения основной папки и копии.
-    # Обновляет состояние объекта: controls.
+    #: Создаёт контейнер команд назначения основной папки и копии.
+    #: Обновляет состояние объекта: controls.
     def build_controls(self):
         self.controls = ui.column().classes('w-full gap-2')
 
-    # Возвращает короткое название зарегистрированной папки.
-    # Использует PurePosixPath.
+    #: Возвращает короткое название зарегистрированной папки.
+    #: Использует PurePosixPath.
     @staticmethod
     def location_name(location):
         return PurePosixPath(location['path']).name if location['path'] else location['volume_name']
 
-    # Формирует подпись расположения с томом и относительным путём.
-    # Параметры: location.
+    #: Формирует подпись расположения с томом и относительным путём.
+    #: Параметры: location.
     @staticmethod
     def location_path(location):
         return location['volume_name'] + ' /' + location['path']
 
-    # Находит наследуемую принадлежность пути зарегистрированной области.
-    # Использует group.get, inherited_location, location.get.
+    #: Находит наследуемую принадлежность пути зарегистрированной области.
+    #: Использует group.get, inherited_location, location.get.
     def membership(self, volume_id, path):
         locations = [location for group in self.groups if group.get('connected', True)
                      for location in [group['main'], *group['copies']]
                      if location.get('connected', True) and location['volume_id'] == volume_id]
         return inherited_location(path, locations)
 
-    # Определяет набор основной папки в текущей выбранной области.
-    # Использует next.
+    #: Определяет набор основной папки в текущей выбранной области.
+    #: Использует next.
     def main_group(self):
         left = self.workspace.panes[0]
         if left.kind != 'directory':
             return None
         return next((g for g in self.groups if g['main']['volume_id'] == left.volume_id and g['main']['path'] == left.path), None)
 
-    # Загружает актуальные наборы, типы копий и смысловые метки через API.
-    # Обновляет состояние объекта: groups.
+    #: Загружает актуальные наборы, типы копий и смысловые метки через API.
+    #: Обновляет состояние объекта: groups.
     async def refresh(self):
         self.groups = (await self.workspace.request('GET', '/api/storage/copy-groups', timeout=30))['groups']
         self.render_sidebar()
         self.render_controls()
 
-    # Перерисовывает подключённые и архивные наборы папок.
-    # Использует self.disconnected.set_visibility, self.disconnected_list.clear, self.list.clear, self.render_group, sidebar_sections.
+    #: Перерисовывает подключённые и архивные наборы папок.
+    #: Использует self.disconnected.set_visibility, self.disconnected_list.clear, self.list.clear, self.render_group, sidebar_sections.
     def render_sidebar(self):
         active, offline, count = sidebar_sections(self.groups)
         self.section.text = f'Основные папки · {len(active)}'
@@ -110,8 +110,8 @@ class CopyGroupsUI:
             for group, copies in offline:
                 self.render_group(group, copies)
 
-    # Показывает основную папку и строки выбранных копий набора.
-    # Использует actions.append, actions.insert, disconnected, group.get, location.get.
+    #: Показывает основную папку и строки выбранных копий набора.
+    #: Использует actions.append, actions.insert, disconnected, group.get, location.get.
     def render_group(self, group, copies):
         ws = self.workspace
         panes = getattr(ws, 'panes', [])
@@ -171,8 +171,8 @@ class CopyGroupsUI:
                     if disconnected(location):
                         ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props('aria-label="Копия отключена"')
 
-    # Показывает отслеживание, смысловую метку и уведомление об изменении папки.
-    # Использует group.get, self.workspace.format_date, ui.label, ui.label('Есть изменения').classes и ещё 1.
+    #: Показывает отслеживание, смысловую метку и уведомление об изменении папки.
+    #: Использует group.get, self.workspace.format_date, ui.label, ui.label('Есть изменения').classes и ещё 1.
     def folder_badges(self, group):
         if not (group.get('tracking') or group.get('label') or group.get('changed_at')):
             return
@@ -191,8 +191,8 @@ class CopyGroupsUI:
                 ui.label('Есть изменения').classes('copy-folder-tag changed').tooltip(
                     'Последнее изменение: ' + self.workspace.format_date(group['changed_at']))
 
-    # Создаёт команды настройки основной папки и отслеживания изменений.
-    # Использует FOLDER_LABELS.items, action, group.get, str(bool(group.get('tracking'))).lower, str(group.get('label', '') == value).lower.
+    #: Создаёт команды настройки основной папки и отслеживания изменений.
+    #: Использует FOLDER_LABELS.items, action, group.get, str(bool(group.get('tracking'))).lower, str(group.get('label', '') == value).lower.
     def folder_menu(self, group, action):
         ui.separator()
         with ui.menu_item(on_click=action(lambda: self.set_folder_settings(group, tracking=not group.get('tracking', False)))).props(
@@ -214,8 +214,8 @@ class CopyGroupsUI:
                 ui.item_section(text)
         ui.separator()
 
-    # Сохраняет настройки набора и обновляет связанные сведения UI.
-    # Обрабатывает ошибки: Exception.
+    #: Сохраняет настройки набора и обновляет связанные сведения UI.
+    #: Обрабатывает ошибки: Exception.
     async def set_folder_settings(self, group, **settings):
         ws = self.workspace
         with ws.client:
@@ -229,8 +229,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
-    # Подтверждает просмотр конкретной отметки изменения основной папки.
-    # Обрабатывает ошибки: Exception.
+    #: Подтверждает просмотр конкретной отметки изменения основной папки.
+    #: Обрабатывает ошибки: Exception.
     async def acknowledge_changes(self, group):
         ws = self.workspace
         with ws.client:
@@ -245,8 +245,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
-    # Подключает или отключает набор либо отдельную копию через API.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Подключает или отключает набор либо отдельную копию через API.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     async def set_connection(self, group, connected, location=None):
         ws = self.workspace
         with ws.client:
@@ -270,8 +270,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
-    # Обновляет команды регистрации папок по текущему выбору панелей.
-    # Обновляет состояние объекта: control_signature, kind, kind_context.
+    #: Обновляет команды регистрации папок по текущему выбору панелей.
+    #: Обновляет состояние объекта: control_signature, kind, kind_context.
     def render_controls(self):
         if self.controls is None:
             return
@@ -336,8 +336,8 @@ class CopyGroupsUI:
                 self.kind = 'cold' if right.volume.get('removable') else 'copy'
             holder = {}
 
-            # Согласует выбранный тип копии с доступностью команды привязки папки.
-            # Обновляет состояние объекта: kind.
+            #: Согласует выбранный тип копии с доступностью команды привязки папки.
+            #: Обновляет состояние объекта: kind.
             def changed(event):
                 if self.kind_context == context:
                     self.kind = event.value
@@ -349,23 +349,23 @@ class CopyGroupsUI:
                                         on_click=lambda g=group, d=destination: self.add_copy(g, d, self.kind)).props('unelevated dense no-caps color=green-9').classes('w-full text-xs')
             ui.separator()
 
-    # Предоставляет команды учёта для контекстного меню выбранной папки.
-    # Использует self.membership.
+    #: Предоставляет команды учёта для контекстного меню выбранной папки.
+    #: Использует self.membership.
     def context_actions(self, volume_id, entry):
         if self.workspace.report or entry['kind'] != 'directory' or self.membership(volume_id, entry['path']):
             return []
         return [('Назначить 00-main', lambda: self.register_main(volume_id, entry['path']))]
 
-    # Обновляет наборы, тома, медиатеки и видимые метки после изменения связей.
-    # Асинхронно ожидает: self.refresh.
+    #: Обновляет наборы, тома, медиатеки и видимые метки после изменения связей.
+    #: Асинхронно ожидает: self.refresh.
     async def changed(self):
         await self.refresh()
         for pane in self.workspace.panes:
             pane.render()
         self.workspace.update_scopes()
 
-    # Регистрирует выбранную папку как новую основную область 00-main.
-    # Обрабатывает ошибки: Exception.
+    #: Регистрирует выбранную папку как новую основную область 00-main.
+    #: Обрабатывает ошибки: Exception.
     async def register_main(self, volume_id, path):
         ws = self.workspace
         with ws.client:
@@ -379,8 +379,8 @@ class CopyGroupsUI:
             except Exception as error:
                 ws.notice(error)
 
-    # Привязывает выбранную папку назначения как копию существующего набора.
-    # Обрабатывает ошибки: Exception.
+    #: Привязывает выбранную папку назначения как копию существующего набора.
+    #: Обрабатывает ошибки: Exception.
     async def add_copy(self, group, destination, kind):
         ws = self.workspace
         with ws.client:
@@ -392,8 +392,8 @@ class CopyGroupsUI:
             except Exception as error:
                 ws.notice(error)
 
-    # Открывает основную папку в рабочем пространстве.
-    # Асинхронно ожидает: ws.browse, ws.pair.link, ws.pair.unlink, ws.panes[0].show_volume.
+    #: Открывает основную папку в рабочем пространстве.
+    #: Асинхронно ожидает: ws.browse, ws.pair.link, ws.pair.unlink, ws.panes[0].show_volume.
     async def open_main(self, group):
         ws = self.workspace
         with ws.client:
@@ -407,8 +407,8 @@ class CopyGroupsUI:
                 await ws.browse()
             await ws.panes[0].show_volume(group['main']['volume_id'], group['main']['path'])
 
-    # Открывает зарегистрированную пару источника и копии.
-    # Асинхронно ожидает: ws.pair.history, ws.pair.link.
+    #: Открывает зарегистрированную пару источника и копии.
+    #: Асинхронно ожидает: ws.pair.history, ws.pair.link.
     async def open_copy(self, group, location):
         ws = self.workspace
         with ws.client:
@@ -417,8 +417,8 @@ class CopyGroupsUI:
             else:
                 await ws.pair.link(group, location)
 
-    # Показывает выбор основной или другой копии как источника назначения.
-    # Обрабатывает ошибки: Exception.
+    #: Показывает выбор основной или другой копии как источника назначения.
+    #: Обрабатывает ошибки: Exception.
     async def choose_source(self, group, location):
         ws = self.workspace
         with ws.client:
@@ -445,8 +445,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = False
 
-    # Запрашивает подтверждение освобождения номера отключённой копии.
-    # Обрабатывает ошибки: Exception.
+    #: Запрашивает подтверждение освобождения номера отключённой копии.
+    #: Обрабатывает ошибки: Exception.
     async def release_number(self, location):
         ws = self.workspace
         with ws.client:
@@ -474,8 +474,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
-    # Показывает смену типа обычной, сменной или облачной копии.
-    # Обрабатывает ошибки: Exception.
+    #: Показывает смену типа обычной, сменной или облачной копии.
+    #: Обрабатывает ошибки: Exception.
     async def edit_kind(self, location):
         ws = self.workspace
         with ws.client:
@@ -495,8 +495,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = False
 
-    # Показывает подтверждение удаления связей с явными путями папок.
-    # Использует self.location_path, ui.button, ui.button('Отмена', on_click=lambda : dialog.submit(False)).props и ещё 2.
+    #: Показывает подтверждение удаления связей с явными путями папок.
+    #: Использует self.location_path, ui.button, ui.button('Отмена', on_click=lambda : dialog.submit(False)).props и ещё 2.
     async def confirm_remove(self, title, *, locations=(), button_label='Удалить из учёта'):
         with ui.dialog() as dialog, ui.card().classes('w-[520px] max-w-full p-5 gap-3'):
             ui.label(title).classes('text-lg font-semibold')
@@ -510,8 +510,8 @@ class CopyGroupsUI:
                 ui.button(button_label, on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
         return await dialog
 
-    # Показывает и подтверждает рассчитанные изменения номеров копий.
-    # Обрабатывает ошибки: Exception.
+    #: Показывает и подтверждает рассчитанные изменения номеров копий.
+    #: Обрабатывает ошибки: Exception.
     async def renumber(self, group):
         ws = self.workspace
         with ws.client:
@@ -546,8 +546,8 @@ class CopyGroupsUI:
             finally:
                 ws.editing = was_editing
 
-    # Удаляет подтверждённый набор из учёта через API.
-    # Обрабатывает ошибки: Exception.
+    #: Удаляет подтверждённый набор из учёта через API.
+    #: Обрабатывает ошибки: Exception.
     async def remove_group(self, group):
         ws = self.workspace
         with ws.client:
@@ -558,8 +558,8 @@ class CopyGroupsUI:
                 except Exception as error:
                     ws.notice(error)
 
-    # Удаляет подтверждённую связь копии из учёта через API.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Удаляет подтверждённую связь копии из учёта через API.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     async def remove_copy(self, location):
         ws = self.workspace
         with ws.client:

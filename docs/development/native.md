@@ -28,24 +28,24 @@ unavailable. Метод photoLibraryDidBecomeUnavailable переводит фл
 
 | Определение | Назначение и контракт |
 | --- | --- |
-| [`statusName`](../../photos_adapter/main.m#L16) | Преобразует PHAuthorizationStatus в строковый статус протокола. Не запрашивает разрешение и не читает объекты медиатеки. |
-| [`authorization`](../../photos_adapter/main.m#L29) | Читает разрешение PhotoKit и при запросе показывает системный диалог. Во время ожидания поддерживает главный NSRunLoop для ответа macOS. |
-| [`canRead`](../../photos_adapter/main.m#L50) | Проверяет, допускает ли статус чтение объектов Photos. Принимает только authorized и limited; остальные состояния отклоняются. |
-| [`writeJSON`](../../photos_adapter/main.m#L57) | Отправляет один JSON-объект с переводом строки и немедленным fflush. Блокирует FILE на время записи, чтобы события разных callback не смешивались. |
-| [`assetName`](../../photos_adapter/main.m#L79) | Выбирает исходное имя фото или видео из ресурсов объекта Photos. При отсутствии подходящего ресурса использует первый ресурс или localIdentifier. |
-| [`statusCommand`](../../photos_adapter/main.m#L94) | Обслуживает одноразовую команду проверки или запроса разрешения. Печатает JSON количества объектов; отказ после запроса возвращает код 2. |
-| [`scanCommand`](../../photos_adapter/main.m#L103) | Сохраняет одноразовую CLI-команду перечисления медиаобъектов Photos. Текущий Python-клиент использует op=scan постоянной службы вместо этого режима. |
-| [`thumbnailCommand`](../../photos_adapter/main.m#L145) | Сохраняет CLI-режим создания миниатюры в заданный выходной путь. Текущий UI получает JPEG через протокол службы; это отдельный доступный режим CLI. |
-| [`handleRequest`](../../photos_adapter/main.m#L199) | Проверяет доступ и якоря, затем выполняет короткий запрос PhotoKit. Обслуживает authorize, probe, scan, guard и локальное JPEG-превью thumbnail. |
-| [`assetVersion`](../../photos_adapter/main.m#L281) | Получает версию объекта по modificationDate либо creationDate. Возвращает время с шестью знаками после точки для квитанций ресурсов Core. |
-| [`originalResources`](../../photos_adapter/main.m#L287) | Выбирает исходные фото, видео, звук, RAW-вариант и движение Live Photo. Сортирует ресурсы по типу, исходному имени и UTI для устойчивых ID. |
-| [`resourceID`](../../photos_adapter/main.m#L302) | Кодирует ID ресурса как тип и порядковый номер среди ресурсов того же типа. Нумерация зависит от предварительной устойчивой сортировки originalResources. |
-| [`cancelled`](../../photos_adapter/main.m#L310) | Без блокировки проверяет входной канал на quit, cancel или закрытие клиента. Отмена принимается для token текущего потока; прочая строка не останавливает передачу. |
-| [`originalRequest`](../../photos_adapter/main.m#L324) | Передаёт манифест или один оригинальный ресурс событиями протокола v2. Данные идут блоками до 256 КиБ; helper не получает путей назначения и не пишет оригиналы. |
-| [`serve`](../../photos_adapter/main.m#L409) | Обслуживает последовательные JSON-запросы одного клиентского соединения. Регистрирует наблюдатель доступности Photos и снимает его после закрытия канала. |
-| [`serveSocket`](../../photos_adapter/main.m#L442) | Принимает несколько локальных клиентов Unix-сокета и обслуживает их независимо. Проверяет UID клиента; без подключений завершает службу после 30 секунд простоя. |
-| [`serveDefaultSocket`](../../photos_adapter/main.m#L489) | Создаёт приватный endpoint пользователя и удерживает единственную блокировку службы. Только владелец service.lock удаляет устаревший photos.sock перед запуском. |
-| [`main`](../../photos_adapter/main.m#L510) | Выбирает режим запуска PhotoKit-helper и инициализирует GUI-сеанс AppKit. Без аргументов запускает службу; SIGPIPE отключён для безопасного закрытия клиента. |
+| [`statusName`](../reference/native.md#symbol-photos_adapter.main.m.statusName) | Преобразует PHAuthorizationStatus в строковый статус протокола. Не запрашивает разрешение и не читает объекты медиатеки. |
+| [`authorization`](../reference/native.md#symbol-photos_adapter.main.m.authorization) | Читает разрешение PhotoKit и при запросе показывает системный диалог. Во время ожидания поддерживает главный NSRunLoop для ответа macOS. |
+| [`canRead`](../reference/native.md#symbol-photos_adapter.main.m.canRead) | Проверяет, допускает ли статус чтение объектов Photos. Принимает только authorized и limited; остальные состояния отклоняются. |
+| [`writeJSON`](../reference/native.md#symbol-photos_adapter.main.m.writeJSON) | Отправляет один JSON-объект с переводом строки и немедленным fflush. Блокирует FILE на время записи, чтобы события разных callback не смешивались. |
+| [`assetName`](../reference/native.md#symbol-photos_adapter.main.m.assetName) | Выбирает исходное имя фото или видео из ресурсов объекта Photos. При отсутствии подходящего ресурса использует первый ресурс или localIdentifier. |
+| [`statusCommand`](../reference/native.md#symbol-photos_adapter.main.m.statusCommand) | Обслуживает одноразовую команду проверки или запроса разрешения. Печатает JSON количества объектов; отказ после запроса возвращает код 2. |
+| [`scanCommand`](../reference/native.md#symbol-photos_adapter.main.m.scanCommand) | Сохраняет одноразовую CLI-команду перечисления медиаобъектов Photos. Текущий Python-клиент использует op=scan постоянной службы вместо этого режима. |
+| [`thumbnailCommand`](../reference/native.md#symbol-photos_adapter.main.m.thumbnailCommand) | Сохраняет CLI-режим создания миниатюры в заданный выходной путь. Текущий UI получает JPEG через протокол службы; это отдельный доступный режим CLI. |
+| [`handleRequest`](../reference/native.md#symbol-photos_adapter.main.m.handleRequest) | Проверяет доступ и якоря, затем выполняет короткий запрос PhotoKit. Обслуживает authorize, probe, scan, guard и локальное JPEG-превью thumbnail. |
+| [`assetVersion`](../reference/native.md#symbol-photos_adapter.main.m.assetVersion) | Получает версию объекта по modificationDate либо creationDate. Возвращает время с шестью знаками после точки для квитанций ресурсов Core. |
+| [`originalResources`](../reference/native.md#symbol-photos_adapter.main.m.originalResources) | Выбирает исходные фото, видео, звук, RAW-вариант и движение Live Photo. Сортирует ресурсы по типу, исходному имени и UTI для устойчивых ID. |
+| [`resourceID`](../reference/native.md#symbol-photos_adapter.main.m.resourceID) | Кодирует ID ресурса как тип и порядковый номер среди ресурсов того же типа. Нумерация зависит от предварительной устойчивой сортировки originalResources. |
+| [`cancelled`](../reference/native.md#symbol-photos_adapter.main.m.cancelled) | Без блокировки проверяет входной канал на quit, cancel или закрытие клиента. Отмена принимается для token текущего потока; прочая строка не останавливает передачу. |
+| [`originalRequest`](../reference/native.md#symbol-photos_adapter.main.m.originalRequest) | Передаёт манифест или один оригинальный ресурс событиями протокола v2. Данные идут блоками до 256 КиБ; helper не получает путей назначения и не пишет оригиналы. |
+| [`serve`](../reference/native.md#symbol-photos_adapter.main.m.serve) | Обслуживает последовательные JSON-запросы одного клиентского соединения. Регистрирует наблюдатель доступности Photos и снимает его после закрытия канала. |
+| [`serveSocket`](../reference/native.md#symbol-photos_adapter.main.m.serveSocket) | Принимает несколько локальных клиентов Unix-сокета и обслуживает их независимо. Проверяет UID клиента; без подключений завершает службу после 30 секунд простоя. |
+| [`serveDefaultSocket`](../reference/native.md#symbol-photos_adapter.main.m.serveDefaultSocket) | Создаёт приватный endpoint пользователя и удерживает единственную блокировку службы. Только владелец service.lock удаляет устаревший photos.sock перед запуском. |
+| [`main`](../reference/native.md#symbol-photos_adapter.main.m.main) | Выбирает режим запуска PhotoKit-helper и инициализирует GUI-сеанс AppKit. Без аргументов запускает службу; SIGPIPE отключён для безопасного закрытия клиента. |
 
 Режим запуска без аргументов — service. Дополнительные CLI-команды: check/status,
 scan, thumbnail, serve(stdin/stdout), serve-socket. Наличие команды в main делает
@@ -65,7 +65,7 @@ AVAssetResourceLoaderDelegate: отвечает на диапазоны байт
 read-only FD, не открывая повторно исходный pathname. Буфер чтения — 65536 байт.
 Ошибки чтения завершают resource request с NSPOSIXErrorDomain.
 
-[`main`](../../media_manager/video_frame.m#L48) принимает четыре аргумента после имени процесса:
+[`main`](../reference/native.md#symbol-media_manager.video_frame.m.main) принимает четыре аргумента после имени процесса:
 FD, максимальную ширину, максимальную высоту и расширение. Создаёт AVURLAsset со
 служебной схемой media-actu, подключает loader, получает кадр kCMTimeZero,
 учитывает preferredTrackTransform и возвращает JPEG в stdout. Коды отказа:
@@ -75,7 +75,7 @@ FD, максимальную ширину, максимальную высоту
 Python строит имя бинарника по хешу исходника, компилирует его в кэше и передаёт FD
 через subprocess pass_fds. FFmpeg, если доступен, используется первым. Размеры
 storage-preview: 320×240 либо 1600×1200 с сохранением пропорций.
-Код: [`StoragePreviewService._video_frame`](../../media_manager/storage_previews.py#L115).
+Код: [`StoragePreviewService._video_frame`](../reference/media_manager--storage_previews.md#symbol-StoragePreviewService._video_frame).
 
 ## Vue-компонент связанных деревьев
 
@@ -88,17 +88,17 @@ nullish coalescing `??` выбирает клавиатурный курсор �
 
 | Метод или hook | Назначение и контракт |
 | --- | --- |
-| [`data`](../../paired_tree.js#L49) | Создаёт локальное состояние видимой области, выбора и подписей решений. Серверные строки поступают через props; локальный курсор отвечает за клавиатуру. |
-| [`start`](../../paired_tree.js#L63) | Вычисляет индекс первой отображаемой строки с запасом перед видимой областью. Высота строки 28 px, запас составляет восемь строк. |
-| [`visible`](../../paired_tree.js#L66) | Выбирает небольшой срез строк вокруг текущей прокрутки. К высоте viewport добавляет 16 строк запаса для плавного перемещения. |
-| [`mounted`](../../paired_tree.js#L70) | Подписывает viewport на изменение размера и прокручивает длинный путь к концу. ResizeObserver поддерживает актуальную высоту среза без полной отрисовки списка. |
-| [`beforeUnmount`](../../paired_tree.js#L80) | Освобождает ResizeObserver при удалении компонента дерева. Не оставляет наблюдатель привязанным к удалённому DOM-элементу. |
-| [`pick`](../../paired_tree.js#L15) | Выбирает строку мышью и передаёт path/side серверному обработчику. Сбрасывает отдельный клавиатурный курсор, сохраняя локальное выделение. |
-| [`keyDown`](../../paired_tree.js#L91) | Перемещает выделение стрелками вверх и вниз и удерживает строку в viewport. Игнорирует модификаторы, ввод текста, IME и открытые меню; отправляет keyboard=true. |
-| [`setSelection`](../../paired_tree.js#L110) | Обновляет локальное выделение по команде Python-обёртки. Путь должен соответствовать строке; функция сама не отправляет select. |
-| [`resetScroll`](../../paired_tree.js#L113) | Возвращает список к верхней строке и согласует вторую сторону пары. Повторно вычисляет top через общий обработчик scrolled. |
-| [`scrolled`](../../paired_tree.js#L105) | Сохраняет положение viewport и синхронизирует вертикальную прокрутку пары. Обновляет соседний список только при расхождении более одного пикселя. |
-| [`status`](../../paired_tree.js#L41) | Выбирает пользовательскую подпись статуса строки для данной стороны пары. Отсутствующая сторона и непрочитанные элементы различаются явно. |
+| [`data`](../reference/native.md#symbol-paired_tree.js.data) | Создаёт локальное состояние видимой области, выбора и подписей решений. Серверные строки поступают через props; локальный курсор отвечает за клавиатуру. |
+| [`start`](../reference/native.md#symbol-paired_tree.js.computed.start) | Вычисляет индекс первой отображаемой строки с запасом перед видимой областью. Высота строки 28 px, запас составляет восемь строк. |
+| [`visible`](../reference/native.md#symbol-paired_tree.js.computed.visible) | Выбирает небольшой срез строк вокруг текущей прокрутки. К высоте viewport добавляет 16 строк запаса для плавного перемещения. |
+| [`mounted`](../reference/native.md#symbol-paired_tree.js.mounted) | Подписывает viewport на изменение размера и прокручивает длинный путь к концу. ResizeObserver поддерживает актуальную высоту среза без полной отрисовки списка. |
+| [`beforeUnmount`](../reference/native.md#symbol-paired_tree.js.beforeUnmount) | Освобождает ResizeObserver при удалении компонента дерева. Не оставляет наблюдатель привязанным к удалённому DOM-элементу. |
+| [`pick`](../reference/native.md#symbol-paired_tree.js.methods.pick) | Выбирает строку мышью и передаёт path/side серверному обработчику. Сбрасывает отдельный клавиатурный курсор, сохраняя локальное выделение. |
+| [`keyDown`](../reference/native.md#symbol-paired_tree.js.methods.keyDown) | Перемещает выделение стрелками вверх и вниз и удерживает строку в viewport. Игнорирует модификаторы, ввод текста, IME и открытые меню; отправляет keyboard=true. |
+| [`setSelection`](../reference/native.md#symbol-paired_tree.js.methods.setSelection) | Обновляет локальное выделение по команде Python-обёртки. Путь должен соответствовать строке; функция сама не отправляет select. |
+| [`resetScroll`](../reference/native.md#symbol-paired_tree.js.methods.resetScroll) | Возвращает список к верхней строке и согласует вторую сторону пары. Повторно вычисляет top через общий обработчик scrolled. |
+| [`scrolled`](../reference/native.md#symbol-paired_tree.js.methods.scrolled) | Сохраняет положение viewport и синхронизирует вертикальную прокрутку пары. Обновляет соседний список только при расхождении более одного пикселя. |
+| [`status`](../reference/native.md#symbol-paired_tree.js.methods.status) | Выбирает пользовательскую подпись статуса строки для данной стороны пары. Отсутствующая сторона и непрочитанные элементы различаются явно. |
 
 Дополнительные именованные watch-обработчики: `rows()` сбрасывает keyboardCursor
 при новой выборке; `selected(value)` принимает серверный выбор и сбрасывает курсор

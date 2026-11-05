@@ -44,29 +44,29 @@ export default {
     </div></div>`,
   props: {rows:Array, side:String, selected:String, empty_text:String, root_file_count:Number, root_files_open:Boolean, sizes:Object},
   emits: ['select','open','toggle','context','toggle_files','menu_state'],
-  // Создаёт локальное состояние видимой области, выбора и подписей решений.
-  // Серверные строки поступают через props; локальный курсор отвечает за клавиатуру.
+  //: Создаёт локальное состояние видимой области, выбора и подписей решений.
+  //: Серверные строки поступают через props; локальный курсор отвечает за клавиатуру.
   data() { return {top:0, height:400, observer:null, selection:this.selected, keyboardCursor:null, decisions:{keep:'Оставить',add_main:'В 00-main',move:'Перенос',remove:'Удаление'}}; },
   watch: {
-    // Сбрасывает клавиатурную позицию при замене списка строк.
-    // Новая выборка должна повторно найти текущий путь перед перемещением.
+    //: Сбрасывает клавиатурную позицию при замене списка строк.
+    //: Новая выборка должна повторно найти текущий путь перед перемещением.
     rows() {this.keyboardCursor=null;},
-    // Принимает выбранный сервером путь и согласует локальное выделение.
-    // Сбрасывает курсор только при отсутствии фокуса внутри viewport.
+    //: Принимает выбранный сервером путь и согласует локальное выделение.
+    //: Сбрасывает курсор только при отсутствии фокуса внутри viewport.
     selected(value) {
       this.selection=value;
       if (!this.$refs.viewport?.contains(document.activeElement)) this.keyboardCursor=null;
     }},
   computed: {
-    // Вычисляет индекс первой отображаемой строки с запасом перед видимой областью.
-    // Высота строки 28 px, запас составляет восемь строк.
+    //: Вычисляет индекс первой отображаемой строки с запасом перед видимой областью.
+    //: Высота строки 28 px, запас составляет восемь строк.
     start() { return Math.max(0, Math.floor(this.top/28)-8); },
-    // Выбирает небольшой срез строк вокруг текущей прокрутки.
-    // К высоте viewport добавляет 16 строк запаса для плавного перемещения.
+    //: Выбирает небольшой срез строк вокруг текущей прокрутки.
+    //: К высоте viewport добавляет 16 строк запаса для плавного перемещения.
     visible() { return this.rows.slice(this.start, this.start+Math.ceil(this.height/28)+16); },
   },
-  // Подписывает viewport на изменение размера и прокручивает длинный путь к концу.
-  // ResizeObserver поддерживает актуальную высоту среза без полной отрисовки списка.
+  //: Подписывает viewport на изменение размера и прокручивает длинный путь к концу.
+  //: ResizeObserver поддерживает актуальную высоту среза без полной отрисовки списка.
   mounted() {
     this.observer=new ResizeObserver(() => {this.height=this.$refs.viewport.clientHeight;});
     this.observer.observe(this.$refs.viewport);
@@ -75,19 +75,19 @@ export default {
       if (path) path.scrollLeft=path.scrollWidth;
     });
   },
-  // Освобождает ResizeObserver при удалении компонента дерева.
-  // Не оставляет наблюдатель привязанным к удалённому DOM-элементу.
+  //: Освобождает ResizeObserver при удалении компонента дерева.
+  //: Не оставляет наблюдатель привязанным к удалённому DOM-элементу.
   beforeUnmount() { this.observer?.disconnect(); },
   methods: {
-    // Выбирает строку мышью и передаёт path/side серверному обработчику.
-    // Сбрасывает отдельный клавиатурный курсор, сохраняя локальное выделение.
+    //: Выбирает строку мышью и передаёт path/side серверному обработчику.
+    //: Сбрасывает отдельный клавиатурный курсор, сохраняя локальное выделение.
     pick(row) {
       this.keyboardCursor=null;
       this.selection=row.path;
       this.$emit('select',{path:row.path,side:this.side});
     },
-    // Перемещает выделение стрелками вверх и вниз и удерживает строку в viewport.
-    // Игнорирует модификаторы, ввод текста, IME и открытые меню; отправляет keyboard=true.
+    //: Перемещает выделение стрелками вверх и вниз и удерживает строку в viewport.
+    //: Игнорирует модификаторы, ввод текста, IME и открытые меню; отправляет keyboard=true.
     keyDown(event) {
       if (!['ArrowUp','ArrowDown'].includes(event.key) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing) return;
       if (event.target.closest('input,textarea,select,[contenteditable="true"],[role="menu"],.q-menu')) return;
@@ -105,21 +105,21 @@ export default {
       this.scrolled();
       this.$emit('select',{path:row.path,side:this.side,keyboard:true});
     },
-    // Обновляет локальное выделение по команде Python-обёртки.
-    // Путь должен соответствовать строке; функция сама не отправляет select.
+    //: Обновляет локальное выделение по команде Python-обёртки.
+    //: Путь должен соответствовать строке; функция сама не отправляет select.
     setSelection(path) {this.selection=path;},
-    // Возвращает список к верхней строке и согласует вторую сторону пары.
-    // Повторно вычисляет top через общий обработчик scrolled.
+    //: Возвращает список к верхней строке и согласует вторую сторону пары.
+    //: Повторно вычисляет top через общий обработчик scrolled.
     resetScroll() { this.$refs.viewport.scrollTop=0; this.scrolled(); },
-    // Сохраняет положение viewport и синхронизирует вертикальную прокрутку пары.
-    // Обновляет соседний список только при расхождении более одного пикселя.
+    //: Сохраняет положение viewport и синхронизирует вертикальную прокрутку пары.
+    //: Обновляет соседний список только при расхождении более одного пикселя.
     scrolled() {
       this.top=this.$refs.viewport.scrollTop;
       const panes=this.$el.closest('.commander-trees')?.querySelectorAll('.pair-virtual') || [];
       for (const pane of panes) if (pane !== this.$refs.viewport && Math.abs(pane.scrollTop-this.top)>1) pane.scrollTop=this.top;
     },
-    // Выбирает пользовательскую подпись статуса строки для данной стороны пары.
-    // Отсутствующая сторона и непрочитанные элементы различаются явно.
+    //: Выбирает пользовательскую подпись статуса строки для данной стороны пары.
+    //: Отсутствующая сторона и непрочитанные элементы различаются явно.
     status(row) {
       if (!row[this.side]) {
         if (row.status === 'unverified') return 'Не проверено';

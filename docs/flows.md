@@ -13,8 +13,8 @@
 4. UI получает тома, медиатеки и связи HTTP-запросами, проверяет sessionStorage
    и восстанавливает допустимое состояние навигации.
 
-Код: [`main`](../media_manager/service_runtime.py#L91), [`lifespan`](../app.py#L131),
-[`StorageWorkspace.load`](../workspace_ui.py#L1666), [`StorageWorkspace.restore_workspace`](../workspace_ui.py#L1307).
+Код: [`main`](reference/media_manager--service_runtime.md#symbol-main), [`lifespan`](reference/app.md#symbol-lifespan),
+[`StorageWorkspace.load`](reference/workspace_ui.md#symbol-StorageWorkspace.load), [`StorageWorkspace.restore_workspace`](reference/workspace_ui.md#symbol-StorageWorkspace.restore_workspace).
 Закрытие браузера не останавливает Core; перезапуск Core сохраняет базы и кэш.
 
 ## 2. Открытие папки и работа отключённого тома
@@ -28,9 +28,9 @@ StorageWorkspace.read_directory отправляет GET directory. StorageCatal
 Медленный ответ предыдущей области отбрасывается по generation. Раскрытие папки
 загружает следующий уровень; обычный просмотр не запускает сверку всего носителя.
 
-Код: [`BrowserPane.show_volume`](../workspace_ui.py#L640),
-[`StorageCatalog.directory`](../media_manager/storage.py#L566),
-[`StorageCatalog._read_directory`](../media_manager/storage.py#L602).
+Код: [`BrowserPane.show_volume`](reference/workspace_ui.md#symbol-BrowserPane.show_volume),
+[`StorageCatalog.directory`](reference/media_manager--storage.md#symbol-StorageCatalog.directory),
+[`StorageCatalog._read_directory`](reference/media_manager--storage.md#symbol-StorageCatalog._read_directory).
 
 ## 3. Регистрация сменного носителя
 
@@ -39,9 +39,9 @@ StorageWorkspace.read_directory отправляет GET directory. StorageCatal
 После повторного обнаружения ID строится по маркеру, а не по usbshare или mount_path.
 Старая история ресурса не переносится на новый носитель автоматически.
 
-Код: [`StorageWorkspace.register_disk`](../workspace_ui.py#L2243),
-[`StorageCatalog.register_removable`](../media_manager/storage.py#L302),
-[`create_marker`](../media_manager/volume_identity.py#L120).
+Код: [`StorageWorkspace.register_disk`](reference/workspace_ui.md#symbol-StorageWorkspace.register_disk),
+[`StorageCatalog.register_removable`](reference/media_manager--storage.md#symbol-StorageCatalog.register_removable),
+[`create_marker`](reference/media_manager--volume_identity.md#symbol-create_marker).
 Повреждение, чужой маркер или дублирующийся ID должны дать явный отказ/неподтверждённость.
 
 ## 4. Основная папка, копия и служебное описание
@@ -54,9 +54,9 @@ FolderMarkerService позднее записывает `.media-actu-folder.json
 Сама регистрация не доказывает наличие копии содержимого и не копирует медиа.
 Изменение типа/номера меняет служебную метку, а не имя пользовательской папки.
 
-Код: [`CopyCatalog.create_main`](../media_manager/copies.py#L274),
-[`CopyCatalog.add_copy`](../media_manager/copies.py#L410),
-[`FolderMarkerService.reconcile`](../media_manager/folder_markers.py#L235).
+Код: [`CopyCatalog.create_main`](reference/media_manager--copies.md#symbol-CopyCatalog.create_main),
+[`CopyCatalog.add_copy`](reference/media_manager--copies.md#symbol-CopyCatalog.add_copy),
+[`FolderMarkerService.reconcile`](reference/media_manager--folder_markers.md#symbol-FolderMarkerService.reconcile).
 
 ## 5. Связанная структура и проверка файлов
 
@@ -69,10 +69,10 @@ FolderMarkerService позднее записывает `.media-actu-folder.json
    дополнительно читает кандидатов равного размера с проверкой fingerprint.
 5. Строки и счётчики сохраняются; UI грузит страницы и показывает их виртуальным деревом.
 
-Код: [`PairedWorkspace.start`](../paired_workspace_ui.py#L500),
-[`PairedComparisonCatalog.create`](../media_manager/paired_comparison.py#L128),
-[`PairedComparisonCatalog.run`](../media_manager/paired_comparison.py#L444),
-[`PairedComparisonCatalog._hash_pairs`](../media_manager/paired_comparison.py#L330).
+Код: [`PairedWorkspace.start`](reference/paired_workspace_ui.md#symbol-PairedWorkspace.start),
+[`PairedComparisonCatalog.create`](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.create),
+[`PairedComparisonCatalog.run`](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.run),
+[`PairedComparisonCatalog._hash_pairs`](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog._hash_pairs).
 Ошибка каталога делает отсутствие внутри него неподтверждённым. Новая независимая
 проверка не должна автоматически принимать старые решения о лишних файлах.
 
@@ -91,9 +91,9 @@ Core перепроверяет связь и корни, исполняет э�
 verification_id. Если пересверка не создалась, сообщение предлагает обновить её вручную.
 Старые отчёты и планы не переписываются новым результатом.
 
-Код: [`PairedWorkspace.prepare_copy`](../paired_workspace_ui.py#L722),
-[`MissingCopyCatalog.plan`](../media_manager/copy_files.py#L251),
-[`MissingCopyCatalog.run`](../media_manager/copy_files.py#L466).
+Код: [`PairedWorkspace.prepare_copy`](reference/paired_workspace_ui.md#symbol-PairedWorkspace.prepare_copy),
+[`MissingCopyCatalog.plan`](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.plan),
+[`MissingCopyCatalog.run`](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.run).
 
 ## 7. Общий поиск имён и прежние отчёты
 
@@ -108,9 +108,9 @@ NFC/casefold объединяет регистр и формы Unicode; для �
 mode=content читается как прежний отчёт. Нажатие продолжения создаёт новую
 names-сверку, не переписывая смысл старых результатов.
 
-Код: [`ComparisonCatalog.run`](../media_manager/comparison.py#L263),
-[`ComparisonCatalog._classify_names`](../media_manager/comparison.py#L406),
-[`ComparisonCatalog.resume`](../media_manager/comparison.py#L226).
+Код: [`ComparisonCatalog.run`](reference/media_manager--comparison.md#symbol-ComparisonCatalog.run),
+[`ComparisonCatalog._classify_names`](reference/media_manager--comparison.md#symbol-ComparisonCatalog._classify_names),
+[`ComparisonCatalog.resume`](reference/media_manager--comparison.md#symbol-ComparisonCatalog.resume).
 
 ## 8. Открытие Photos и построение превью
 
@@ -124,10 +124,10 @@ Photos-воркер забирает допустимое задание, пол
 откладывается, а не запускает полную загрузку оригинала. API отдаёт готовый кэш,
 UI обновляет ожидавшие изображения по preview-status.
 
-Код: [`PhotoLibraries.refresh_connection`](../media_manager/photo_libraries.py#L96),
-[`PhotosBrowser.browse`](../media_manager/photos_browser.py#L27),
-[`ThumbnailWorkerPool._work`](../media_manager/thumbnail_workers.py#L114),
-[`StoragePreview.refresh_pending`](../storage_preview_ui.py#L174).
+Код: [`PhotoLibraries.refresh_connection`](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.refresh_connection),
+[`PhotosBrowser.browse`](reference/media_manager--photos_browser.md#symbol-PhotosBrowser.browse),
+[`ThumbnailWorkerPool._work`](reference/media_manager--thumbnail_workers.md#symbol-ThumbnailWorkerPool._work),
+[`StoragePreview.refresh_pending`](reference/storage_preview_ui.md#symbol-StoragePreview.refresh_pending).
 
 ## 9. Оригиналы Photos и продолжение
 
@@ -141,10 +141,10 @@ UI обновляет ожидавшие изображения по preview-sta
 квитанция. Все ресурсы одного asset должны быть готовы, чтобы объект считался готовым.
 Прерванный конечный файл остаётся в журнале, повтор выбирает свободное имя.
 
-Код: [`PhotosOriginals.start`](../media_manager/photos_originals.py#L199),
-[`PhotosOriginals.run`](../media_manager/photos_originals.py#L744),
-[`PhotosOriginals._save`](../media_manager/photos_originals.py#L524),
-[`PhotosOriginals._receipt`](../media_manager/photos_originals.py#L394).
+Код: [`PhotosOriginals.start`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.start),
+[`PhotosOriginals.run`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.run),
+[`PhotosOriginals._save`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._save),
+[`PhotosOriginals._receipt`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._receipt).
 
 ## 10. Цепочка Photos → NVMe → HDD
 
@@ -157,9 +157,9 @@ UI обновляет ожидавшие изображения по preview-sta
 автоматически. Изменение источника требует остановленного сохранения и проверки цикла.
 «Сделать первой» меняет порядок номеров, само по себе не задаёт эту цепочку.
 
-Код: [`PhotoLibraries.set_copy_source`](../media_manager/photo_libraries.py#L290),
-[`PhotoLibraries.make_first_copy`](../media_manager/photo_libraries.py#L319),
-[`PhotosOriginals._replicate_all`](../media_manager/photos_originals.py#L693).
+Код: [`PhotoLibraries.set_copy_source`](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.set_copy_source),
+[`PhotoLibraries.make_first_copy`](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.make_first_copy),
+[`PhotosOriginals._replicate_all`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._replicate_all).
 
 ## 11. Ночное окно
 
@@ -170,9 +170,9 @@ UI обновляет ожидавшие изображения по preview-sta
 
 Ручная пауза оригиналов отменяет автоматический запрос, а пауза из-за конца окна
 сохраняет его для продолжения. Готовые превью доступны в любое время.
-Код: [`PhotosSyncSchedule.request`](../media_manager/photos_schedule.py#L141),
-[`PhotosSyncSchedule.tick`](../media_manager/photos_schedule.py#L202),
-[`PhotosOriginals.pause`](../media_manager/photos_originals.py#L249).
+Код: [`PhotosSyncSchedule.request`](reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.request),
+[`PhotosSyncSchedule.tick`](reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.tick),
+[`PhotosOriginals.pause`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.pause).
 
 ## 12. Размер папки и уведомление об изменениях
 
@@ -185,6 +185,6 @@ DirectorySizeService устраняет покрываемые одной обл
 сохраняет changed_at. Подтверждение уведомления передаёт ожидаемое changed_at,
 чтобы не снять более новое событие. Это не автоматическая сверка или копирование.
 
-Код: [`DirectorySizeService.calculate`](../media_manager/directory_sizes.py#L122),
-[`FolderTrackingService.reconcile`](../media_manager/folder_tracking.py#L103),
-[`CopyCatalog.acknowledge_changes`](../media_manager/copies.py#L399).
+Код: [`DirectorySizeService.calculate`](reference/media_manager--directory_sizes.md#symbol-DirectorySizeService.calculate),
+[`FolderTrackingService.reconcile`](reference/media_manager--folder_tracking.md#symbol-FolderTrackingService.reconcile),
+[`CopyCatalog.acknowledge_changes`](reference/media_manager--copies.md#symbol-CopyCatalog.acknowledge_changes).

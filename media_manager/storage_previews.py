@@ -19,19 +19,19 @@ from .storage import relative_path
 from .thumbnails import ThumbnailCacheUnavailable
 
 
-# Создаёт кэшированные фото и кадры видео вне зарегистрированного медиаиндекса.
-# Зависимости конструктора: storage, cache_directory.
+#: Создаёт кэшированные фото и кадры видео вне зарегистрированного медиаиндекса.
+#: Зависимости конструктора: storage, cache_directory.
 class StoragePreviewService:
-    # Инициализирует StoragePreviewService и его рабочее состояние.
-    # Обновляет состояние объекта: _native_lock, _slots, cache_directory, storage.
+    #: Инициализирует StoragePreviewService и его рабочее состояние.
+    #: Обновляет состояние объекта: _native_lock, _slots, cache_directory, storage.
     def __init__(self, storage, cache_directory):
         self.storage = storage
         self.cache_directory = Path(cache_directory)
         self._slots = threading.Semaphore(2)
         self._native_lock = threading.Lock()
 
-    # Возвращает или создаёт JPEG проверенного файла тома в выбранном размере.
-    # Явно отклоняет недопустимое состояние через KeyError, OSError, ThumbnailCacheUnavailable, ValueError.
+    #: Возвращает или создаёт JPEG проверенного файла тома в выбранном размере.
+    #: Явно отклоняет недопустимое состояние через KeyError, OSError, ThumbnailCacheUnavailable, ValueError.
     def get_or_create(self, volume_id, path, *, large=False):
         path = relative_path(path)
         kind = media_kind(Path(path))
@@ -86,8 +86,8 @@ class StoragePreviewService:
             temporary.unlink(missing_ok=True)
         return target
 
-    # Собирает и выбирает нативный декодер AVFoundation по хешу его исходника.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Собирает и выбирает нативный декодер AVFoundation по хешу его исходника.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def _native_video_command(self, descriptor, width, height, extension):
         if sys.platform != 'darwin':
             raise ValueError('Для превью видео нужен FFmpeg')
@@ -110,8 +110,8 @@ class StoragePreviewService:
                     temporary.unlink(missing_ok=True)
         return [str(target), str(descriptor), str(width), str(height), extension]
 
-    # Получает первый кадр видео через FFmpeg или нативный декодер дескриптора.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Получает первый кадр видео через FFmpeg или нативный декодер дескриптора.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def _video_frame(self, descriptor, large, extension):
         ffmpeg = shutil.which('ffmpeg')
         width, height = (1600, 1200) if large else (320, 240)

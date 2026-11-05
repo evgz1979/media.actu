@@ -25,8 +25,8 @@ FOLDER_CLICK_JS = '''event => {
 }'''
 
 
-# Создаёт SVG-иконку папки с уникальным ID градиента.
-# Использует next, ui.html, ui.html(svg, sanitize=False).classes, ui.html(svg, sanitize=False).classes('s-folder-icon').style.
+#: Создаёт SVG-иконку папки с уникальным ID градиента.
+#: Использует next, ui.html, ui.html(svg, sanitize=False).classes, ui.html(svg, sanitize=False).classes('s-folder-icon').style.
 def folder_icon(size=16):
     gradient = f'folder-blue-{next(FOLDER_ICON_IDS)}'
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 16" width="100%" height="100%" aria-hidden="true" focusable="false">
@@ -106,8 +106,8 @@ body { background:var(--s-paper); color:var(--s-ink); font-family:-apple-system,
 """
 
 
-# Передаёт регистрацию главной страницы действующему рабочему пространству.
-# Использует register_workspace_page.
+#: Передаёт регистрацию главной страницы действующему рабочему пространству.
+#: Использует register_workspace_page.
 def register_storage_page(request, format_bytes, format_date, core_url='http://127.0.0.1:18765'):
     from workspace_ui import register_workspace_page
     register_workspace_page(request, format_bytes, format_date, core_url)

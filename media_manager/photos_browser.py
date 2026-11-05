@@ -4,8 +4,8 @@ from pathlib import PurePosixPath
 from .storage import relative_path
 
 
-# Преобразует строку медиаиндекса в виртуальный файловый элемент UI.
-# Поля результата: path, name, kind, media_kind, media_id, size, modified_at, preview_ready.
+#: Преобразует строку медиаиндекса в виртуальный файловый элемент UI.
+#: Поля результата: path, name, kind, media_kind, media_id, size, modified_at, preview_ready.
 def photo_entry(row):
     return dict(path='/'.join(filter(None, (row['parent_path'], str(row['id'])))),
                 name=row['name'], kind='file', media_kind=row['kind'], media_id=row['id'],
@@ -13,17 +13,17 @@ def photo_entry(row):
                 preview_ready=row['thumbnail_status'] == 'done')
 
 
-# Предоставляет папки и объекты Photos поверх сохранённого медиаиндекса.
-# Зависимости конструктора: libraries.
+#: Предоставляет папки и объекты Photos поверх сохранённого медиаиндекса.
+#: Зависимости конструктора: libraries.
 class PhotosBrowser:
-    # Инициализирует PhotosBrowser и его рабочее состояние.
-    # Обновляет состояние объекта: catalog, libraries.
+    #: Инициализирует PhotosBrowser и его рабочее состояние.
+    #: Обновляет состояние объекта: catalog, libraries.
     def __init__(self, libraries):
         self.libraries = libraries
         self.catalog = libraries.catalog
 
-    # Возвращает виртуальную папку или объект с пагинацией и приоритетом превью.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает виртуальную папку или объект с пагинацией и приоритетом превью.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def browse(self, source_id, path='', *, offset=0, limit=150):
         profile = self.libraries.profile(source_id)
         source = self.catalog.get_source(source_id)
@@ -75,8 +75,8 @@ class PhotosBrowser:
                     scanned_at=source.get('last_scan_at') or source['created_at'],
                     cached=not bool(profile['active']), source_id=source_id)
 
-    # Возвращает готовые ID превью из запрошенного набора объектов медиатеки.
-    # Поля результата: ready.
+    #: Возвращает готовые ID превью из запрошенного набора объектов медиатеки.
+    #: Поля результата: ready.
     def preview_status(self, source_id, ids):
         self.libraries.profile(source_id)
         ids = list(dict.fromkeys(ids))[:1000]

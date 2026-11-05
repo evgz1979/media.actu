@@ -7,8 +7,8 @@
 одной транзакционной базой: `volume_id` в Photos проверяется через StorageCatalog
 прикладным кодом. Полное DDL 49 таблиц и внешние ключи — [схема данных](../data-model.md).
 
-[`Catalog.connect`](../../media_manager/catalog.py#L121) возвращает sqlite3.Connection с WAL,
-Row и foreign_keys. [`StorageCatalog.connect`](../../media_manager/storage.py#L204) — собственный
+[`Catalog.connect`](../reference/media_manager--catalog.md#symbol-Catalog.connect) возвращает sqlite3.Connection с WAL,
+Row и foreign_keys. [`StorageCatalog.connect`](../reference/media_manager--storage.md#symbol-StorageCatalog.connect) — собственный
 контекстный менеджер с commit/rollback/close. Текст SQL передаётся в execute с
 параметрами `?` или именованными значениями. Динамически собранные имена колонок
 приходят из внутренних словарей метода, а не произвольного пользовательского SQL.
@@ -20,7 +20,7 @@ Row и foreign_keys. [`StorageCatalog.connect`](../../media_manager/storage.py#L
 
 ## Идентичность тома
 
-[`discover_volumes`](../../media_manager/storage.py#L57) читает уже существующие монтирования;
+[`discover_volumes`](../reference/media_manager--storage.md#symbol-discover_volumes) читает уже существующие монтирования;
 не подключает ресурсы автоматически. Локальный том опознаётся через VolumeUUID
 diskutil, сетевой — по ресурсу и псевдонимам, зарегистрированный сменный — по UUID
 в `.media-actu-volume.json`. Один mount_path не считается устойчивым ID.
@@ -28,21 +28,21 @@ diskutil, сетевой — по ресурсу и псевдонимам, за
 `verified`, `resource`, `unverified`, `legacy` описывают разные основания доверия.
 Повреждённый маркер и дублирующийся ID не должны незаметно наследовать роль другого
 диска. При одинаковом ID на нескольких подключениях формируются неподтверждённые
-записи с явной ошибкой. Подробности — [`StorageCatalog.refresh`](../../media_manager/storage.py#L216).
+записи с явной ошибкой. Подробности — [`StorageCatalog.refresh`](../reference/media_manager--storage.md#symbol-StorageCatalog.refresh).
 
 Имя носителя в маркере можно явно менять без изменения UUID.
-[`create_marker`](../../media_manager/volume_identity.py#L120) не заменяет существующий маркер;
-[`rename_marker`](../../media_manager/volume_identity.py#L141) проверяет принадлежность перед
+[`create_marker`](../reference/media_manager--volume_identity.md#symbol-create_marker) не заменяет существующий маркер;
+[`rename_marker`](../reference/media_manager--volume_identity.md#symbol-rename_marker) проверяет принадлежность перед
 атомарной публикацией нового JSON. Показ сведений о ёмкости использует последний
 успешный fstatvfs, поэтому нужно учитывать checked_at.
 
 ## Относительный путь и дескриптор
 
-[`relative_path`](../../media_manager/storage.py#L42) отклоняет абсолютный путь, NUL и компонент
+[`relative_path`](../reference/media_manager--storage.md#symbol-relative_path) отклоняет абсолютный путь, NUL и компонент
 `..`, затем нормализует PurePosixPath. Строковая проверка предотвращает простой выход
 за корень, но сама не защищает от замены каталога после проверки.
 
-[`open_readonly`](../../media_manager/comparison.py#L49) открывает корень с O_NOFOLLOW и
+[`open_readonly`](../reference/media_manager--comparison.md#symbol-open_readonly) открывает корень с O_NOFOLLOW и
 O_DIRECTORY, проверяет device и служебный ID, затем каждый компонент относительно
 предыдущего дескриптора через `dir_fd`. Конечный файл открывается с O_NONBLOCK,
 чтобы подмена на FIFO не повесила чтение до fstat. Разрешены только обычный файл
@@ -50,7 +50,7 @@ O_DIRECTORY, проверяет device и служебный ID, затем ка
 
 При выходе снова проверяется ID носителя, затем в обратном порядке закрываются
 дескрипторы. Успешное чтение не фиксируется как окончательно успешное до выхода
-из with. [`destination_directory`](../../media_manager/copy_files.py#L61) применяет ту же
+из with. [`destination_directory`](../reference/media_manager--copy_files.md#symbol-destination_directory) применяет ту же
 модель внутри выбранного корня назначения и при разрешении создаёт только дочерние папки.
 
 Старая модель folder-источников в `Catalog.resolve_*` и ThumbnailService использует
@@ -60,7 +60,7 @@ Path.resolve и проверки вложенности; нельзя припи
 
 ## Fingerprint и уровень доказательства
 
-[`fingerprint`](../../media_manager/comparison.py#L97) собирает size, mtime_ns, ctime_ns,
+[`fingerprint`](../reference/media_manager--comparison.md#symbol-fingerprint) собирает size, mtime_ns, ctime_ns,
 inode и device. Значения inode/device за пределами signed int64 сохраняются как
 текст с префиксом fsid:, иначе SQLite INTEGER affinity могла бы округлить их через REAL.
 
@@ -72,7 +72,7 @@ inode и device. Значения inode/device за пределами signed in
 | Файлы sha256 | Содержимое кандидатов равного размера | Digest равен при проверенных версиях прочитанных файлов |
 | Квитанция Photos | asset/resource/version и stat | Сохранённая версия ресурса соответствует параметрам файла |
 
-Photos использует [`same_file`](../../media_manager/photos_originals.py#L39) без ctime:
+Photos использует [`same_file`](../reference/media_manager--photos_originals.md#symbol-same_file) без ctime:
 SMB может уточнить его после закрытия. Такое сравнение не является криптографической
 проверкой и не обнаружит намеренную подмену содержимого с сохранением сравниваемых
 параметров. Метаданные позволяют продолжение без повторного чтения больших оригиналов.
@@ -91,17 +91,17 @@ scanned_at, не файловая копия. При ошибке или отк�
 
 ## План обычного копирования
 
-[`MissingCopyCatalog.plan`](../../media_manager/copy_files.py#L251) выбирает missing_copy из
+[`MissingCopyCatalog.plan`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.plan) выбирает missing_copy из
 завершённого файлового отчёта, заново фиксирует параметры исходников, корни и порядок
 элементов. UI показывает сохранённый состав и отдельной командой вызывает start.
 Если связь, источник или корень изменились, исполнение блокируется и нужна новая сверка.
 
-[`MissingCopyCatalog._write_file`](../../media_manager/copy_files.py#L377) повторно проверяет
+[`MissingCopyCatalog._write_file`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog._write_file) повторно проверяет
 fingerprint источника, существование цели и место. Локальный путь использует собственный
 `.part`, fsync и публикацию с запретом замены. На сетевом томе применяется прямое
 O_CREAT|O_EXCL конечной цели; fallback нужен и при недоступной файловой операции публикации.
 
-[`publish_exclusive`](../../media_manager/copy_files.py#L42) использует Darwin renameatx_np
+[`publish_exclusive`](../reference/media_manager--copy_files.md#symbol-publish_exclusive) использует Darwin renameatx_np
 с RENAME_EXCL, Linux renameat2 с RENAME_NOREPLACE либо link/unlink fallback.
 Появившаяся конкурентная цель сохраняется, элемент помечается skipped. Нельзя
 заменять этот шаг обычным rename/replace: они имеют другой контракт перезаписи.
@@ -114,7 +114,7 @@ O_CREAT|O_EXCL конечной цели; fallback нужен и при недо
 
 ## Запись оригиналов Photos
 
-У Photos другой алгоритм: [`PhotosOriginals._save`](../../media_manager/photos_originals.py#L524)
+У Photos другой алгоритм: [`PhotosOriginals._save`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._save)
 накапливает до 64 МиБ, при первом flush исключительно создаёт свободное конечное
 имя и сразу фиксирует намерение записи. Свободное место проверяется с резервом
 64 МиБ; повторная проверка выполняется через 5 секунд либо при исчерпании запаса.
@@ -133,12 +133,12 @@ O_CREAT|O_EXCL конечной цели; fallback нужен и при недо
 
 У папок `.media-actu-folder.json` содержит версию, group/folder UUID, роль, номер,
 тип, статус и путь. Изменение учёта и постановка marker-job происходят в одной
-транзакции, запись на диск — позднее. [`FolderMarkerService.reconcile`](../../media_manager/folder_markers.py#L235)
+транзакции, запись на диск — позднее. [`FolderMarkerService.reconcile`](../reference/media_manager--folder_markers.md#symbol-FolderMarkerService.reconcile)
 проверяет актуальность ревизии, владельца пути и ID папки непосредственно перед публикацией.
 Недоступный том означает повторную попытку, а не успешную запись.
 
 Очистка собственных временных файлов требует совпадения имени и identity.
 Повреждённые, чужие и конечные незавершённые пользовательские пути не удаляются
 автоматически. Служебные имена исключаются из деревьев и сверок через
-[`service_file`](../../media_manager/volume_identity.py#L29). Подробная граница разрешённой
+[`service_file`](../reference/media_manager--volume_identity.md#symbol-service_file). Подробная граница разрешённой
 записи и восстановления — [безопасность](../safety-and-recovery.md).

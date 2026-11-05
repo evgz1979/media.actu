@@ -1,321 +1,546 @@
 # HTTP API Core
 
-Проверено 2026-11-03. Ниже перечислены все 84 маршрута Core по фактическому OpenAPI текущего приложения и 26 схем запросов. Сервисы доступны на loopback; базовый адрес Core — `http://127.0.0.1:18765`. Интерактивный OpenAPI — `/docs`. NiceGUI обслуживается другим процессом на 8090.
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
 
-Не все ошибки задекларированы в OpenAPI: для каждого обработчика дана ссылка на реализацию, а точные перехваты и выражения HTTPException перечислены в [справочнике app.py](reference/app.md). `422` означает отказ Pydantic/Query; `400` — ошибку параметров или состояния, когда она переведена обработчиком; `404` — отсутствие записи/ресурса; Photos также использует `403`, `409`, `503` в зависимости от маршрута. Не следует ожидать одинаковый набор кодов от всех методов.
+OpenAPI получен из текущих контрактов FastAPI на временных данных. Core по умолчанию доступен на http://127.0.0.1:18765, UI на 8090, интерактивная схема на /docs.
 
-GET-методы могут пополнять снимки, приоритеты превью или кэш: HTTP-метод сам по себе не является обещанием отсутствия производных записей. Удаление связи или источника из каталога не является удалением пользовательских файлов. Запуск копирования — отдельная команда; обычная сверка не запускает копирование.
+Обработчики могут переводить доменные ошибки в HTTPException дополнительно к ответам OpenAPI. Точные raise и перехваты приведены в [справочнике app.py](reference/app.md). GET может пополнять кэш, снимки или приоритеты превью. План и старт копирования — отдельные действия.
+
+`422` означает отказ валидации Pydantic/Query. Обработчики используют `400` для недопустимых параметров или состояния и `404` для отсутствующей записи либо ресурса. Photos дополнительно использует `403`, `409` и `503` по контракту конкретного маршрута.
 
 ## Все маршруты
 
 | Метод | Путь | Назначение и обработчик |
 | --- | --- | --- |
-| `GET` | `/health` | [health](../app.py#L247) — Возвращает готовность HTTP-процесса и текущую ревизию каталога. |
-| `GET` | `/api/storage/volumes` | [storage_volumes](../app.py#L274) — Возвращает обнаруженные и сохранённые тома через API Core. |
-| `POST` | `/api/storage/volumes/{volume_id}/register-removable` | [register_removable](../app.py#L288) — Регистрирует сменный носитель с выбранным названием. |
-| `PATCH` | `/api/storage/volumes/{volume_id}/name` | [rename_removable](../app.py#L298) — Меняет название подтверждённого сменного носителя. |
-| `GET` | `/api/storage/nas` | [remembered_nas](../app.py#L315) — Возвращает список сохранённых серверов NAS. |
-| `POST` | `/api/storage/nas/discover` | [discover_nas](../app.py#L322) — Запускает обнаружение NAS через Bonjour на машине Core. |
-| `GET` | `/api/storage/nas/{server_id}/shares` | [nas_shares](../app.py#L329) — Возвращает сохранённые либо обновлённые ресурсы выбранного NAS. |
-| `POST` | `/api/storage/nas/{server_id}/remember` | [remember_nas_share](../app.py#L339) — Сохраняет выбранный SMB-ресурс без подключения. |
-| `POST` | `/api/storage/volumes/{volume_id}/connect` | [connect_network_volume](../app.py#L351) — Открывает подключение сетевого тома в Finder на машине Core. |
-| `GET` | `/api/storage/volumes/{volume_id}/directory` | [storage_directory](../app.py#L363) — Возвращает список выбранной папки тома с признаками снимка и ошибок. |
-| `GET` | `/api/storage/volumes/{volume_id}/preview` | [storage_preview](../app.py#L375) — Возвращает JPEG-превью обычного файла выбранного тома. |
-| `POST` | `/api/storage/volumes/{volume_id}/directory-sizes` | [storage_directory_sizes](../app.py#L406) — Возвращает размеры папок и при разрешении ставит их в очередь подсчёта. |
-| `POST` | `/api/storage/volumes/{volume_id}/open-in-finder` | [open_storage_path_in_finder](../app.py#L419) — Передаёт Finder проверенный путь выбранного тома. |
-| `PATCH` | `/api/storage/volumes/{volume_id}/metadata` | [storage_metadata](../app.py#L431) — Сохраняет пользовательские отметки расположения в каталоге. |
-| `PATCH` | `/api/storage/volumes/{volume_id}/folder-tags` | [storage_folder_tags](../app.py#L443) — Сохраняет смысловые метки выбранной папки. |
-| `PATCH` | `/api/storage/copy-locations/{location_id}/source` | [storage_copy_source](../app.py#L534) — Обрабатывает изменение источника копирования обычной папки. |
-| `GET` | `/api/storage/copy-groups` | [storage_copy_groups](../app.py#L563) — Возвращает наборы папок с типами, метками и состоянием наблюдателей. |
-| `POST` | `/api/storage/copy-groups` | [storage_main_folder](../app.py#L579) — Регистрирует выбранную папку как основную область набора. |
-| `GET` | `/api/storage/folder-markers` | [storage_folder_markers](../app.py#L572) — Возвращает состояние очереди служебных описаний папок. |
-| `PATCH` | `/api/storage/copy-groups/{group_id}` | [storage_copy_group_settings](../app.py#L586) — Обновляет настройки набора и пробуждает отслеживание изменений. |
-| `DELETE` | `/api/storage/copy-groups/{group_id}` | [storage_remove_copy_group](../app.py#L663) — Удаляет набор папок из каталога без удаления пользовательских файлов. |
-| `POST` | `/api/storage/copy-groups/{group_id}/acknowledge` | [storage_acknowledge_folder_changes](../app.py#L595) — Подтверждает конкретную версию уведомления об изменении папки. |
-| `PATCH` | `/api/storage/copy-groups/{group_id}/connection` | [storage_copy_group_connection](../app.py#L602) — Меняет подключение всего набора папок. |
-| `PATCH` | `/api/storage/copy-locations/{location_id}/connection` | [storage_copy_location_connection](../app.py#L611) — Меняет подключение одной обычной копии. |
-| `POST` | `/api/storage/copy-groups/{group_id}/copies` | [storage_copy_location](../app.py#L618) — Добавляет папку копии к существующему набору. |
-| `POST` | `/api/storage/copy-locations/{location_id}/release-number` | [storage_release_copy_number](../app.py#L634) — Архивирует прежнюю привязку и освобождает её номер. |
-| `PATCH` | `/api/storage/copy-locations/{location_id}` | [storage_copy_kind](../app.py#L641) — Меняет тип зарегистрированной копии. |
-| `DELETE` | `/api/storage/copy-locations/{location_id}` | [storage_remove_copy](../app.py#L655) — Удаляет связь копии из каталога без удаления пользовательских файлов. |
-| `POST` | `/api/storage/copy-groups/{group_id}/renumber` | [storage_renumber_copies](../app.py#L648) — Применяет подтверждённую нумерацию по снимку текущих связей. |
-| `GET` | `/api/storage/paired-comparisons` | [paired_jobs](../app.py#L719) — Возвращает историю парных сверок и допустимые решения для лишних элементов. |
-| `POST` | `/api/storage/paired-comparisons` | [start_paired_comparison](../app.py#L726) — Создаёт и запускает сверку зарегистрированной пары папок. |
-| `GET` | `/api/storage/paired-comparisons/{job_id}` | [paired_job](../app.py#L734) — Возвращает состояние одной парной сверки. |
-| `GET` | `/api/storage/paired-comparisons/{job_id}/rows` | [paired_rows](../app.py#L741) — Возвращает страницу выровненных строк парной сверки. |
-| `POST` | `/api/storage/paired-comparisons/{job_id}/pause` | [pause_paired_job](../app.py#L749) — Запрашивает паузу парной сверки. |
-| `POST` | `/api/storage/paired-comparisons/{job_id}/resume` | [resume_paired_job](../app.py#L756) — Продолжает парную сверку после проверки конфликтующих операций. |
-| `PATCH` | `/api/storage/paired-comparisons/{job_id}/decision` | [paired_decision](../app.py#L763) — Сохраняет плановое решение для элемента только в копии. |
-| `GET` | `/api/storage/comparisons` | [comparison_jobs](../app.py#L770) — Возвращает историю общей сверки имён и старых отчётов. |
-| `POST` | `/api/storage/comparisons` | [start_comparison](../app.py#L813) — Создаёт общую сверку имён исходной области и выбранных целей. |
-| `POST` | `/api/storage/paired-comparisons/{job_id}/copy-plan` | [missing_copy_plan](../app.py#L777) — Создаёт сохранённый план копирования по завершённому файловому отчёту. |
-| `GET` | `/api/storage/copy-operations/{operation_id}` | [missing_copy_job](../app.py#L784) — Возвращает состояние операции копирования отсутствующих элементов. |
-| `GET` | `/api/storage/copy-operations/{operation_id}/items` | [missing_copy_items](../app.py#L791) — Возвращает страницу элементов сохранённого плана копирования. |
-| `POST` | `/api/storage/copy-operations/{operation_id}/start` | [start_missing_copy](../app.py#L799) — Запускает подтверждённую операцию создания отсутствующих копий. |
-| `POST` | `/api/storage/copy-operations/{operation_id}/stop` | [stop_missing_copy](../app.py#L806) — Запрашивает остановку операции копирования. |
-| `GET` | `/api/storage/comparisons/{job_id}` | [comparison_job](../app.py#L821) — Возвращает состояние и области общей сверки. |
-| `POST` | `/api/storage/comparisons/{job_id}/pause` | [pause_comparison](../app.py#L828) — Запрашивает паузу общей сверки имён. |
-| `POST` | `/api/storage/comparisons/{job_id}/resume` | [resume_comparison](../app.py#L835) — Продолжает сверку имён либо создаёт новую вместо старой проверки содержимого. |
-| `GET` | `/api/storage/comparisons/{job_id}/tree` | [comparison_tree](../app.py#L842) — Возвращает страницу исходного дерева общей сверки с фильтром статуса. |
-| `GET` | `/api/storage/comparisons/{job_id}/target-tree` | [comparison_target_tree](../app.py#L850) — Возвращает страницу сохранённого дерева выбранной цели общей сверки. |
-| `GET` | `/api/storage/comparisons/{job_id}/detail` | [comparison_detail](../app.py#L858) — Возвращает найденные совпадения и подробности элемента отчёта. |
-| `GET` | `/api/storage/comparisons/{job_id}/events` | [comparison_events](../app.py#L865) — Возвращает события общей сверки с обратной пагинацией. |
-| `GET` | `/api/sources` | [list_sources](../app.py#L872) — Возвращает сохранённые источники медиаиндекса. |
-| `POST` | `/api/sources` | [create_source](../app.py#L879) — Регистрирует обычный источник, устанавливает наблюдение и запускает сканирование. |
-| `POST` | `/api/sources/choose` | [choose_sources](../app.py#L897) — Регистрирует выбранные системным диалогом папки и запускает их сканирование. |
-| `PATCH` | `/api/sources/{source_id}` | [update_source](../app.py#L922) — Обновляет роль, название и комментарий обычного источника. |
-| `DELETE` | `/api/sources/{source_id}` | [delete_source](../app.py#L940) — Снимает наблюдение и удаляет источник из медиаиндекса. |
-| `POST` | `/api/sources/{source_id}/scan` | [scan_one_source](../app.py#L957) — Проверяет источник и выполняет его ручное сканирование. |
-| `POST` | `/api/scan` | [scan_all_sources](../app.py#L971) — Запускает сканирование зарегистрированных источников. |
-| `POST` | `/api/photos/authorize` | [authorize_system_photos](../app.py#L992) — Запрашивает разрешение Photos и возвращает состояние доступа. |
-| `PATCH` | `/api/photos/libraries/{source_id}/sync-schedule` | [set_photos_sync_schedule](../app.py#L1053) — Сохраняет часы синхронизации выбранной медиатеки. |
-| `GET` | `/api/photos/libraries` | [list_photo_libraries](../app.py#L1062) — Возвращает медиатеки, состояние подключения, превью и привязанные копии. |
-| `POST` | `/api/photos/libraries` | [register_photo_library](../app.py#L1098) — Регистрирует текущую медиатеку и ставит её первый скан в очередь. |
-| `POST` | `/api/photos/libraries/connect` | [connect_photo_library](../app.py#L1069) — Повторяет сопоставление системной медиатеки и пробуждает превью. |
-| `GET` | `/api/photos/libraries/{source_id}/browse` | [browse_photo_library](../app.py#L1078) — Возвращает виртуальную папку Photos и повышает приоритет её превью. |
-| `GET` | `/api/photos/libraries/{source_id}/preview-status` | [photo_preview_status](../app.py#L1089) — Возвращает готовые превью выбранных объектов медиатеки. |
-| `PATCH` | `/api/photos/libraries/{source_id}` | [rename_photo_library](../app.py#L1107) — Меняет название медиатеки и возвращает обновлённый список. |
-| `POST` | `/api/photos/libraries/{source_id}/pause` | [pause_photo_library](../app.py#L1115) — Включает ручную паузу выбранной медиатеки. |
-| `POST` | `/api/photos/libraries/{source_id}/resume` | [resume_photo_library](../app.py#L1123) — Снимает ручную паузу медиатеки и пробуждает очередь превью. |
-| `POST` | `/api/photos/libraries/{source_id}/copies` | [bind_photo_library_copy](../app.py#L1132) — Привязывает выбранную папку как копию медиатеки. |
-| `DELETE` | `/api/photos/libraries/{source_id}/copies/{link_id}` | [unbind_photo_library_copy](../app.py#L1139) — Отключает привязку копии медиатеки и возвращает обновлённый список. |
-| `PATCH` | `/api/photos/libraries/{source_id}/copies/{link_id}/source` | [photo_copy_source](../app.py#L1147) — Меняет источник привязанной копии Photos. |
-| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/make-first` | [photo_copy_first](../app.py#L1155) — Ставит выбранную копию Photos первой по номеру без изменения маршрутов. |
-| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/start` | [start_photo_originals](../app.py#L1163) — Запускает или планирует сохранение оригиналов в цепочку копий Photos. |
-| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/pause` | [pause_photo_originals](../app.py#L1170) — Запрашивает паузу сохранения оригиналов выбранной медиатеки. |
-| `GET` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals` | [photo_originals_status](../app.py#L1177) — Возвращает состояние оригиналов после проверки принадлежности копии медиатеке. |
-| `GET` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/journal` | [photo_originals_journal](../app.py#L1185) — Возвращает журнал оригиналов и пути незавершённых записей. |
-| `GET` | `/api/catalog/summary` | [catalog_summary](../app.py#L1192) — Возвращает суммарные показатели сохранённого медиаиндекса. |
-| `GET` | `/api/sources/{source_id}/tree` | [source_tree](../app.py#L1199) — Возвращает дерево виртуальных папок зарегистрированного источника. |
-| `GET` | `/api/sources/{source_id}/files` | [source_files](../app.py#L1208) — Возвращает файлы папки источника и повышает приоритет их превью. |
-| `GET` | `/api/thumbnails/status` | [thumbnail_status](../app.py#L1227) — Возвращает очередь превью и диагностическое состояние её воркеров. |
-| `POST` | `/api/thumbnails/pause` | [pause_thumbnails](../app.py#L1234) — Сохраняет общую ручную паузу фоновой очереди превью. |
-| `POST` | `/api/thumbnails/resume` | [resume_thumbnails](../app.py#L1242) — Снимает общую паузу превью и пробуждает воркеры. |
-| `POST` | `/api/sources/{source_id}/open-in-finder` | [open_source_folder_in_finder](../app.py#L1251) — Открывает проверенную папку обычного источника в Finder. |
-| `GET` | `/api/media/{media_id}/thumbnail` | [media_thumbnail](../app.py#L1280) — Отдаёт только готовый JPEG из кэша медиаиндекса. |
-| `POST` | `/api/media/{media_id}/open` | [open_media_in_default_app](../app.py#L1299) — Открывает обычный файл системной командой или выделяет объект Photos. |
+| `GET` | `/api/catalog/summary` | [catalog_summary](reference/app.md#symbol-catalog_summary) — Возвращает суммарные показатели сохранённого медиаиндекса. |
+| `POST` | `/api/media/{media_id}/open` | [open_media_in_default_app](reference/app.md#symbol-open_media_in_default_app) — Открывает обычный файл системной командой или выделяет объект Photos. |
+| `GET` | `/api/media/{media_id}/thumbnail` | [media_thumbnail](reference/app.md#symbol-media_thumbnail) — Отдаёт только готовый JPEG из кэша медиаиндекса. |
+| `POST` | `/api/photos/authorize` | [authorize_system_photos](reference/app.md#symbol-authorize_system_photos) — Запрашивает разрешение Photos и возвращает состояние доступа. |
+| `GET` | `/api/photos/libraries` | [list_photo_libraries](reference/app.md#symbol-list_photo_libraries) — Возвращает медиатеки, состояние подключения, превью и привязанные копии. |
+| `POST` | `/api/photos/libraries` | [register_photo_library](reference/app.md#symbol-register_photo_library) — Регистрирует текущую медиатеку и ставит её первый скан в очередь. |
+| `POST` | `/api/photos/libraries/connect` | [connect_photo_library](reference/app.md#symbol-connect_photo_library) — Повторяет сопоставление системной медиатеки и пробуждает превью. |
+| `PATCH` | `/api/photos/libraries/{source_id}` | [rename_photo_library](reference/app.md#symbol-rename_photo_library) — Меняет название медиатеки и возвращает обновлённый список. |
+| `GET` | `/api/photos/libraries/{source_id}/browse` | [browse_photo_library](reference/app.md#symbol-browse_photo_library) — Возвращает виртуальную папку Photos и повышает приоритет её превью. |
+| `POST` | `/api/photos/libraries/{source_id}/copies` | [bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy) — Привязывает выбранную папку как копию медиатеки. |
+| `DELETE` | `/api/photos/libraries/{source_id}/copies/{link_id}` | [unbind_photo_library_copy](reference/app.md#symbol-unbind_photo_library_copy) — Отключает привязку копии медиатеки и возвращает обновлённый список. |
+| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/make-first` | [photo_copy_first](reference/app.md#symbol-photo_copy_first) — Ставит выбранную копию Photos первой по номеру без изменения маршрутов. |
+| `GET` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals` | [photo_originals_status](reference/app.md#symbol-photo_originals_status) — Возвращает состояние оригиналов после проверки принадлежности копии медиатеке. |
+| `GET` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/journal` | [photo_originals_journal](reference/app.md#symbol-photo_originals_journal) — Возвращает журнал оригиналов и пути незавершённых записей. |
+| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/pause` | [pause_photo_originals](reference/app.md#symbol-pause_photo_originals) — Запрашивает паузу сохранения оригиналов выбранной медиатеки. |
+| `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals/start` | [start_photo_originals](reference/app.md#symbol-start_photo_originals) — Запускает или планирует сохранение оригиналов в цепочку копий Photos. |
+| `PATCH` | `/api/photos/libraries/{source_id}/copies/{link_id}/source` | [photo_copy_source](reference/app.md#symbol-photo_copy_source) — Меняет источник привязанной копии Photos. |
+| `POST` | `/api/photos/libraries/{source_id}/pause` | [pause_photo_library](reference/app.md#symbol-pause_photo_library) — Включает ручную паузу выбранной медиатеки. |
+| `GET` | `/api/photos/libraries/{source_id}/preview-status` | [photo_preview_status](reference/app.md#symbol-photo_preview_status) — Возвращает готовые превью выбранных объектов медиатеки. |
+| `POST` | `/api/photos/libraries/{source_id}/resume` | [resume_photo_library](reference/app.md#symbol-resume_photo_library) — Снимает ручную паузу медиатеки и пробуждает очередь превью. |
+| `PATCH` | `/api/photos/libraries/{source_id}/sync-schedule` | [set_photos_sync_schedule](reference/app.md#symbol-set_photos_sync_schedule) — Сохраняет часы синхронизации выбранной медиатеки. |
+| `POST` | `/api/scan` | [scan_all_sources](reference/app.md#symbol-scan_all_sources) — Запускает сканирование зарегистрированных источников. |
+| `GET` | `/api/sources` | [list_sources](reference/app.md#symbol-list_sources) — Возвращает сохранённые источники медиаиндекса. |
+| `POST` | `/api/sources` | [create_source](reference/app.md#symbol-create_source) — Регистрирует обычный источник, устанавливает наблюдение и запускает сканирование. |
+| `POST` | `/api/sources/choose` | [choose_sources](reference/app.md#symbol-choose_sources) — Регистрирует выбранные системным диалогом папки и запускает их сканирование. |
+| `DELETE` | `/api/sources/{source_id}` | [delete_source](reference/app.md#symbol-delete_source) — Снимает наблюдение и удаляет источник из медиаиндекса. |
+| `PATCH` | `/api/sources/{source_id}` | [update_source](reference/app.md#symbol-update_source) — Обновляет роль, название и комментарий обычного источника. |
+| `GET` | `/api/sources/{source_id}/files` | [source_files](reference/app.md#symbol-source_files) — Возвращает файлы папки источника и повышает приоритет их превью. |
+| `POST` | `/api/sources/{source_id}/open-in-finder` | [open_source_folder_in_finder](reference/app.md#symbol-open_source_folder_in_finder) — Открывает проверенную папку обычного источника в Finder. |
+| `POST` | `/api/sources/{source_id}/scan` | [scan_one_source](reference/app.md#symbol-scan_one_source) — Проверяет источник и выполняет его ручное сканирование. |
+| `GET` | `/api/sources/{source_id}/tree` | [source_tree](reference/app.md#symbol-source_tree) — Возвращает дерево виртуальных папок зарегистрированного источника. |
+| `GET` | `/api/storage/comparisons` | [comparison_jobs](reference/app.md#symbol-comparison_jobs) — Возвращает историю общей сверки имён и старых отчётов. |
+| `POST` | `/api/storage/comparisons` | [start_comparison](reference/app.md#symbol-start_comparison) — Создаёт общую сверку имён исходной области и выбранных целей. |
+| `GET` | `/api/storage/comparisons/{job_id}` | [comparison_job](reference/app.md#symbol-comparison_job) — Возвращает состояние и области общей сверки. |
+| `GET` | `/api/storage/comparisons/{job_id}/detail` | [comparison_detail](reference/app.md#symbol-comparison_detail) — Возвращает найденные совпадения и подробности элемента отчёта. |
+| `GET` | `/api/storage/comparisons/{job_id}/events` | [comparison_events](reference/app.md#symbol-comparison_events) — Возвращает события общей сверки с обратной пагинацией. |
+| `POST` | `/api/storage/comparisons/{job_id}/pause` | [pause_comparison](reference/app.md#symbol-pause_comparison) — Запрашивает паузу общей сверки имён. |
+| `POST` | `/api/storage/comparisons/{job_id}/resume` | [resume_comparison](reference/app.md#symbol-resume_comparison) — Продолжает сверку имён либо создаёт новую вместо старой проверки содержимого. |
+| `GET` | `/api/storage/comparisons/{job_id}/target-tree` | [comparison_target_tree](reference/app.md#symbol-comparison_target_tree) — Возвращает страницу сохранённого дерева выбранной цели общей сверки. |
+| `GET` | `/api/storage/comparisons/{job_id}/tree` | [comparison_tree](reference/app.md#symbol-comparison_tree) — Возвращает страницу исходного дерева общей сверки с фильтром статуса. |
+| `GET` | `/api/storage/copy-groups` | [storage_copy_groups](reference/app.md#symbol-storage_copy_groups) — Возвращает наборы папок с типами, метками и состоянием наблюдателей. |
+| `POST` | `/api/storage/copy-groups` | [storage_main_folder](reference/app.md#symbol-storage_main_folder) — Регистрирует выбранную папку как основную область набора. |
+| `DELETE` | `/api/storage/copy-groups/{group_id}` | [storage_remove_copy_group](reference/app.md#symbol-storage_remove_copy_group) — Удаляет набор папок из каталога без удаления пользовательских файлов. |
+| `PATCH` | `/api/storage/copy-groups/{group_id}` | [storage_copy_group_settings](reference/app.md#symbol-storage_copy_group_settings) — Обновляет настройки набора и пробуждает отслеживание изменений. |
+| `POST` | `/api/storage/copy-groups/{group_id}/acknowledge` | [storage_acknowledge_folder_changes](reference/app.md#symbol-storage_acknowledge_folder_changes) — Подтверждает конкретную версию уведомления об изменении папки. |
+| `PATCH` | `/api/storage/copy-groups/{group_id}/connection` | [storage_copy_group_connection](reference/app.md#symbol-storage_copy_group_connection) — Меняет подключение всего набора папок. |
+| `POST` | `/api/storage/copy-groups/{group_id}/copies` | [storage_copy_location](reference/app.md#symbol-storage_copy_location) — Добавляет папку копии к существующему набору. |
+| `POST` | `/api/storage/copy-groups/{group_id}/renumber` | [storage_renumber_copies](reference/app.md#symbol-storage_renumber_copies) — Применяет подтверждённую нумерацию по снимку текущих связей. |
+| `DELETE` | `/api/storage/copy-locations/{location_id}` | [storage_remove_copy](reference/app.md#symbol-storage_remove_copy) — Удаляет связь копии из каталога без удаления пользовательских файлов. |
+| `PATCH` | `/api/storage/copy-locations/{location_id}` | [storage_copy_kind](reference/app.md#symbol-storage_copy_kind) — Меняет тип зарегистрированной копии. |
+| `PATCH` | `/api/storage/copy-locations/{location_id}/connection` | [storage_copy_location_connection](reference/app.md#symbol-storage_copy_location_connection) — Меняет подключение одной обычной копии. |
+| `POST` | `/api/storage/copy-locations/{location_id}/release-number` | [storage_release_copy_number](reference/app.md#symbol-storage_release_copy_number) — Архивирует прежнюю привязку и освобождает её номер. |
+| `PATCH` | `/api/storage/copy-locations/{location_id}/source` | [storage_copy_source](reference/app.md#symbol-storage_copy_source) — Обрабатывает изменение источника копирования обычной папки. |
+| `GET` | `/api/storage/copy-operations/{operation_id}` | [missing_copy_job](reference/app.md#symbol-missing_copy_job) — Возвращает состояние операции копирования отсутствующих элементов. |
+| `GET` | `/api/storage/copy-operations/{operation_id}/items` | [missing_copy_items](reference/app.md#symbol-missing_copy_items) — Возвращает страницу элементов сохранённого плана копирования. |
+| `POST` | `/api/storage/copy-operations/{operation_id}/start` | [start_missing_copy](reference/app.md#symbol-start_missing_copy) — Запускает подтверждённую операцию создания отсутствующих копий. |
+| `POST` | `/api/storage/copy-operations/{operation_id}/stop` | [stop_missing_copy](reference/app.md#symbol-stop_missing_copy) — Запрашивает остановку операции копирования. |
+| `GET` | `/api/storage/folder-markers` | [storage_folder_markers](reference/app.md#symbol-storage_folder_markers) — Возвращает состояние очереди служебных описаний папок. |
+| `GET` | `/api/storage/nas` | [remembered_nas](reference/app.md#symbol-remembered_nas) — Возвращает список сохранённых серверов NAS. |
+| `POST` | `/api/storage/nas/discover` | [discover_nas](reference/app.md#symbol-discover_nas) — Запускает обнаружение NAS через Bonjour на машине Core. |
+| `POST` | `/api/storage/nas/{server_id}/remember` | [remember_nas_share](reference/app.md#symbol-remember_nas_share) — Сохраняет выбранный SMB-ресурс без подключения. |
+| `GET` | `/api/storage/nas/{server_id}/shares` | [nas_shares](reference/app.md#symbol-nas_shares) — Возвращает сохранённые либо обновлённые ресурсы выбранного NAS. |
+| `GET` | `/api/storage/paired-comparisons` | [paired_jobs](reference/app.md#symbol-paired_jobs) — Возвращает историю парных сверок и допустимые решения для лишних элементов. |
+| `POST` | `/api/storage/paired-comparisons` | [start_paired_comparison](reference/app.md#symbol-start_paired_comparison) — Создаёт и запускает сверку зарегистрированной пары папок. |
+| `GET` | `/api/storage/paired-comparisons/{job_id}` | [paired_job](reference/app.md#symbol-paired_job) — Возвращает состояние одной парной сверки. |
+| `POST` | `/api/storage/paired-comparisons/{job_id}/copy-plan` | [missing_copy_plan](reference/app.md#symbol-missing_copy_plan) — Создаёт сохранённый план копирования по завершённому файловому отчёту. |
+| `PATCH` | `/api/storage/paired-comparisons/{job_id}/decision` | [paired_decision](reference/app.md#symbol-paired_decision) — Сохраняет плановое решение для элемента только в копии. |
+| `POST` | `/api/storage/paired-comparisons/{job_id}/pause` | [pause_paired_job](reference/app.md#symbol-pause_paired_job) — Запрашивает паузу парной сверки. |
+| `POST` | `/api/storage/paired-comparisons/{job_id}/resume` | [resume_paired_job](reference/app.md#symbol-resume_paired_job) — Продолжает парную сверку после проверки конфликтующих операций. |
+| `GET` | `/api/storage/paired-comparisons/{job_id}/rows` | [paired_rows](reference/app.md#symbol-paired_rows) — Возвращает страницу выровненных строк парной сверки. |
+| `GET` | `/api/storage/volumes` | [storage_volumes](reference/app.md#symbol-storage_volumes) — Возвращает обнаруженные и сохранённые тома через API Core. |
+| `POST` | `/api/storage/volumes/{volume_id}/connect` | [connect_network_volume](reference/app.md#symbol-connect_network_volume) — Открывает подключение сетевого тома в Finder на машине Core. |
+| `GET` | `/api/storage/volumes/{volume_id}/directory` | [storage_directory](reference/app.md#symbol-storage_directory) — Возвращает список выбранной папки тома с признаками снимка и ошибок. |
+| `POST` | `/api/storage/volumes/{volume_id}/directory-sizes` | [storage_directory_sizes](reference/app.md#symbol-storage_directory_sizes) — Возвращает размеры папок и при разрешении ставит их в очередь подсчёта. |
+| `PATCH` | `/api/storage/volumes/{volume_id}/folder-tags` | [storage_folder_tags](reference/app.md#symbol-storage_folder_tags) — Сохраняет смысловые метки выбранной папки. |
+| `PATCH` | `/api/storage/volumes/{volume_id}/metadata` | [storage_metadata](reference/app.md#symbol-storage_metadata) — Сохраняет пользовательские отметки расположения в каталоге. |
+| `PATCH` | `/api/storage/volumes/{volume_id}/name` | [rename_removable](reference/app.md#symbol-rename_removable) — Меняет название подтверждённого сменного носителя. |
+| `POST` | `/api/storage/volumes/{volume_id}/open-in-finder` | [open_storage_path_in_finder](reference/app.md#symbol-open_storage_path_in_finder) — Передаёт Finder проверенный путь выбранного тома. |
+| `GET` | `/api/storage/volumes/{volume_id}/preview` | [storage_preview](reference/app.md#symbol-storage_preview) — Возвращает JPEG-превью обычного файла выбранного тома. |
+| `POST` | `/api/storage/volumes/{volume_id}/register-removable` | [register_removable](reference/app.md#symbol-register_removable) — Регистрирует сменный носитель с выбранным названием. |
+| `POST` | `/api/thumbnails/pause` | [pause_thumbnails](reference/app.md#symbol-pause_thumbnails) — Сохраняет общую ручную паузу фоновой очереди превью. |
+| `POST` | `/api/thumbnails/resume` | [resume_thumbnails](reference/app.md#symbol-resume_thumbnails) — Снимает общую паузу превью и пробуждает воркеры. |
+| `GET` | `/api/thumbnails/status` | [thumbnail_status](reference/app.md#symbol-thumbnail_status) — Возвращает очередь превью и диагностическое состояние её воркеров. |
+| `GET` | `/health` | [health](reference/app.md#symbol-health) — Возвращает готовность HTTP-процесса и текущую ревизию каталога. |
 
 ## Параметры и ответы по маршрутам
 
-### `GET /health`
+### `GET /api/catalog/summary`
 
-[health](../app.py#L247). Возвращает готовность HTTP-процесса и текущую ревизию каталога.
-
-Декларированные ответы: `200` Successful Response.
-
-### `GET /api/storage/volumes`
-
-[storage_volumes](../app.py#L274). Возвращает обнаруженные и сохранённые тома через API Core.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `refresh` | `query` | False | `{"type": "boolean", "default": false, "title": "Refresh"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/storage/volumes/{volume_id}/register-removable`
-
-[register_removable](../app.py#L288). Регистрирует сменный носитель с выбранным названием.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/VolumeNameRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/storage/volumes/{volume_id}/name`
-
-[rename_removable](../app.py#L298). Меняет название подтверждённого сменного носителя.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/VolumeNameRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/storage/nas`
-
-[remembered_nas](../app.py#L315). Возвращает список сохранённых серверов NAS.
+[catalog_summary](reference/app.md#symbol-catalog_summary). Возвращает суммарные показатели сохранённого медиаиндекса.
 
 Декларированные ответы: `200` Successful Response.
 
-### `POST /api/storage/nas/discover`
+### `POST /api/media/{media_id}/open`
 
-[discover_nas](../app.py#L322). Запускает обнаружение NAS через Bonjour на машине Core.
+[open_media_in_default_app](reference/app.md#symbol-open_media_in_default_app). Открывает обычный файл системной командой или выделяет объект Photos.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `media_id` | `path` | True | `{"title": "Media Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/media/{media_id}/thumbnail`
+
+[media_thumbnail](reference/app.md#symbol-media_thumbnail). Отдаёт только готовый JPEG из кэша медиаиндекса.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `media_id` | `path` | True | `{"title": "Media Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/photos/authorize`
+
+[authorize_system_photos](reference/app.md#symbol-authorize_system_photos). Запрашивает разрешение Photos и возвращает состояние доступа.
 
 Декларированные ответы: `200` Successful Response.
 
-### `GET /api/storage/nas/{server_id}/shares`
+### `GET /api/photos/libraries`
 
-[nas_shares](../app.py#L329). Возвращает сохранённые либо обновлённые ресурсы выбранного NAS.
+[list_photo_libraries](reference/app.md#symbol-list_photo_libraries). Возвращает медиатеки, состояние подключения, превью и привязанные копии.
+
+Декларированные ответы: `200` Successful Response.
+
+### `POST /api/photos/libraries`
+
+[register_photo_library](reference/app.md#symbol-register_photo_library). Регистрирует текущую медиатеку и ставит её первый скан в очередь.
+
+Тело JSON: `{"$ref": "#/components/schemas/LibraryNameRequest"}`; обязательное: True.
+
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
+
+### `POST /api/photos/libraries/connect`
+
+[connect_photo_library](reference/app.md#symbol-connect_photo_library). Повторяет сопоставление системной медиатеки и пробуждает превью.
+
+Декларированные ответы: `200` Successful Response.
+
+### `PATCH /api/photos/libraries/{source_id}`
+
+[rename_photo_library](reference/app.md#symbol-rename_photo_library). Меняет название медиатеки и возвращает обновлённый список.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `server_id` | `path` | True | `{"type": "string", "title": "Server Id"}` |
-| `refresh` | `query` | False | `{"type": "boolean", "default": false, "title": "Refresh"}` |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/LibraryNameRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/nas/{server_id}/remember`
+### `GET /api/photos/libraries/{source_id}/browse`
 
-[remember_nas_share](../app.py#L339). Сохраняет выбранный SMB-ресурс без подключения.
+[browse_photo_library](reference/app.md#symbol-browse_photo_library). Возвращает виртуальную папку Photos и повышает приоритет её превью.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `server_id` | `path` | True | `{"type": "string", "title": "Server Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/NetworkShareRequest"}`; обязательное: True.
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `path` | `query` | False | `{"default": "", "title": "Path", "type": "string"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 150, "maximum": 1000, "minimum": 1, "title": "Limit", "type": "integer"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/volumes/{volume_id}/connect`
+### `POST /api/photos/libraries/{source_id}/copies`
 
-[connect_network_volume](../app.py#L351). Открывает подключение сетевого тома в Finder на машине Core.
+[bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy). Привязывает выбранную папку как копию медиатеки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/LibraryCopyRequest"}`; обязательное: True.
+
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
+
+### `DELETE /api/photos/libraries/{source_id}/copies/{link_id}`
+
+[unbind_photo_library_copy](reference/app.md#symbol-unbind_photo_library_copy). Отключает привязку копии медиатеки и возвращает обновлённый список.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/volumes/{volume_id}/directory`
+### `POST /api/photos/libraries/{source_id}/copies/{link_id}/make-first`
 
-[storage_directory](../app.py#L363). Возвращает список выбранной папки тома с признаками снимка и ошибок.
+[photo_copy_first](reference/app.md#symbol-photo_copy_first). Ставит выбранную копию Photos первой по номеру без изменения маршрутов.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-| `path` | `query` | False | `{"type": "string", "default": "", "title": "Path"}` |
-| `refresh` | `query` | False | `{"type": "boolean", "default": true, "title": "Refresh"}` |
-| `discover` | `query` | False | `{"type": "boolean", "default": true, "title": "Discover"}` |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/volumes/{volume_id}/preview`
+### `GET /api/photos/libraries/{source_id}/copies/{link_id}/originals`
 
-[storage_preview](../app.py#L375). Возвращает JPEG-превью обычного файла выбранного тома.
+[photo_originals_status](reference/app.md#symbol-photo_originals_status). Возвращает состояние оригиналов после проверки принадлежности копии медиатеке.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-| `path` | `query` | True | `{"type": "string", "title": "Path"}` |
-| `large` | `query` | False | `{"type": "boolean", "default": false, "title": "Large"}` |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/volumes/{volume_id}/directory-sizes`
+### `GET /api/photos/libraries/{source_id}/copies/{link_id}/originals/journal`
 
-[storage_directory_sizes](../app.py#L406). Возвращает размеры папок и при разрешении ставит их в очередь подсчёта.
+[photo_originals_journal](reference/app.md#symbol-photo_originals_journal). Возвращает журнал оригиналов и пути незавершённых записей.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/DirectorySizesRequest"}`; обязательное: True.
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/volumes/{volume_id}/open-in-finder`
+### `POST /api/photos/libraries/{source_id}/copies/{link_id}/originals/pause`
 
-[open_storage_path_in_finder](../app.py#L419). Передаёт Finder проверенный путь выбранного тома.
+[pause_photo_originals](reference/app.md#symbol-pause_photo_originals). Запрашивает паузу сохранения оригиналов выбранной медиатеки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/StoragePathRequest"}`; обязательное: True.
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `PATCH /api/storage/volumes/{volume_id}/metadata`
+### `POST /api/photos/libraries/{source_id}/copies/{link_id}/originals/start`
 
-[storage_metadata](../app.py#L431). Сохраняет пользовательские отметки расположения в каталоге.
+[start_photo_originals](reference/app.md#symbol-start_photo_originals). Запускает или планирует сохранение оригиналов в цепочку копий Photos.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/StorageMetadataRequest"}`; обязательное: True.
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `PATCH /api/storage/volumes/{volume_id}/folder-tags`
+### `PATCH /api/photos/libraries/{source_id}/copies/{link_id}/source`
 
-[storage_folder_tags](../app.py#L443). Сохраняет смысловые метки выбранной папки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `volume_id` | `path` | True | `{"type": "string", "title": "Volume Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/FolderTagsRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/storage/copy-locations/{location_id}/source`
-
-[storage_copy_source](../app.py#L534). Обрабатывает изменение источника копирования обычной папки.
+[photo_copy_source](reference/app.md#symbol-photo_copy_source). Меняет источник привязанной копии Photos.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `location_id` | `path` | True | `{"type": "string", "title": "Location Id"}` |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `link_id` | `path` | True | `{"title": "Link Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopySourceRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
+### `POST /api/photos/libraries/{source_id}/pause`
+
+[pause_photo_library](reference/app.md#symbol-pause_photo_library). Включает ручную паузу выбранной медиатеки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/photos/libraries/{source_id}/preview-status`
+
+[photo_preview_status](reference/app.md#symbol-photo_preview_status). Возвращает готовые превью выбранных объектов медиатеки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `ids` | `query` | False | `{"default": [], "items": {"type": "integer"}, "title": "Ids", "type": "array"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/photos/libraries/{source_id}/resume`
+
+[resume_photo_library](reference/app.md#symbol-resume_photo_library). Снимает ручную паузу медиатеки и пробуждает очередь превью.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/photos/libraries/{source_id}/sync-schedule`
+
+[set_photos_sync_schedule](reference/app.md#symbol-set_photos_sync_schedule). Сохраняет часы синхронизации выбранной медиатеки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/PhotosSyncScheduleRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/scan`
+
+[scan_all_sources](reference/app.md#symbol-scan_all_sources). Запускает сканирование зарегистрированных источников.
+
+Декларированные ответы: `200` Successful Response.
+
+### `GET /api/sources`
+
+[list_sources](reference/app.md#symbol-list_sources). Возвращает сохранённые источники медиаиндекса.
+
+Декларированные ответы: `200` Successful Response.
+
+### `POST /api/sources`
+
+[create_source](reference/app.md#symbol-create_source). Регистрирует обычный источник, устанавливает наблюдение и запускает сканирование.
+
+Тело JSON: `{"$ref": "#/components/schemas/SourceRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/sources/choose`
+
+[choose_sources](reference/app.md#symbol-choose_sources). Регистрирует выбранные системным диалогом папки и запускает их сканирование.
+
+Тело JSON: `{"$ref": "#/components/schemas/FolderChoiceRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `DELETE /api/sources/{source_id}`
+
+[delete_source](reference/app.md#symbol-delete_source). Снимает наблюдение и удаляет источник из медиаиндекса.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/sources/{source_id}`
+
+[update_source](reference/app.md#symbol-update_source). Обновляет роль, название и комментарий обычного источника.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/SourceMetadataRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/sources/{source_id}/files`
+
+[source_files](reference/app.md#symbol-source_files). Возвращает файлы папки источника и повышает приоритет их превью.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+| `folder` | `query` | False | `{"default": "", "title": "Folder", "type": "string"}` |
+| `limit` | `query` | False | `{"default": 300, "maximum": 1000, "minimum": 1, "title": "Limit", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/sources/{source_id}/open-in-finder`
+
+[open_source_folder_in_finder](reference/app.md#symbol-open_source_folder_in_finder). Открывает проверенную папку обычного источника в Finder.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/FolderRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/sources/{source_id}/scan`
+
+[scan_one_source](reference/app.md#symbol-scan_one_source). Проверяет источник и выполняет его ручное сканирование.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/sources/{source_id}/tree`
+
+[source_tree](reference/app.md#symbol-source_tree). Возвращает дерево виртуальных папок зарегистрированного источника.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons`
+
+[comparison_jobs](reference/app.md#symbol-comparison_jobs). Возвращает историю общей сверки имён и старых отчётов.
+
+Декларированные ответы: `200` Successful Response.
+
+### `POST /api/storage/comparisons`
+
+[start_comparison](reference/app.md#symbol-start_comparison). Создаёт общую сверку имён исходной области и выбранных целей.
+
+Тело JSON: `{"$ref": "#/components/schemas/ComparisonRequest"}`; обязательное: True.
+
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons/{job_id}`
+
+[comparison_job](reference/app.md#symbol-comparison_job). Возвращает состояние и области общей сверки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons/{job_id}/detail`
+
+[comparison_detail](reference/app.md#symbol-comparison_detail). Возвращает найденные совпадения и подробности элемента отчёта.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons/{job_id}/events`
+
+[comparison_events](reference/app.md#symbol-comparison_events). Возвращает события общей сверки с обратной пагинацией.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+| `before` | `query` | False | `{"anyOf": [{"minimum": 1, "type": "integer"}, {"type": "null"}], "title": "Before"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/comparisons/{job_id}/pause`
+
+[pause_comparison](reference/app.md#symbol-pause_comparison). Запрашивает паузу общей сверки имён.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/comparisons/{job_id}/resume`
+
+[resume_comparison](reference/app.md#symbol-resume_comparison). Продолжает сверку имён либо создаёт новую вместо старой проверки содержимого.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons/{job_id}/target-tree`
+
+[comparison_target_tree](reference/app.md#symbol-comparison_target_tree). Возвращает страницу сохранённого дерева выбранной цели общей сверки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+| `scan_id` | `query` | True | `{"minimum": 1, "title": "Scan Id", "type": "integer"}` |
+| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 200, "maximum": 500, "minimum": 1, "title": "Limit", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/comparisons/{job_id}/tree`
+
+[comparison_tree](reference/app.md#symbol-comparison_tree). Возвращает страницу исходного дерева общей сверки с фильтром статуса.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
+| `status` | `query` | False | `{"default": "", "title": "Status", "type": "string"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 200, "maximum": 500, "minimum": 1, "title": "Limit", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
 ### `GET /api/storage/copy-groups`
 
-[storage_copy_groups](../app.py#L563). Возвращает наборы папок с типами, метками и состоянием наблюдателей.
+[storage_copy_groups](reference/app.md#symbol-storage_copy_groups). Возвращает наборы папок с типами, метками и состоянием наблюдателей.
 
 Декларированные ответы: `200` Successful Response.
 
 ### `POST /api/storage/copy-groups`
 
-[storage_main_folder](../app.py#L579). Регистрирует выбранную папку как основную область набора.
+[storage_main_folder](reference/app.md#symbol-storage_main_folder). Регистрирует выбранную папку как основную область набора.
 
 Тело JSON: `{"$ref": "#/components/schemas/ComparisonScope"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/folder-markers`
+### `DELETE /api/storage/copy-groups/{group_id}`
 
-[storage_folder_markers](../app.py#L572). Возвращает состояние очереди служебных описаний папок.
-
-Декларированные ответы: `200` Successful Response.
-
-### `PATCH /api/storage/copy-groups/{group_id}`
-
-[storage_copy_group_settings](../app.py#L586). Обновляет настройки набора и пробуждает отслеживание изменений.
+[storage_remove_copy_group](reference/app.md#symbol-storage_remove_copy_group). Удаляет набор папок из каталога без удаления пользовательских файлов.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/storage/copy-groups/{group_id}`
+
+[storage_copy_group_settings](reference/app.md#symbol-storage_copy_group_settings). Обновляет настройки набора и пробуждает отслеживание изменений.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopyGroupSettingsRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `DELETE /api/storage/copy-groups/{group_id}`
-
-[storage_remove_copy_group](../app.py#L663). Удаляет набор папок из каталога без удаления пользовательских файлов.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
 ### `POST /api/storage/copy-groups/{group_id}/acknowledge`
 
-[storage_acknowledge_folder_changes](../app.py#L595). Подтверждает конкретную версию уведомления об изменении папки.
+[storage_acknowledge_folder_changes](reference/app.md#symbol-storage_acknowledge_folder_changes). Подтверждает конкретную версию уведомления об изменении папки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopyGroupAcknowledgeRequest"}`; обязательное: True.
 
@@ -323,23 +548,11 @@ GET-методы могут пополнять снимки, приоритет�
 
 ### `PATCH /api/storage/copy-groups/{group_id}/connection`
 
-[storage_copy_group_connection](../app.py#L602). Меняет подключение всего набора папок.
+[storage_copy_group_connection](reference/app.md#symbol-storage_copy_group_connection). Меняет подключение всего набора папок.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/CopyConnectionRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/storage/copy-locations/{location_id}/connection`
-
-[storage_copy_location_connection](../app.py#L611). Меняет подключение одной обычной копии.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `location_id` | `path` | True | `{"type": "string", "title": "Location Id"}` |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopyConnectionRequest"}`; обязательное: True.
 
@@ -347,65 +560,172 @@ GET-методы могут пополнять снимки, приоритет�
 
 ### `POST /api/storage/copy-groups/{group_id}/copies`
 
-[storage_copy_location](../app.py#L618). Добавляет папку копии к существующему набору.
+[storage_copy_location](reference/app.md#symbol-storage_copy_location). Добавляет папку копии к существующему набору.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopyLocationRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/copy-locations/{location_id}/release-number`
-
-[storage_release_copy_number](../app.py#L634). Архивирует прежнюю привязку и освобождает её номер.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `location_id` | `path` | True | `{"type": "string", "title": "Location Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/CopyNumberReleaseRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/storage/copy-locations/{location_id}`
-
-[storage_copy_kind](../app.py#L641). Меняет тип зарегистрированной копии.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `location_id` | `path` | True | `{"type": "string", "title": "Location Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/CopyKindRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `DELETE /api/storage/copy-locations/{location_id}`
-
-[storage_remove_copy](../app.py#L655). Удаляет связь копии из каталога без удаления пользовательских файлов.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `location_id` | `path` | True | `{"type": "string", "title": "Location Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
 ### `POST /api/storage/copy-groups/{group_id}/renumber`
 
-[storage_renumber_copies](../app.py#L648). Применяет подтверждённую нумерацию по снимку текущих связей.
+[storage_renumber_copies](reference/app.md#symbol-storage_renumber_copies). Применяет подтверждённую нумерацию по снимку текущих связей.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `group_id` | `path` | True | `{"type": "string", "title": "Group Id"}` |
+| `group_id` | `path` | True | `{"title": "Group Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/CopyRenumberRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
+### `DELETE /api/storage/copy-locations/{location_id}`
+
+[storage_remove_copy](reference/app.md#symbol-storage_remove_copy). Удаляет связь копии из каталога без удаления пользовательских файлов.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `location_id` | `path` | True | `{"title": "Location Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/storage/copy-locations/{location_id}`
+
+[storage_copy_kind](reference/app.md#symbol-storage_copy_kind). Меняет тип зарегистрированной копии.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `location_id` | `path` | True | `{"title": "Location Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/CopyKindRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/storage/copy-locations/{location_id}/connection`
+
+[storage_copy_location_connection](reference/app.md#symbol-storage_copy_location_connection). Меняет подключение одной обычной копии.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `location_id` | `path` | True | `{"title": "Location Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/CopyConnectionRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/copy-locations/{location_id}/release-number`
+
+[storage_release_copy_number](reference/app.md#symbol-storage_release_copy_number). Архивирует прежнюю привязку и освобождает её номер.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `location_id` | `path` | True | `{"title": "Location Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/CopyNumberReleaseRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `PATCH /api/storage/copy-locations/{location_id}/source`
+
+[storage_copy_source](reference/app.md#symbol-storage_copy_source). Обрабатывает изменение источника копирования обычной папки.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `location_id` | `path` | True | `{"title": "Location Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/CopySourceRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/copy-operations/{operation_id}`
+
+[missing_copy_job](reference/app.md#symbol-missing_copy_job). Возвращает состояние операции копирования отсутствующих элементов.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `operation_id` | `path` | True | `{"title": "Operation Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/copy-operations/{operation_id}/items`
+
+[missing_copy_items](reference/app.md#symbol-missing_copy_items). Возвращает страницу элементов сохранённого плана копирования.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `operation_id` | `path` | True | `{"title": "Operation Id", "type": "string"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 200, "maximum": 1000, "minimum": 1, "title": "Limit", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/copy-operations/{operation_id}/start`
+
+[start_missing_copy](reference/app.md#symbol-start_missing_copy). Запускает подтверждённую операцию создания отсутствующих копий.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `operation_id` | `path` | True | `{"title": "Operation Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/copy-operations/{operation_id}/stop`
+
+[stop_missing_copy](reference/app.md#symbol-stop_missing_copy). Запрашивает остановку операции копирования.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `operation_id` | `path` | True | `{"title": "Operation Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/folder-markers`
+
+[storage_folder_markers](reference/app.md#symbol-storage_folder_markers). Возвращает состояние очереди служебных описаний папок.
+
+Декларированные ответы: `200` Successful Response.
+
+### `GET /api/storage/nas`
+
+[remembered_nas](reference/app.md#symbol-remembered_nas). Возвращает список сохранённых серверов NAS.
+
+Декларированные ответы: `200` Successful Response.
+
+### `POST /api/storage/nas/discover`
+
+[discover_nas](reference/app.md#symbol-discover_nas). Запускает обнаружение NAS через Bonjour на машине Core.
+
+Декларированные ответы: `200` Successful Response.
+
+### `POST /api/storage/nas/{server_id}/remember`
+
+[remember_nas_share](reference/app.md#symbol-remember_nas_share). Сохраняет выбранный SMB-ресурс без подключения.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `server_id` | `path` | True | `{"title": "Server Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/NetworkShareRequest"}`; обязательное: True.
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/storage/nas/{server_id}/shares`
+
+[nas_shares](reference/app.md#symbol-nas_shares). Возвращает сохранённые либо обновлённые ресурсы выбранного NAS.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `server_id` | `path` | True | `{"title": "Server Id", "type": "string"}` |
+| `refresh` | `query` | False | `{"default": false, "title": "Refresh", "type": "boolean"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
 ### `GET /api/storage/paired-comparisons`
 
-[paired_jobs](../app.py#L719). Возвращает историю парных сверок и допустимые решения для лишних элементов.
+[paired_jobs](reference/app.md#symbol-paired_jobs). Возвращает историю парных сверок и допустимые решения для лишних элементов.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
@@ -415,7 +735,7 @@ GET-методы могут пополнять снимки, приоритет�
 
 ### `POST /api/storage/paired-comparisons`
 
-[start_paired_comparison](../app.py#L726). Создаёт и запускает сверку зарегистрированной пары папок.
+[start_paired_comparison](reference/app.md#symbol-start_paired_comparison). Создаёт и запускает сверку зарегистрированной пары папок.
 
 Тело JSON: `{"$ref": "#/components/schemas/PairedComparisonRequest"}`; обязательное: True.
 
@@ -423,537 +743,230 @@ GET-методы могут пополнять снимки, приоритет�
 
 ### `GET /api/storage/paired-comparisons/{job_id}`
 
-[paired_job](../app.py#L734). Возвращает состояние одной парной сверки.
+[paired_job](reference/app.md#symbol-paired_job). Возвращает состояние одной парной сверки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/paired-comparisons/{job_id}/rows`
+### `POST /api/storage/paired-comparisons/{job_id}/copy-plan`
 
-[paired_rows](../app.py#L741). Возвращает страницу выровненных строк парной сверки.
+[missing_copy_plan](reference/app.md#symbol-missing_copy_plan). Создаёт сохранённый план копирования по завершённому файловому отчёту.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-| `offset` | `query` | False | `{"type": "integer", "minimum": 0, "default": 0, "title": "Offset"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 5000, "minimum": 1, "default": 1000, "title": "Limit"}` |
-| `differences_only` | `query` | False | `{"type": "boolean", "default": false, "title": "Differences Only"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
 
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/storage/paired-comparisons/{job_id}/pause`
-
-[pause_paired_job](../app.py#L749). Запрашивает паузу парной сверки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/storage/paired-comparisons/{job_id}/resume`
-
-[resume_paired_job](../app.py#L756). Продолжает парную сверку после проверки конфликтующих операций.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
 
 ### `PATCH /api/storage/paired-comparisons/{job_id}/decision`
 
-[paired_decision](../app.py#L763). Сохраняет плановое решение для элемента только в копии.
+[paired_decision](reference/app.md#symbol-paired_decision). Сохраняет плановое решение для элемента только в копии.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
 
 Тело JSON: `{"$ref": "#/components/schemas/PairedDecisionRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons`
+### `POST /api/storage/paired-comparisons/{job_id}/pause`
 
-[comparison_jobs](../app.py#L770). Возвращает историю общей сверки имён и старых отчётов.
-
-Декларированные ответы: `200` Successful Response.
-
-### `POST /api/storage/comparisons`
-
-[start_comparison](../app.py#L813). Создаёт общую сверку имён исходной области и выбранных целей.
-
-Тело JSON: `{"$ref": "#/components/schemas/ComparisonRequest"}`; обязательное: True.
-
-Декларированные ответы: `201` Successful Response, `422` Validation Error.
-
-### `POST /api/storage/paired-comparisons/{job_id}/copy-plan`
-
-[missing_copy_plan](../app.py#L777). Создаёт сохранённый план копирования по завершённому файловому отчёту.
+[pause_paired_job](reference/app.md#symbol-pause_paired_job). Запрашивает паузу парной сверки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
 
-Декларированные ответы: `201` Successful Response, `422` Validation Error.
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/copy-operations/{operation_id}`
+### `POST /api/storage/paired-comparisons/{job_id}/resume`
 
-[missing_copy_job](../app.py#L784). Возвращает состояние операции копирования отсутствующих элементов.
+[resume_paired_job](reference/app.md#symbol-resume_paired_job). Продолжает парную сверку после проверки конфликтующих операций.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `operation_id` | `path` | True | `{"type": "string", "title": "Operation Id"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/copy-operations/{operation_id}/items`
+### `GET /api/storage/paired-comparisons/{job_id}/rows`
 
-[missing_copy_items](../app.py#L791). Возвращает страницу элементов сохранённого плана копирования.
+[paired_rows](reference/app.md#symbol-paired_rows). Возвращает страницу выровненных строк парной сверки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `operation_id` | `path` | True | `{"type": "string", "title": "Operation Id"}` |
-| `offset` | `query` | False | `{"type": "integer", "minimum": 0, "default": 0, "title": "Offset"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 1000, "minimum": 1, "default": 200, "title": "Limit"}` |
+| `job_id` | `path` | True | `{"title": "Job Id", "type": "string"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 1000, "maximum": 5000, "minimum": 1, "title": "Limit", "type": "integer"}` |
+| `differences_only` | `query` | False | `{"default": false, "title": "Differences Only", "type": "boolean"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/copy-operations/{operation_id}/start`
+### `GET /api/storage/volumes`
 
-[start_missing_copy](../app.py#L799). Запускает подтверждённую операцию создания отсутствующих копий.
+[storage_volumes](reference/app.md#symbol-storage_volumes). Возвращает обнаруженные и сохранённые тома через API Core.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `operation_id` | `path` | True | `{"type": "string", "title": "Operation Id"}` |
+| `refresh` | `query` | False | `{"default": false, "title": "Refresh", "type": "boolean"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/copy-operations/{operation_id}/stop`
+### `POST /api/storage/volumes/{volume_id}/connect`
 
-[stop_missing_copy](../app.py#L806). Запрашивает остановку операции копирования.
+[connect_network_volume](reference/app.md#symbol-connect_network_volume). Открывает подключение сетевого тома в Finder на машине Core.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `operation_id` | `path` | True | `{"type": "string", "title": "Operation Id"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons/{job_id}`
+### `GET /api/storage/volumes/{volume_id}/directory`
 
-[comparison_job](../app.py#L821). Возвращает состояние и области общей сверки.
+[storage_directory](reference/app.md#symbol-storage_directory). Возвращает список выбранной папки тома с признаками снимка и ошибок.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+| `path` | `query` | False | `{"default": "", "title": "Path", "type": "string"}` |
+| `refresh` | `query` | False | `{"default": true, "title": "Refresh", "type": "boolean"}` |
+| `discover` | `query` | False | `{"default": true, "title": "Discover", "type": "boolean"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/comparisons/{job_id}/pause`
+### `POST /api/storage/volumes/{volume_id}/directory-sizes`
 
-[pause_comparison](../app.py#L828). Запрашивает паузу общей сверки имён.
+[storage_directory_sizes](reference/app.md#symbol-storage_directory_sizes). Возвращает размеры папок и при разрешении ставит их в очередь подсчёта.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/DirectorySizesRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `POST /api/storage/comparisons/{job_id}/resume`
+### `PATCH /api/storage/volumes/{volume_id}/folder-tags`
 
-[resume_comparison](../app.py#L835). Продолжает сверку имён либо создаёт новую вместо старой проверки содержимого.
+[storage_folder_tags](reference/app.md#symbol-storage_folder_tags). Сохраняет смысловые метки выбранной папки.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/FolderTagsRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons/{job_id}/tree`
+### `PATCH /api/storage/volumes/{volume_id}/metadata`
 
-[comparison_tree](../app.py#L842). Возвращает страницу исходного дерева общей сверки с фильтром статуса.
+[storage_metadata](reference/app.md#symbol-storage_metadata). Сохраняет пользовательские отметки расположения в каталоге.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
-| `status` | `query` | False | `{"type": "string", "default": "", "title": "Status"}` |
-| `offset` | `query` | False | `{"type": "integer", "minimum": 0, "default": 0, "title": "Offset"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 500, "minimum": 1, "default": 200, "title": "Limit"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/StorageMetadataRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons/{job_id}/target-tree`
+### `PATCH /api/storage/volumes/{volume_id}/name`
 
-[comparison_target_tree](../app.py#L850). Возвращает страницу сохранённого дерева выбранной цели общей сверки.
+[rename_removable](reference/app.md#symbol-rename_removable). Меняет название подтверждённого сменного носителя.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-| `scan_id` | `query` | True | `{"type": "integer", "minimum": 1, "title": "Scan Id"}` |
-| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
-| `offset` | `query` | False | `{"type": "integer", "minimum": 0, "default": 0, "title": "Offset"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 500, "minimum": 1, "default": 200, "title": "Limit"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/VolumeNameRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons/{job_id}/detail`
+### `POST /api/storage/volumes/{volume_id}/open-in-finder`
 
-[comparison_detail](../app.py#L858). Возвращает найденные совпадения и подробности элемента отчёта.
+[open_storage_path_in_finder](reference/app.md#symbol-open_storage_path_in_finder). Передаёт Finder проверенный путь выбранного тома.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-| `path` | `query` | False | `{"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Path"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+
+Тело JSON: `{"$ref": "#/components/schemas/StoragePathRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/storage/comparisons/{job_id}/events`
+### `GET /api/storage/volumes/{volume_id}/preview`
 
-[comparison_events](../app.py#L865). Возвращает события общей сверки с обратной пагинацией.
+[storage_preview](reference/app.md#symbol-storage_preview). Возвращает JPEG-превью обычного файла выбранного тома.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `job_id` | `path` | True | `{"type": "string", "title": "Job Id"}` |
-| `before` | `query` | False | `{"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}], "title": "Before"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
+| `path` | `query` | True | `{"title": "Path", "type": "string"}` |
+| `large` | `query` | False | `{"default": false, "title": "Large", "type": "boolean"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
 
-### `GET /api/sources`
+### `POST /api/storage/volumes/{volume_id}/register-removable`
 
-[list_sources](../app.py#L872). Возвращает сохранённые источники медиаиндекса.
-
-Декларированные ответы: `200` Successful Response.
-
-### `POST /api/sources`
-
-[create_source](../app.py#L879). Регистрирует обычный источник, устанавливает наблюдение и запускает сканирование.
-
-Тело JSON: `{"$ref": "#/components/schemas/SourceRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/sources/choose`
-
-[choose_sources](../app.py#L897). Регистрирует выбранные системным диалогом папки и запускает их сканирование.
-
-Тело JSON: `{"$ref": "#/components/schemas/FolderChoiceRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/sources/{source_id}`
-
-[update_source](../app.py#L922). Обновляет роль, название и комментарий обычного источника.
+[register_removable](reference/app.md#symbol-register_removable). Регистрирует сменный носитель с выбранным названием.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
+| `volume_id` | `path` | True | `{"title": "Volume Id", "type": "string"}` |
 
-Тело JSON: `{"$ref": "#/components/schemas/SourceMetadataRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `DELETE /api/sources/{source_id}`
-
-[delete_source](../app.py#L940). Снимает наблюдение и удаляет источник из медиаиндекса.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
+Тело JSON: `{"$ref": "#/components/schemas/VolumeNameRequest"}`; обязательное: True.
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/sources/{source_id}/scan`
-
-[scan_one_source](../app.py#L957). Проверяет источник и выполняет его ручное сканирование.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/scan`
-
-[scan_all_sources](../app.py#L971). Запускает сканирование зарегистрированных источников.
-
-Декларированные ответы: `200` Successful Response.
-
-### `POST /api/photos/authorize`
-
-[authorize_system_photos](../app.py#L992). Запрашивает разрешение Photos и возвращает состояние доступа.
-
-Декларированные ответы: `200` Successful Response.
-
-### `PATCH /api/photos/libraries/{source_id}/sync-schedule`
-
-[set_photos_sync_schedule](../app.py#L1053). Сохраняет часы синхронизации выбранной медиатеки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/PhotosSyncScheduleRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/photos/libraries`
-
-[list_photo_libraries](../app.py#L1062). Возвращает медиатеки, состояние подключения, превью и привязанные копии.
-
-Декларированные ответы: `200` Successful Response.
-
-### `POST /api/photos/libraries`
-
-[register_photo_library](../app.py#L1098). Регистрирует текущую медиатеку и ставит её первый скан в очередь.
-
-Тело JSON: `{"$ref": "#/components/schemas/LibraryNameRequest"}`; обязательное: True.
-
-Декларированные ответы: `201` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/connect`
-
-[connect_photo_library](../app.py#L1069). Повторяет сопоставление системной медиатеки и пробуждает превью.
-
-Декларированные ответы: `200` Successful Response.
-
-### `GET /api/photos/libraries/{source_id}/browse`
-
-[browse_photo_library](../app.py#L1078). Возвращает виртуальную папку Photos и повышает приоритет её превью.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `path` | `query` | False | `{"type": "string", "default": "", "title": "Path"}` |
-| `offset` | `query` | False | `{"type": "integer", "minimum": 0, "default": 0, "title": "Offset"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 1000, "minimum": 1, "default": 150, "title": "Limit"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/photos/libraries/{source_id}/preview-status`
-
-[photo_preview_status](../app.py#L1089). Возвращает готовые превью выбранных объектов медиатеки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `ids` | `query` | False | `{"type": "array", "items": {"type": "integer"}, "default": [], "title": "Ids"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/photos/libraries/{source_id}`
-
-[rename_photo_library](../app.py#L1107). Меняет название медиатеки и возвращает обновлённый список.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/LibraryNameRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/pause`
-
-[pause_photo_library](../app.py#L1115). Включает ручную паузу выбранной медиатеки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/resume`
-
-[resume_photo_library](../app.py#L1123). Снимает ручную паузу медиатеки и пробуждает очередь превью.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/copies`
-
-[bind_photo_library_copy](../app.py#L1132). Привязывает выбранную папку как копию медиатеки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/LibraryCopyRequest"}`; обязательное: True.
-
-Декларированные ответы: `201` Successful Response, `422` Validation Error.
-
-### `DELETE /api/photos/libraries/{source_id}/copies/{link_id}`
-
-[unbind_photo_library_copy](../app.py#L1139). Отключает привязку копии медиатеки и возвращает обновлённый список.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `PATCH /api/photos/libraries/{source_id}/copies/{link_id}/source`
-
-[photo_copy_source](../app.py#L1147). Меняет источник привязанной копии Photos.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Тело JSON: `{"$ref": "#/components/schemas/CopySourceRequest"}`; обязательное: True.
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/copies/{link_id}/make-first`
-
-[photo_copy_first](../app.py#L1155). Ставит выбранную копию Photos первой по номеру без изменения маршрутов.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/copies/{link_id}/originals/start`
-
-[start_photo_originals](../app.py#L1163). Запускает или планирует сохранение оригиналов в цепочку копий Photos.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/photos/libraries/{source_id}/copies/{link_id}/originals/pause`
-
-[pause_photo_originals](../app.py#L1170). Запрашивает паузу сохранения оригиналов выбранной медиатеки.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/photos/libraries/{source_id}/copies/{link_id}/originals`
-
-[photo_originals_status](../app.py#L1177). Возвращает состояние оригиналов после проверки принадлежности копии медиатеке.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/photos/libraries/{source_id}/copies/{link_id}/originals/journal`
-
-[photo_originals_journal](../app.py#L1185). Возвращает журнал оригиналов и пути незавершённых записей.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `link_id` | `path` | True | `{"type": "string", "title": "Link Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/catalog/summary`
-
-[catalog_summary](../app.py#L1192). Возвращает суммарные показатели сохранённого медиаиндекса.
-
-Декларированные ответы: `200` Successful Response.
-
-### `GET /api/sources/{source_id}/tree`
-
-[source_tree](../app.py#L1199). Возвращает дерево виртуальных папок зарегистрированного источника.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/sources/{source_id}/files`
-
-[source_files](../app.py#L1208). Возвращает файлы папки источника и повышает приоритет их превью.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
-| `folder` | `query` | False | `{"type": "string", "default": "", "title": "Folder"}` |
-| `limit` | `query` | False | `{"type": "integer", "maximum": 1000, "minimum": 1, "default": 300, "title": "Limit"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `GET /api/thumbnails/status`
-
-[thumbnail_status](../app.py#L1227). Возвращает очередь превью и диагностическое состояние её воркеров.
-
-Декларированные ответы: `200` Successful Response.
 
 ### `POST /api/thumbnails/pause`
 
-[pause_thumbnails](../app.py#L1234). Сохраняет общую ручную паузу фоновой очереди превью.
+[pause_thumbnails](reference/app.md#symbol-pause_thumbnails). Сохраняет общую ручную паузу фоновой очереди превью.
 
 Декларированные ответы: `200` Successful Response.
 
 ### `POST /api/thumbnails/resume`
 
-[resume_thumbnails](../app.py#L1242). Снимает общую паузу превью и пробуждает воркеры.
+[resume_thumbnails](reference/app.md#symbol-resume_thumbnails). Снимает общую паузу превью и пробуждает воркеры.
 
 Декларированные ответы: `200` Successful Response.
 
-### `POST /api/sources/{source_id}/open-in-finder`
+### `GET /api/thumbnails/status`
 
-[open_source_folder_in_finder](../app.py#L1251). Открывает проверенную папку обычного источника в Finder.
+[thumbnail_status](reference/app.md#symbol-thumbnail_status). Возвращает очередь превью и диагностическое состояние её воркеров.
 
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `source_id` | `path` | True | `{"type": "integer", "title": "Source Id"}` |
+Декларированные ответы: `200` Successful Response.
 
-Тело JSON: `{"$ref": "#/components/schemas/FolderRequest"}`; обязательное: True.
+### `GET /health`
 
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
+[health](reference/app.md#symbol-health). Возвращает готовность HTTP-процесса и текущую ревизию каталога.
 
-### `GET /api/media/{media_id}/thumbnail`
-
-[media_thumbnail](../app.py#L1280). Отдаёт только готовый JPEG из кэша медиаиндекса.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `media_id` | `path` | True | `{"type": "integer", "title": "Media Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
-
-### `POST /api/media/{media_id}/open`
-
-[open_media_in_default_app](../app.py#L1299). Открывает обычный файл системной командой или выделяет объект Photos.
-
-| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
-| --- | --- | --- | --- |
-| `media_id` | `path` | True | `{"type": "integer", "title": "Media Id"}` |
-
-Декларированные ответы: `200` Successful Response, `422` Validation Error.
+Декларированные ответы: `200` Successful Response.
 
 ## Схемы Pydantic и валидации
 
-Поля с отсутствующим `default` и входящие в `required` обязательны. `anyOf` с `null` допускает `None`, но само по себе не делает поле необязательным. `additionalProperties=false` запрещает лишние поля. Унаследованные поля уже раскрыты в схеме.
+required задаёт обязательность поля, null в anyOf допускает None, additionalProperties=false запрещает лишние поля. Унаследованные поля раскрыты в схеме.
 
 ### `ComparisonRequest`
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
+    "reread": {
+      "default": false,
+      "title": "Reread",
+      "type": "boolean"
+    },
+    "reuse_index": {
+      "default": true,
+      "title": "Reuse Index",
+      "type": "boolean"
+    },
     "source": {
       "$ref": "#/components/schemas/ComparisonScope"
     },
@@ -961,29 +974,18 @@ GET-методы могут пополнять снимки, приоритет�
       "items": {
         "$ref": "#/components/schemas/ComparisonScope"
       },
-      "type": "array",
       "maxItems": 16,
       "minItems": 1,
-      "title": "Targets"
-    },
-    "reread": {
-      "type": "boolean",
-      "title": "Reread",
-      "default": false
-    },
-    "reuse_index": {
-      "type": "boolean",
-      "title": "Reuse Index",
-      "default": true
+      "title": "Targets",
+      "type": "array"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "source",
     "targets"
   ],
-  "title": "ComparisonRequest"
+  "title": "ComparisonRequest",
+  "type": "object"
 }
 ```
 
@@ -991,26 +993,26 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "volume_id": {
-      "type": "string",
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Volume Id"
-    },
     "path": {
-      "type": "string",
+      "default": "",
       "maxLength": 4096,
       "title": "Path",
-      "default": ""
+      "type": "string"
+    },
+    "volume_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Volume Id",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "volume_id"
   ],
-  "title": "ComparisonScope"
+  "title": "ComparisonScope",
+  "type": "object"
 }
 ```
 
@@ -1018,18 +1020,18 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "connected": {
-      "type": "boolean",
-      "title": "Connected"
+      "title": "Connected",
+      "type": "boolean"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "connected"
   ],
-  "title": "CopyConnectionRequest"
+  "title": "CopyConnectionRequest",
+  "type": "object"
 }
 ```
 
@@ -1037,20 +1039,20 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "changed_at": {
-      "type": "string",
       "maxLength": 64,
       "minLength": 1,
-      "title": "Changed At"
+      "title": "Changed At",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "changed_at"
   ],
-  "title": "CopyGroupAcknowledgeRequest"
+  "title": "CopyGroupAcknowledgeRequest",
+  "type": "object"
 }
 ```
 
@@ -1058,7 +1060,25 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
+    "label": {
+      "anyOf": [
+        {
+          "enum": [
+            "",
+            "temporary",
+            "inbox",
+            "archive"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Label"
+    },
     "tracking": {
       "anyOf": [
         {
@@ -1069,28 +1089,10 @@ GET-методы могут пополнять снимки, приоритет�
         }
       ],
       "title": "Tracking"
-    },
-    "label": {
-      "anyOf": [
-        {
-          "type": "string",
-          "enum": [
-            "",
-            "temporary",
-            "inbox",
-            "archive"
-          ]
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Label"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
-  "title": "CopyGroupSettingsRequest"
+  "title": "CopyGroupSettingsRequest",
+  "type": "object"
 }
 ```
 
@@ -1098,23 +1100,23 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "kind": {
-      "type": "string",
       "enum": [
         "copy",
         "cold",
         "cloud"
       ],
-      "title": "Kind"
+      "title": "Kind",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "kind"
   ],
-  "title": "CopyKindRequest"
+  "title": "CopyKindRequest",
+  "type": "object"
 }
 ```
 
@@ -1122,36 +1124,36 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "volume_id": {
-      "type": "string",
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Volume Id"
-    },
-    "path": {
-      "type": "string",
-      "maxLength": 4096,
-      "title": "Path",
-      "default": ""
-    },
     "kind": {
-      "type": "string",
+      "default": "copy",
       "enum": [
         "copy",
         "cold",
         "cloud"
       ],
       "title": "Kind",
-      "default": "copy"
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Path",
+      "type": "string"
+    },
+    "volume_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Volume Id",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "volume_id"
   ],
-  "title": "CopyLocationRequest"
+  "title": "CopyLocationRequest",
+  "type": "object"
 }
 ```
 
@@ -1159,29 +1161,29 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "kind": {
-      "type": "string",
       "enum": [
         "copy",
         "cold",
         "cloud"
       ],
-      "title": "Kind"
+      "title": "Kind",
+      "type": "string"
     },
     "number": {
-      "type": "integer",
       "exclusiveMinimum": 0.0,
-      "title": "Number"
+      "title": "Number",
+      "type": "integer"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "kind",
     "number"
   ],
-  "title": "CopyNumberReleaseRequest"
+  "title": "CopyNumberReleaseRequest",
+  "type": "object"
 }
 ```
 
@@ -1189,36 +1191,36 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
     "kind": {
-      "type": "string",
       "enum": [
         "copy",
         "cold",
         "cloud"
       ],
-      "title": "Kind"
-    },
-    "id": {
-      "type": "string",
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Id"
+      "title": "Kind",
+      "type": "string"
     },
     "number": {
-      "type": "integer",
       "exclusiveMinimum": 0.0,
-      "title": "Number"
+      "title": "Number",
+      "type": "integer"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "kind",
     "id",
     "number"
   ],
-  "title": "CopyNumberSnapshot"
+  "title": "CopyNumberSnapshot",
+  "type": "object"
 }
 ```
 
@@ -1226,21 +1228,21 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "copies": {
       "items": {
         "$ref": "#/components/schemas/CopyNumberSnapshot"
       },
-      "type": "array",
-      "title": "Copies"
+      "title": "Copies",
+      "type": "array"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "copies"
   ],
-  "title": "CopyRenumberRequest"
+  "title": "CopyRenumberRequest",
+  "type": "object"
 }
 ```
 
@@ -1248,13 +1250,14 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "source_id": {
       "anyOf": [
         {
-          "type": "string",
           "maxLength": 128,
-          "minLength": 1
+          "minLength": 1,
+          "type": "string"
         },
         {
           "type": "null"
@@ -1263,9 +1266,8 @@ GET-методы могут пополнять снимки, приоритет�
       "title": "Source Id"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
-  "title": "CopySourceRequest"
+  "title": "CopySourceRequest",
+  "type": "object"
 }
 ```
 
@@ -1273,33 +1275,33 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "paths": {
       "items": {
         "type": "string"
       },
-      "type": "array",
       "maxItems": 500,
       "minItems": 1,
-      "title": "Paths"
-    },
-    "start": {
-      "type": "boolean",
-      "title": "Start",
-      "default": true
+      "title": "Paths",
+      "type": "array"
     },
     "refresh": {
-      "type": "boolean",
+      "default": false,
       "title": "Refresh",
-      "default": false
+      "type": "boolean"
+    },
+    "start": {
+      "default": true,
+      "title": "Start",
+      "type": "boolean"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "paths"
   ],
-  "title": "DirectorySizesRequest"
+  "title": "DirectorySizesRequest",
+  "type": "object"
 }
 ```
 
@@ -1308,28 +1310,28 @@ GET-методы могут пополнять снимки, приоритет�
 ```json
 {
   "properties": {
+    "comment": {
+      "default": "",
+      "title": "Comment",
+      "type": "string"
+    },
+    "label": {
+      "default": "",
+      "title": "Label",
+      "type": "string"
+    },
     "role": {
-      "type": "string",
+      "default": "source",
       "enum": [
         "source",
         "storage"
       ],
       "title": "Role",
-      "default": "source"
-    },
-    "label": {
-      "type": "string",
-      "title": "Label",
-      "default": ""
-    },
-    "comment": {
-      "type": "string",
-      "title": "Comment",
-      "default": ""
+      "type": "string"
     }
   },
-  "type": "object",
-  "title": "FolderChoiceRequest"
+  "title": "FolderChoiceRequest",
+  "type": "object"
 }
 ```
 
@@ -1339,13 +1341,13 @@ GET-методы могут пополнять снимки, приоритет�
 {
   "properties": {
     "folder": {
-      "type": "string",
+      "default": "",
       "title": "Folder",
-      "default": ""
+      "type": "string"
     }
   },
-  "type": "object",
-  "title": "FolderRequest"
+  "title": "FolderRequest",
+  "type": "object"
 }
 ```
 
@@ -1353,33 +1355,33 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "path": {
-      "type": "string",
+      "default": "",
       "maxLength": 4096,
       "title": "Path",
-      "default": ""
+      "type": "string"
     },
     "tags": {
       "items": {
-        "type": "string",
         "enum": [
           "old_copy",
           "sort",
           "check"
-        ]
+        ],
+        "type": "string"
       },
-      "type": "array",
       "maxItems": 3,
-      "title": "Tags"
+      "title": "Tags",
+      "type": "array"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "tags"
   ],
-  "title": "FolderTagsRequest"
+  "title": "FolderTagsRequest",
+  "type": "object"
 }
 ```
 
@@ -1392,12 +1394,12 @@ GET-методы могут пополнять снимки, приоритет�
       "items": {
         "$ref": "#/components/schemas/ValidationError"
       },
-      "type": "array",
-      "title": "Detail"
+      "title": "Detail",
+      "type": "array"
     }
   },
-  "type": "object",
-  "title": "HTTPValidationError"
+  "title": "HTTPValidationError",
+  "type": "object"
 }
 ```
 
@@ -1405,27 +1407,27 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "volume_id": {
-      "type": "string",
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Volume Id"
-    },
     "path": {
-      "type": "string",
       "maxLength": 4096,
       "minLength": 1,
-      "title": "Path"
+      "title": "Path",
+      "type": "string"
+    },
+    "volume_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Volume Id",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "volume_id",
     "path"
   ],
-  "title": "LibraryCopyRequest"
+  "title": "LibraryCopyRequest",
+  "type": "object"
 }
 ```
 
@@ -1433,20 +1435,20 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "label": {
-      "type": "string",
       "maxLength": 120,
       "minLength": 1,
-      "title": "Label"
+      "title": "Label",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "label"
   ],
-  "title": "LibraryNameRequest"
+  "title": "LibraryNameRequest",
+  "type": "object"
 }
 ```
 
@@ -1454,20 +1456,20 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "share": {
-      "type": "string",
       "maxLength": 255,
       "minLength": 1,
-      "title": "Share"
+      "title": "Share",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "share"
   ],
-  "title": "NetworkShareRequest"
+  "title": "NetworkShareRequest",
+  "type": "object"
 }
 ```
 
@@ -1475,22 +1477,8 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "copy_id": {
-      "type": "string",
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Copy Id"
-    },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "folders",
-        "files"
-      ],
-      "title": "Mode",
-      "default": "folders"
-    },
     "base_job_id": {
       "anyOf": [
         {
@@ -1502,22 +1490,36 @@ GET-методы могут пополнять снимки, приоритет�
       ],
       "title": "Base Job Id"
     },
+    "copy_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Copy Id",
+      "type": "string"
+    },
     "method": {
-      "type": "string",
+      "default": "size",
       "enum": [
         "size",
         "sha256"
       ],
       "title": "Method",
-      "default": "size"
+      "type": "string"
+    },
+    "mode": {
+      "default": "folders",
+      "enum": [
+        "folders",
+        "files"
+      ],
+      "title": "Mode",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "copy_id"
   ],
-  "title": "PairedComparisonRequest"
+  "title": "PairedComparisonRequest",
+  "type": "object"
 }
 ```
 
@@ -1525,37 +1527,37 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "maxLength": 4096,
-      "title": "Path"
-    },
     "action": {
       "anyOf": [
         {
-          "type": "string",
           "enum": [
             "keep",
             "add_main",
             "move",
             "remove"
-          ]
+          ],
+          "type": "string"
         },
         {
           "type": "null"
         }
       ],
       "title": "Action"
+    },
+    "path": {
+      "maxLength": 4096,
+      "title": "Path",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "path",
     "action"
   ],
-  "title": "PairedDecisionRequest"
+  "title": "PairedDecisionRequest",
+  "type": "object"
 }
 ```
 
@@ -1563,38 +1565,38 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "night_only": {
-      "type": "boolean",
-      "title": "Night Only"
-    },
-    "start_hour": {
-      "type": "integer",
-      "maximum": 23.0,
-      "minimum": 0.0,
-      "title": "Start Hour",
-      "default": 0
-    },
     "end_hour": {
-      "type": "integer",
+      "default": 7,
       "maximum": 23.0,
       "minimum": 0.0,
       "title": "End Hour",
-      "default": 7
+      "type": "integer"
+    },
+    "night_only": {
+      "title": "Night Only",
+      "type": "boolean"
+    },
+    "start_hour": {
+      "default": 0,
+      "maximum": 23.0,
+      "minimum": 0.0,
+      "title": "Start Hour",
+      "type": "integer"
     },
     "timezone": {
-      "type": "string",
       "const": "Europe/Moscow",
+      "default": "Europe/Moscow",
       "title": "Timezone",
-      "default": "Europe/Moscow"
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "night_only"
   ],
-  "title": "PhotosSyncScheduleRequest"
+  "title": "PhotosSyncScheduleRequest",
+  "type": "object"
 }
 ```
 
@@ -1603,30 +1605,30 @@ GET-методы могут пополнять снимки, приоритет�
 ```json
 {
   "properties": {
+    "comment": {
+      "default": "",
+      "title": "Comment",
+      "type": "string"
+    },
+    "label": {
+      "default": "",
+      "title": "Label",
+      "type": "string"
+    },
     "role": {
-      "type": "string",
       "enum": [
         "source",
         "storage"
       ],
-      "title": "Role"
-    },
-    "label": {
-      "type": "string",
-      "title": "Label",
-      "default": ""
-    },
-    "comment": {
-      "type": "string",
-      "title": "Comment",
-      "default": ""
+      "title": "Role",
+      "type": "string"
     }
   },
-  "type": "object",
   "required": [
     "role"
   ],
-  "title": "SourceMetadataRequest"
+  "title": "SourceMetadataRequest",
+  "type": "object"
 }
 ```
 
@@ -1635,35 +1637,35 @@ GET-методы могут пополнять снимки, приоритет�
 ```json
 {
   "properties": {
+    "comment": {
+      "default": "",
+      "title": "Comment",
+      "type": "string"
+    },
+    "label": {
+      "default": "",
+      "title": "Label",
+      "type": "string"
+    },
     "path": {
-      "type": "string",
-      "title": "Path"
+      "title": "Path",
+      "type": "string"
     },
     "role": {
-      "type": "string",
+      "default": "source",
       "enum": [
         "source",
         "storage"
       ],
       "title": "Role",
-      "default": "source"
-    },
-    "label": {
-      "type": "string",
-      "title": "Label",
-      "default": ""
-    },
-    "comment": {
-      "type": "string",
-      "title": "Comment",
-      "default": ""
+      "type": "string"
     }
   },
-  "type": "object",
   "required": [
     "path"
   ],
-  "title": "SourceRequest"
+  "title": "SourceRequest",
+  "type": "object"
 }
 ```
 
@@ -1671,47 +1673,13 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "title": "Path",
-      "default": ""
-    },
-    "purpose": {
-      "anyOf": [
-        {
-          "type": "string",
-          "enum": [
-            "",
-            "media",
-            "documents",
-            "projects",
-            "mixed"
-          ]
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Purpose"
-    },
-    "role": {
-      "anyOf": [
-        {
-          "type": "string",
-          "enum": [
-            "",
-            "primary",
-            "copy",
-            "archive",
-            "temporary"
-          ]
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Role"
+    "comment": {
+      "default": "",
+      "maxLength": 4000,
+      "title": "Comment",
+      "type": "string"
     },
     "no_duplicate": {
       "anyOf": [
@@ -1724,6 +1692,11 @@ GET-методы могут пополнять снимки, приоритет�
       ],
       "title": "No Duplicate"
     },
+    "path": {
+      "default": "",
+      "title": "Path",
+      "type": "string"
+    },
     "planned_move": {
       "anyOf": [
         {
@@ -1735,16 +1708,45 @@ GET-методы могут пополнять снимки, приоритет�
       ],
       "title": "Planned Move"
     },
-    "comment": {
-      "type": "string",
-      "maxLength": 4000,
-      "title": "Comment",
-      "default": ""
+    "purpose": {
+      "anyOf": [
+        {
+          "enum": [
+            "",
+            "media",
+            "documents",
+            "projects",
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Purpose"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "enum": [
+            "",
+            "primary",
+            "copy",
+            "archive",
+            "temporary"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Role"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
-  "title": "StorageMetadataRequest"
+  "title": "StorageMetadataRequest",
+  "type": "object"
 }
 ```
 
@@ -1752,17 +1754,17 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "path": {
-      "type": "string",
+      "default": "",
       "maxLength": 4096,
       "title": "Path",
-      "default": ""
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
-  "title": "StoragePathRequest"
+  "title": "StoragePathRequest",
+  "type": "object"
 }
 ```
 
@@ -1771,6 +1773,13 @@ GET-методы могут пополнять снимки, приоритет�
 ```json
 {
   "properties": {
+    "ctx": {
+      "title": "Context",
+      "type": "object"
+    },
+    "input": {
+      "title": "Input"
+    },
     "loc": {
       "items": {
         "anyOf": [
@@ -1782,32 +1791,25 @@ GET-методы могут пополнять снимки, приоритет�
           }
         ]
       },
-      "type": "array",
-      "title": "Location"
+      "title": "Location",
+      "type": "array"
     },
     "msg": {
-      "type": "string",
-      "title": "Message"
+      "title": "Message",
+      "type": "string"
     },
     "type": {
-      "type": "string",
-      "title": "Error Type"
-    },
-    "input": {
-      "title": "Input"
-    },
-    "ctx": {
-      "type": "object",
-      "title": "Context"
+      "title": "Error Type",
+      "type": "string"
     }
   },
-  "type": "object",
   "required": [
     "loc",
     "msg",
     "type"
   ],
-  "title": "ValidationError"
+  "title": "ValidationError",
+  "type": "object"
 }
 ```
 
@@ -1815,19 +1817,19 @@ GET-методы могут пополнять снимки, приоритет�
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "name": {
-      "type": "string",
       "maxLength": 120,
       "minLength": 1,
-      "title": "Name"
+      "title": "Name",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "type": "object",
   "required": [
     "name"
   ],
-  "title": "VolumeNameRequest"
+  "title": "VolumeNameRequest",
+  "type": "object"
 }
 ```

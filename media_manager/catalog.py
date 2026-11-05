@@ -105,19 +105,19 @@ INSERT OR IGNORE INTO metadata(key, value) VALUES ('thumbnail_queue_paused', '0'
 """
 
 
-# Хранит источники, медиаиндекс и задания превью в SQLite.
-# Зависимости конструктора: database_path.
+#: Хранит источники, медиаиндекс и задания превью в SQLite.
+#: Зависимости конструктора: database_path.
 class Catalog:
-    # Инициализирует Catalog и его рабочее состояние.
-    # Обновляет состояние объекта: _write_lock, database_path.
+    #: Инициализирует Catalog и его рабочее состояние.
+    #: Обновляет состояние объекта: _write_lock, database_path.
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.RLock()
         self.initialize()
 
-    # Открывает соединение медиаиндекса с Row, внешними ключами и WAL.
-    # Использует connection.execute, sqlite3.connect.
+    #: Открывает соединение медиаиндекса с Row, внешними ключами и WAL.
+    #: Использует connection.execute, sqlite3.connect.
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
@@ -125,8 +125,8 @@ class Catalog:
         connection.execute("PRAGMA journal_mode = WAL")
         return connection
 
-    # Создаёт схему медиаиндекса и добавляет недостающие поля старых баз.
-    # Изменяет SQLite-таблицы: sources.
+    #: Создаёт схему медиаиндекса и добавляет недостающие поля старых баз.
+    #: Изменяет SQLite-таблицы: sources.
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
@@ -147,8 +147,8 @@ class Catalog:
                     "ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'folder'"
                 )
 
-    # Регистрирует доступную папку с ролью, названием и комментарием.
-    # Изменяет SQLite-таблицы: sources.
+    #: Регистрирует доступную папку с ролью, названием и комментарием.
+    #: Изменяет SQLite-таблицы: sources.
     def add_source(
         self,
         raw_path: str | Path,
@@ -175,8 +175,8 @@ class Catalog:
         assert row is not None
         return dict(row)
 
-    # Возвращает прежний источник Photos или создаёт photos://system.
-    # Изменяет SQLite-таблицы: sources.
+    #: Возвращает прежний источник Photos или создаёт photos://system.
+    #: Изменяет SQLite-таблицы: sources.
     def add_system_photos_source(self) -> dict[str, object]:
         now = datetime.now().astimezone().isoformat()
         with self._write_lock, self.connect() as connection:
@@ -201,8 +201,8 @@ class Catalog:
         assert row is not None
         return dict(row)
 
-    # Обновляет роль, название и комментарий зарегистрированного источника.
-    # Изменяет SQLite-таблицы: sources.
+    #: Обновляет роль, название и комментарий зарегистрированного источника.
+    #: Изменяет SQLite-таблицы: sources.
     def update_source_metadata(
         self, source_id: int, *, role: str, label: str, comment: str
     ) -> dict[str, object]:
@@ -221,14 +221,14 @@ class Catalog:
         assert source is not None
         return source
 
-    # Удаляет источник и связанные записи медиаиндекса из каталога.
-    # Файлы источника не удаляются; зависимые записи подчиняются внешним ключам SQLite.
+    #: Удаляет источник и связанные записи медиаиндекса из каталога.
+    #: Файлы источника не удаляются; зависимые записи подчиняются внешним ключам SQLite.
     def remove_source(self, source_id: int) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
-    # Возвращает запись источника по ID либо None.
-    # Читает SQLite-таблицы: sources.
+    #: Возвращает запись источника по ID либо None.
+    #: Читает SQLite-таблицы: sources.
     def get_source(self, source_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -236,8 +236,8 @@ class Catalog:
             ).fetchone()
         return dict(row) if row else None
 
-    # Разрешает относительный путь внутри обычного источника для открытия в Finder.
-    # Явно отклоняет недопустимое состояние через FileNotFoundError, KeyError, PermissionError.
+    #: Разрешает относительный путь внутри обычного источника для открытия в Finder.
+    #: Явно отклоняет недопустимое состояние через FileNotFoundError, KeyError, PermissionError.
     def resolve_source_folder(self, source_id: int, folder: str = "") -> Path:
         source = self.get_source(source_id)
         if source is None:
@@ -257,8 +257,8 @@ class Catalog:
             raise FileNotFoundError(target)
         return target
 
-    # Собирает источники с количеством объектов, объёмом и состоянием превью.
-    # Читает SQLite-таблицы: media_files, photos_libraries, sources, thumbnail_jobs.
+    #: Собирает источники с количеством объектов, объёмом и состоянием превью.
+    #: Читает SQLite-таблицы: media_files, photos_libraries, sources, thumbnail_jobs.
     def list_sources(self) -> list[dict[str, object]]:
         query = """
             SELECT sources.*, photos_libraries.active AS photos_active,
@@ -279,8 +279,8 @@ class Catalog:
         with self.connect() as connection:
             return [dict(row) for row in connection.execute(query).fetchall()]
 
-    # Сохраняет состояние сканирования источника и сообщение об ошибке.
-    # Изменяет SQLite-таблицы: sources.
+    #: Сохраняет состояние сканирования источника и сообщение об ошибке.
+    #: Изменяет SQLite-таблицы: sources.
     def set_source_status(self, source_id: int, status: str, error: str | None = None) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -288,8 +288,8 @@ class Catalog:
                 (status, error, source_id),
             )
 
-    # Сверяет результат обхода папки с медиаиндексом в одной транзакции.
-    # Изменяет SQLite-таблицы: media_files, metadata, sources.
+    #: Сверяет результат обхода папки с медиаиндексом в одной транзакции.
+    #: Изменяет SQLite-таблицы: media_files, metadata, sources.
     def replace_source_scan(self, source_id: int, report: ScanReport) -> None:
         token = uuid.uuid4().hex
         now = datetime.now().astimezone().isoformat()
@@ -352,8 +352,8 @@ class Catalog:
                 """
             )
 
-    # Обновляет объекты Photos, сохраняя ID уже известных записей.
-    # Изменяет SQLite-таблицы: media_files, metadata, sources.
+    #: Обновляет объекты Photos, сохраняя ID уже известных записей.
+    #: Изменяет SQLite-таблицы: media_files, metadata, sources.
     def replace_photos_scan(
         self, source_id: int, assets: list[dict[str, object]]
     ) -> None:
@@ -424,8 +424,8 @@ class Catalog:
                 """
             )
 
-    # Ставит подходящие объекты источника в версионируемую очередь превью.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Ставит подходящие объекты источника в версионируемую очередь превью.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def enqueue_source_thumbnails(self, source_id: int, priority: int = 0) -> int:
         now = datetime.now().astimezone().isoformat()
         with self._write_lock, self.connect() as connection:
@@ -474,14 +474,14 @@ class Catalog:
             ).fetchone()
         return int(row["count"]) if row else 0
 
-    # Пополняет очередь превью для всех зарегистрированных источников.
-    # Использует self.enqueue_source_thumbnails, self.list_sources.
+    #: Пополняет очередь превью для всех зарегистрированных источников.
+    #: Использует self.enqueue_source_thumbnails, self.list_sources.
     def enqueue_all_thumbnails(self) -> None:
         for source in self.list_sources():
             self.enqueue_source_thumbnails(int(source["id"]))
 
-    # Повышает приоритет превью выбранной виртуальной папки.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Повышает приоритет превью выбранной виртуальной папки.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def prioritize_folder_thumbnails(
         self, source_id: int, folder: str, priority: int = 100
     ) -> None:
@@ -508,8 +508,8 @@ class Catalog:
                 (priority, now, source_id, folder),
             )
 
-    # Ставит отдельный медиаобъект в очередь с повышенным приоритетом.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Ставит отдельный медиаобъект в очередь с повышенным приоритетом.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def enqueue_media_thumbnail(self, media_id: int, priority: int = 200) -> None:
         media = self.get_media(media_id)
         if media is None or media.get("kind") != "photo":
@@ -539,8 +539,8 @@ class Catalog:
                 (media_id, version, priority, now),
             )
 
-    # Снимает оставшиеся после перезапуска состояния сканирования.
-    # Изменяет SQLite-таблицы: sources.
+    #: Снимает оставшиеся после перезапуска состояния сканирования.
+    #: Изменяет SQLite-таблицы: sources.
     def reset_stale_source_scans(self) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -550,8 +550,8 @@ class Catalog:
                 """
             )
 
-    # Возвращает прерванные задания превью в очередь ожидания.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Возвращает прерванные задания превью в очередь ожидания.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def reset_running_thumbnail_jobs(self) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -562,8 +562,8 @@ class Catalog:
                 """
             )
 
-    # Атомарно выдаёт следующее допустимое задание выбранному виду воркера.
-    # Изменяет SQLite-таблицы: thumbnail_jobs, thumbnail_waits.
+    #: Атомарно выдаёт следующее допустимое задание выбранному виду воркера.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs, thumbnail_waits.
     def claim_thumbnail_job(self, source_kind: str) -> int | None:
         now = datetime.now().astimezone().isoformat()
         with self._write_lock, self.connect() as connection:
@@ -606,24 +606,24 @@ class Catalog:
             connection.execute('DELETE FROM thumbnail_waits WHERE media_id=?', (media_id,))
         return media_id
 
-    # Откладывает повторную попытку превью с сохранением причины и срока.
-    # Изменяет SQLite-таблицы: thumbnail_jobs, thumbnail_waits.
+    #: Откладывает повторную попытку превью с сохранением причины и срока.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs, thumbnail_waits.
     def defer_thumbnail_job(self, media_id: int, reason: str, seconds: int = 3600) -> None:
         import time
         with self._write_lock, self.connect() as db:
             db.execute("UPDATE thumbnail_jobs SET status='pending',started_at=NULL WHERE media_id=?", (media_id,))
             db.execute('INSERT OR REPLACE INTO thumbnail_waits VALUES (?,?,?)', (media_id, time.time()+seconds, reason))
 
-    # Проверяет, заблокирована ли очередь Photos состоянием медиатек.
-    # Читает SQLite-таблицы: photos_libraries.
+    #: Проверяет, заблокирована ли очередь Photos состоянием медиатек.
+    #: Читает SQLite-таблицы: photos_libraries.
     def photos_queue_paused(self) -> bool:
         with self.connect() as db:
             row = db.execute("SELECT source_id FROM photos_libraries WHERE active=1 AND paused=0 AND state='ready'").fetchone()
         schedule = getattr(self, 'photos_schedule', None)
         return row is None or bool(schedule and schedule.blocked(row['source_id']))
 
-    # Фиксирует готовность превью либо ошибку обработки задания.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Фиксирует готовность превью либо ошибку обработки задания.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def finish_thumbnail_job(
         self, media_id: int, *, error: str | None = None
     ) -> None:
@@ -639,8 +639,8 @@ class Catalog:
                 (status, error, now, media_id),
             )
 
-    # Возвращает занятое задание в ожидание после временной недоступности.
-    # Изменяет SQLite-таблицы: thumbnail_jobs.
+    #: Возвращает занятое задание в ожидание после временной недоступности.
+    #: Изменяет SQLite-таблицы: thumbnail_jobs.
     def release_thumbnail_job(self, media_id: int) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -652,8 +652,8 @@ class Catalog:
                 (media_id,),
             )
 
-    # Агрегирует состояния заданий и сведения об отложенных превью.
-    # Поля результата: total, pending, running, done, error, paused.
+    #: Агрегирует состояния заданий и сведения об отложенных превью.
+    #: Поля результата: total, pending, running, done, error, paused.
     def thumbnail_queue_summary(self) -> dict[str, int | bool]:
         with self.connect() as connection:
             counts = {
@@ -674,8 +674,8 @@ class Catalog:
             "paused": bool(int(paused_row["value"])) if paused_row else False,
         }
 
-    # Сохраняет общую ручную паузу очереди превью.
-    # Изменяет SQLite-таблицы: metadata, photos_libraries.
+    #: Сохраняет общую ручную паузу очереди превью.
+    #: Изменяет SQLite-таблицы: metadata, photos_libraries.
     def set_thumbnail_queue_paused(self, paused: bool) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute('UPDATE photos_libraries SET paused=?', (int(paused),))
@@ -686,8 +686,8 @@ class Catalog:
                 ("1" if paused else "0",),
             )
 
-    # Читает сохранённый флаг общей паузы превью.
-    # Читает SQLite-таблицы: metadata.
+    #: Читает сохранённый флаг общей паузы превью.
+    #: Читает SQLite-таблицы: metadata.
     def thumbnail_queue_paused(self) -> bool:
         with self.connect() as connection:
             row = connection.execute(
@@ -695,8 +695,8 @@ class Catalog:
             ).fetchone()
         return bool(int(row["value"])) if row else False
 
-    # Возвращает числовую ревизию медиаиндекса для опроса UI.
-    # Читает SQLite-таблицы: metadata.
+    #: Возвращает числовую ревизию медиаиндекса для опроса UI.
+    #: Читает SQLite-таблицы: metadata.
     def revision(self) -> int:
         with self.connect() as connection:
             row = connection.execute(
@@ -704,8 +704,8 @@ class Catalog:
             ).fetchone()
         return int(row["value"]) if row else 0
 
-    # Возвращает суммарное количество источников, фото, видео и байтов.
-    # Читает SQLite-таблицы: media_files.
+    #: Возвращает суммарное количество источников, фото, видео и байтов.
+    #: Читает SQLite-таблицы: media_files.
     def summary(self) -> dict[str, int]:
         with self.connect() as connection:
             row = connection.execute(
@@ -722,8 +722,8 @@ class Catalog:
         result["revision"] = self.revision()
         return result
 
-    # Строит дерево виртуальных папок по сохранённым путям медиаиндекса.
-    # Читает SQLite-таблицы: media_files.
+    #: Строит дерево виртуальных папок по сохранённым путям медиаиндекса.
+    #: Читает SQLite-таблицы: media_files.
     def folder_tree(self, source_id: int) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -749,8 +749,8 @@ class Catalog:
                 parent = ""
             children.setdefault(parent, []).append(folder)
 
-        # Рекурсивно собирает дочерние узлы одной ветви индексированного дерева.
-        # Использует PurePath, build, children.get, result.append.
+        #: Рекурсивно собирает дочерние узлы одной ветви индексированного дерева.
+        #: Использует PurePath, build, children.get, result.append.
         def build(parent: str) -> list[dict[str, object]]:
             result = []
             for folder in sorted(children.get(parent, []), key=str.casefold):
@@ -765,8 +765,8 @@ class Catalog:
 
         return [{"id": "__root__", "label": "Корень", "children": build("")}]
 
-    # Выбирает ограниченный список медиаобъектов указанной папки.
-    # Читает SQLite-таблицы: media_files.
+    #: Выбирает ограниченный список медиаобъектов указанной папки.
+    #: Читает SQLite-таблицы: media_files.
     def list_files(
         self, source_id: int, folder: str = "", limit: int = 300
     ) -> list[dict[str, object]]:
@@ -783,8 +783,8 @@ class Catalog:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    # Возвращает объект вместе с видом и путём его источника.
-    # Читает SQLite-таблицы: media_files, sources.
+    #: Возвращает объект вместе с видом и путём его источника.
+    #: Читает SQLite-таблицы: media_files, sources.
     def get_media(self, media_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -799,8 +799,8 @@ class Catalog:
             ).fetchone()
         return dict(row) if row else None
 
-    # Проверяет и возвращает путь обычного файла внутри источника.
-    # Явно отклоняет недопустимое состояние через FileNotFoundError, KeyError, PermissionError.
+    #: Проверяет и возвращает путь обычного файла внутри источника.
+    #: Явно отклоняет недопустимое состояние через FileNotFoundError, KeyError, PermissionError.
     def resolve_media_file(self, media_id: int) -> Path:
         media = self.get_media(media_id)
         if media is None:

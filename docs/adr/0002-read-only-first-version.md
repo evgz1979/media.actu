@@ -7,7 +7,7 @@
 
 Историческая исходная граница дополнена ADR-0004/0005/0007: разрешены новые копии, ресурсы Photos и собственные маркеры. Существующие пользовательские оригиналы по-прежнему не заменяются и не удаляются. Текущую границу см. в [безопасности](../safety-and-recovery.md).
 
-Код: [`MissingCopyCatalog.run`](../../media_manager/copy_files.py#L466), [`write_folder_marker`](../../media_manager/folder_markers.py#L95).
+Код: [`MissingCopyCatalog.run`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.run), [`write_folder_marker`](../reference/media_manager--folder_markers.md#symbol-write_folder_marker).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

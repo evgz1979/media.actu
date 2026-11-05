@@ -8,7 +8,7 @@
 
 Продолжение по версиям и stat действует; ctime не входит в same_file из-за особенностей SMB. Эта гарантия не равна SHA-256 содержимого. Старые checksum-колонки сохранены, но не используются для нового продолжения.
 
-Код: [`same_file`](../../media_manager/photos_originals.py#L39), [`PhotosOriginals._reuse_receipt`](../../media_manager/photos_originals.py#L407).
+Код: [`same_file`](../reference/media_manager--photos_originals.md#symbol-same_file), [`PhotosOriginals._reuse_receipt`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._reuse_receipt).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

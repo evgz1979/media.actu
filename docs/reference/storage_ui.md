@@ -2,6 +2,8 @@
 
 Сохраняет общие CSS, SVG-иконку папки, обработчик двойного клика и регистрацию главной через workspace_ui. Имя модуля историческое, текущие импорты действуют.
 
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
+
 [Исходный модуль](../../storage_ui.py)
  · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
 
@@ -9,24 +11,39 @@
 
 Импортирует из проекта: [workspace_ui.py](workspace_ui.md).
 Импортируется модулями: [comparison_tree_ui.py](comparison_tree_ui.md), [ui.py](ui.md), [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: нет; возможна косвенная проверка через вызывающие компоненты.
+Тестовые модули с прямым импортом: прямых импортов нет.
 
 ## Оглавление определений
 
-- [folder_icon](#symbol-folder-icon) — Создаёт SVG-иконку папки с уникальным ID градиента.
-- [register_storage_page](#symbol-register-storage-page) — Передаёт регистрацию главной страницы действующему рабочему пространству.
+- [folder_icon](#symbol-folder_icon) — Создаёт SVG-иконку папки с уникальным ID градиента.
+- [register_storage_page](#symbol-register_storage_page) — Передаёт регистрацию главной страницы действующему рабочему пространству.
 
 ## Константы и значения по умолчанию
 
-| Имя | Выражение в коде |
-| --- | --- |
-| [FOLDER_ICON_IDS](../../storage_ui.py#L10) | `count()` |
+<a id="constant-CSS"></a>
 
-<a id="symbol-folder-icon"></a>
+### `CSS`
+
+`Объёмное значение см. в исходном модуле`
+
+<a id="constant-FOLDER_CLICK_JS"></a>
+
+### `FOLDER_CLICK_JS`
+
+`Объёмное значение см. в исходном модуле`
+
+<a id="constant-FOLDER_ICON_IDS"></a>
+
+### `FOLDER_ICON_IDS`
+
+`count()`
+
+
+<a id="symbol-folder_icon"></a>
 
 ## `folder_icon`
 
-[storage_ui.py:30](../../storage_ui.py#L30)
+[storage_ui.py](../../storage_ui.py) · `folder_icon`
 
 Создаёт SVG-иконку папки с уникальным ID градиента. Использует next, ui.html, ui.html(svg, sanitize=False).classes, ui.html(svg, sanitize=False).classes('s-folder-icon').style.
 
@@ -41,11 +58,11 @@ def folder_icon(size=16)
 - `ui.html(svg, sanitize=False).classes('s-folder-icon').style(f'width:{size}px;height:{size}px')`
 
 
-<a id="symbol-register-storage-page"></a>
+<a id="symbol-register_storage_page"></a>
 
 ## `register_storage_page`
 
-[storage_ui.py:111](../../storage_ui.py#L111)
+[storage_ui.py](../../storage_ui.py) · `register_storage_page`
 
 Передаёт регистрацию главной страницы действующему рабочему пространству. Использует register_workspace_page.
 

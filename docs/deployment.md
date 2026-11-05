@@ -177,5 +177,5 @@ Core на M4 запускается в `sandbox-exec` с запретом зап
 6. Перед возобновлением записи изучить активные задания и журналы; не начинать
    копирование только ради проверки доступности страницы.
 
-Точки реализации: [`local_thumbnail_cache_directory`](../app.py#L50), [`lifespan`](../app.py#L131), [`core_request`](../ui.py#L63), [`configure_logging`](../media_manager/service_runtime.py#L70), [`copy_write_rules`](../media_manager/sandbox_rules.py#L24), [`SystemPhotosAdapter.ensure_built`](../media_manager/photos_adapter.py#L93).
+Точки реализации: [`local_thumbnail_cache_directory`](reference/app.md#symbol-local_thumbnail_cache_directory), [`lifespan`](reference/app.md#symbol-lifespan), [`core_request`](reference/ui.md#symbol-core_request), [`configure_logging`](reference/media_manager--service_runtime.md#symbol-configure_logging), [`copy_write_rules`](reference/media_manager--sandbox_rules.md#symbol-copy_write_rules), [`SystemPhotosAdapter.ensure_built`](reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter.ensure_built).
 Подробные гарантии и восстановление: [безопасность](safety-and-recovery.md).

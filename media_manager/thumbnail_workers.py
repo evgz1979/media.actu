@@ -7,11 +7,11 @@ from media_manager.thumbnails import ThumbnailCacheUnavailable, ThumbnailService
 from media_manager.photos_adapter import PhotosAccessDenied, PhotosLibraryUnavailable, PhotosThumbnailPending
 
 
-# Обрабатывает постоянную очередь обычными и отдельными Photos-воркерами.
-# Зависимости конструктора: catalog, thumbnails.
+#: Обрабатывает постоянную очередь обычными и отдельными Photos-воркерами.
+#: Зависимости конструктора: catalog, thumbnails.
 class ThumbnailWorkerPool:
-    # Инициализирует ThumbnailWorkerPool и его рабочее состояние.
-    # Обновляет состояние объекта: _state_lock, _states, _stop, _threads, _wake, catalog, folder_workers, photos_workers, thumbnails.
+    #: Инициализирует ThumbnailWorkerPool и его рабочее состояние.
+    #: Обновляет состояние объекта: _state_lock, _states, _stop, _threads, _wake, catalog, folder_workers, photos_workers, thumbnails.
     def __init__(
         self,
         catalog: Catalog,
@@ -30,8 +30,8 @@ class ThumbnailWorkerPool:
         self._state_lock = threading.Lock()
         self._states: dict[str, str] = {}
 
-    # Восстанавливает очередь после перезапуска и запускает настроенные потоки.
-    # Использует self._stop.clear, self._threads.append, self.catalog.enqueue_all_thumbnails, self.catalog.reset_running_thumbnail_jobs, thread.start.
+    #: Восстанавливает очередь после перезапуска и запускает настроенные потоки.
+    #: Использует self._stop.clear, self._threads.append, self.catalog.enqueue_all_thumbnails, self.catalog.reset_running_thumbnail_jobs, thread.start.
     def start(self) -> None:
         if self._threads:
             return
@@ -51,8 +51,8 @@ class ThumbnailWorkerPool:
             thread.start()
             self._threads.append(thread)
 
-    # Запрашивает остановку воркеров и пробуждает ожидающие потоки.
-    # Использует self._states.clear, self._stop.set, self._threads.clear, self._wake.set, thread.join.
+    #: Запрашивает остановку воркеров и пробуждает ожидающие потоки.
+    #: Использует self._states.clear, self._stop.set, self._threads.clear, self._wake.set, thread.join.
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
@@ -62,13 +62,13 @@ class ThumbnailWorkerPool:
         with self._state_lock:
             self._states.clear()
 
-    # Сигнализирует о новых заданиях или изменении условий обработки.
-    # Использует self._wake.set.
+    #: Сигнализирует о новых заданиях или изменении условий обработки.
+    #: Использует self._wake.set.
     def wake(self) -> None:
         self._wake.set()
 
-    # Собирает постоянные счётчики очереди и текущее состояние потоков.
-    # Использует result.update, self._states.values, self.catalog.list_sources, self.catalog.photos_queue_paused, self.catalog.thumbnail_queue_summary.
+    #: Собирает постоянные счётчики очереди и текущее состояние потоков.
+    #: Использует result.update, self._states.values, self.catalog.list_sources, self.catalog.photos_queue_paused, self.catalog.thumbnail_queue_summary.
     def status(self) -> dict[str, object]:
         result: dict[str, object] = dict(self.catalog.thumbnail_queue_summary())
         sources = self.catalog.list_sources()
@@ -109,8 +109,8 @@ class ThumbnailWorkerPool:
         )
         return result
 
-    # Выдаёт и обрабатывает задания одного вида с разбором временных ошибок.
-    # Явно отклоняет недопустимое состояние через RuntimeError.
+    #: Выдаёт и обрабатывает задания одного вида с разбором временных ошибок.
+    #: Явно отклоняет недопустимое состояние через RuntimeError.
     def _work(self, source_kind: str) -> None:
         worker_name = threading.current_thread().name
         while not self._stop.is_set():
@@ -144,14 +144,14 @@ class ThumbnailWorkerPool:
             finally:
                 self._set_state(worker_name, "waiting")
 
-    # Ожидает сигнал пробуждения или истечение короткого интервала опроса.
-    # Использует self._wake.clear, self._wake.wait.
+    #: Ожидает сигнал пробуждения или истечение короткого интервала опроса.
+    #: Использует self._wake.clear, self._wake.wait.
     def _wait(self) -> None:
         self._wake.wait(timeout=1)
         self._wake.clear()
 
-    # Потокобезопасно обновляет диагностическое состояние одного воркера.
-    # Параметры: worker_name, state.
+    #: Потокобезопасно обновляет диагностическое состояние одного воркера.
+    #: Параметры: worker_name, state.
     def _set_state(self, worker_name: str, state: str) -> None:
         with self._state_lock:
             self._states[worker_name] = state

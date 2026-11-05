@@ -44,8 +44,8 @@ IGNORED_DIRECTORY_NAMES = {
 IGNORED_FILE_NAMES = {".DS_Store"}
 
 
-# Представляет метаданные одного обнаруженного фото или видео.
-# Базовые типы: обычный объект Python.
+#: Представляет метаданные одного обнаруженного фото или видео.
+#: Базовые типы: обычный объект Python.
 @dataclass(frozen=True, slots=True)
 class MediaFile:
     source: str
@@ -54,52 +54,52 @@ class MediaFile:
     size: int
     modified_at: str
 
-    # Преобразует данные объекта в словарь для каталога или API.
-    # Использует asdict.
+    #: Преобразует данные объекта в словарь для каталога или API.
+    #: Использует asdict.
     def to_dict(self) -> dict[str, str | int]:
         return asdict(self)
 
 
-# Представляет путь и сообщение ошибки обхода источника.
-# Базовые типы: обычный объект Python.
+#: Представляет путь и сообщение ошибки обхода источника.
+#: Базовые типы: обычный объект Python.
 @dataclass(frozen=True, slots=True)
 class ScanError:
     path: str
     message: str
 
-    # Преобразует данные объекта в словарь для каталога или API.
-    # Использует asdict.
+    #: Преобразует данные объекта в словарь для каталога или API.
+    #: Использует asdict.
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
 
 
-# Объединяет источники, обнаруженные медиафайлы и ошибки рекурсивного обхода.
-# Базовые типы: обычный объект Python.
+#: Объединяет источники, обнаруженные медиафайлы и ошибки рекурсивного обхода.
+#: Базовые типы: обычный объект Python.
 @dataclass(slots=True)
 class ScanReport:
     files: list[MediaFile]
     errors: list[ScanError]
 
-    # Подсчитывает обнаруженные файлы с видом photo.
-    # Использует sum.
+    #: Подсчитывает обнаруженные файлы с видом photo.
+    #: Использует sum.
     @property
     def photo_count(self) -> int:
         return sum(item.kind == "photo" for item in self.files)
 
-    # Подсчитывает обнаруженные файлы с видом video.
-    # Использует sum.
+    #: Подсчитывает обнаруженные файлы с видом video.
+    #: Использует sum.
     @property
     def video_count(self) -> int:
         return sum(item.kind == "video" for item in self.files)
 
-    # Суммирует логические размеры обнаруженных медиафайлов.
-    # Использует sum.
+    #: Суммирует логические размеры обнаруженных медиафайлов.
+    #: Использует sum.
     @property
     def total_size(self) -> int:
         return sum(item.size for item in self.files)
 
-    # Преобразует данные объекта в словарь для каталога или API.
-    # Поля результата: files, errors, summary.
+    #: Преобразует данные объекта в словарь для каталога или API.
+    #: Поля результата: files, errors, summary.
     def to_dict(self) -> dict[str, object]:
         return {
             "files": [item.to_dict() for item in self.files],
@@ -114,8 +114,8 @@ class ScanReport:
         }
 
 
-# Определяет photo или video по расширению имени файла.
-# Использует path.suffix.lower.
+#: Определяет photo или video по расширению имени файла.
+#: Использует path.suffix.lower.
 def media_kind(path: Path) -> str | None:
     extension = path.suffix.lower()
     if extension in PHOTO_EXTENSIONS:
@@ -125,8 +125,8 @@ def media_kind(path: Path) -> str | None:
     return None
 
 
-# Разрешает путь источника и требует существующий каталог.
-# Явно отклоняет недопустимое состояние через NotADirectoryError.
+#: Разрешает путь источника и требует существующий каталог.
+#: Явно отклоняет недопустимое состояние через NotADirectoryError.
 def normalize_source(path: str | Path) -> Path:
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_dir():
@@ -134,8 +134,8 @@ def normalize_source(path: str | Path) -> Path:
     return source
 
 
-# Рекурсивно собирает метаданные медиа без изменения исходных файлов.
-# Обрабатывает ошибки: (FileNotFoundError, NotADirectoryError, PermissionError), (FileNotFoundError, PermissionError, OSError).
+#: Рекурсивно собирает метаданные медиа без изменения исходных файлов.
+#: Обрабатывает ошибки: (FileNotFoundError, NotADirectoryError, PermissionError), (FileNotFoundError, PermissionError, OSError).
 def scan_sources(sources: Iterable[str | Path]) -> ScanReport:
     """Recursively read media metadata without modifying source files."""
     files: list[MediaFile] = []
@@ -148,8 +148,8 @@ def scan_sources(sources: Iterable[str | Path]) -> ScanReport:
             errors.append(ScanError(str(raw_source), str(error)))
             continue
 
-        # Сохраняет ошибку os.walk в отчёте, позволяя продолжить обработку остальных папок.
-        # Использует ScanError, errors.append.
+        #: Сохраняет ошибку os.walk в отчёте, позволяя продолжить обработку остальных папок.
+        #: Использует ScanError, errors.append.
         def on_walk_error(error: OSError) -> None:
             errors.append(ScanError(error.filename or str(source), str(error)))
 

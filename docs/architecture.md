@@ -12,7 +12,7 @@ media.actu — локальное приложение с отдельными �
 Core единолично работает с пользовательской файловой системой и базами. UI получает
 данные через HTTP, хранит состояние представления и не открывает SQLite или оригиналы.
 Импорты небольших функций валидации пути и общих констант Core-модулей в UI не означают
-вызова файловых операций. Код HTTP-клиента: [`core_request`](../ui.py#L63).
+вызова файловых операций. Код HTTP-клиента: [`core_request`](reference/ui.md#symbol-core_request).
 
 ```mermaid
 flowchart LR
@@ -32,15 +32,15 @@ flowchart LR
 
 ## Точки входа и композиция
 
-[`lifespan`](../app.py#L131) — жизненный цикл Core. Экземпляры служб создаются на уровне
+[`lifespan`](reference/app.md#symbol-lifespan) — жизненный цикл Core. Экземпляры служб создаются на уровне
 модуля `app.py`, до входа в lifespan; сам импорт поэтому создаёт каталоги данных,
 инициализирует таблицы и выполняет локальные миграции. `--lifespan off` отключает
 запуск фоновых служб, но не эти действия импорта. Для проверок обязателен отдельный
 `MEDIA_ACTU_DATA_DIR`.
 
-[`register_workspace_page`](../workspace_ui.py#L2279) регистрирует `/`.
+[`register_workspace_page`](reference/workspace_ui.md#symbol-register_workspace_page) регистрирует `/`.
 Для каждого клиента создаётся `StorageWorkspace` с двумя `BrowserPane`.
-[`main`](../media_manager/service_runtime.py#L91) — обёртка запуска для журналов Launcher.
+[`main`](reference/media_manager--service_runtime.md#symbol-main) — обёртка запуска для журналов Launcher.
 Полная карта файлов — [справочник модулей](reference/README.md).
 
 ## Подсистемы и владение
@@ -101,7 +101,7 @@ HTTP-обработчики — преимущественно `async def`; си
 3. **Отчёт сверки**: дерево строится по сохранённому индексу отчёта; его раскрытие
    не означает живое чтение того же пути на диске.
 
-Это разные источники данных одного интерфейса. [`StorageWorkspace.read_directory`](../workspace_ui.py#L1195)
+Это разные источники данных одного интерфейса. [`StorageWorkspace.read_directory`](reference/workspace_ui.md#symbol-StorageWorkspace.read_directory)
 маршрутизирует обычные и виртуальные списки; `ComparisonTree` работает с отчётами.
 Медиаиндекс `Catalog.folder_tree` всё ещё собирает своё дерево целиком, обычные панели
 грузят уровни, Photos использует страницы, связанное Vue-дерево виртуализирует DOM.

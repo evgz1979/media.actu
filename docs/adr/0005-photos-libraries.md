@@ -7,7 +7,7 @@
 
 Профили и локальные превью действуют. Ранние части описания проверки оригиналов уточнены ADR-0006 и ADR-0007: готовность определяется версией и stat, запись прямая через буфер. Окно работы по умолчанию выключено (night_only=False), часы по умолчанию 00–07. Ручные паузы превью и оригиналов независимы.
 
-Код: [`PhotoLibraries.refresh_connection`](../../media_manager/photo_libraries.py#L96), [`PhotosSyncSchedule.settings`](../../media_manager/photos_schedule.py#L73).
+Код: [`PhotoLibraries.refresh_connection`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.refresh_connection), [`PhotosSyncSchedule.settings`](../reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.settings).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

@@ -7,7 +7,7 @@
 
 Создание отсутствующего реализовано. ADR-0008 расширяет выбор источника: помимо 00-main может использоваться другая копия того же набора. План фиксирует конкретный выбранный источник; существующие цели не заменяются.
 
-Код: [`MissingCopyCatalog.plan`](../../media_manager/copy_files.py#L251), [`MissingCopyCatalog._write_file`](../../media_manager/copy_files.py#L377).
+Код: [`MissingCopyCatalog.plan`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.plan), [`MissingCopyCatalog._write_file`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog._write_file).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

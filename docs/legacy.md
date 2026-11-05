@@ -18,13 +18,13 @@
 
 | Где | Статус и доказательство | Чем обслуживается нынешний сценарий |
 | --- | --- | --- |
-| [`SystemPhotosAdapter._applescript_status`](../media_manager/photos_adapter.py#L457) | Только сохранённая реализация; тест подменяет метод и проверяет, что fallback не вызывается | status/probe через PhotoKit |
-| [`SystemPhotosAdapter._applescript_scan`](../media_manager/photos_adapter.py#L471) | Входящих вызовов не найдено; внутри вызывает scan.js | scan постоянной PhotoKit-службы |
+| [`SystemPhotosAdapter._applescript_status`](reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._applescript_status) | Только сохранённая реализация; тест подменяет метод и проверяет, что fallback не вызывается | status/probe через PhotoKit |
+| [`SystemPhotosAdapter._applescript_scan`](reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._applescript_scan) | Входящих вызовов не найдено; внутри вызывает scan.js | scan постоянной PhotoKit-службы |
 | [photos_adapter/scan.js](../photos_adapter/scan.js) | Достижим лишь из предыдущего невызываемого метода; это старый JXA-каталог | handleRequest(op=scan) |
 | [photos_adapter/export.applescript](../photos_adapter/export.applescript) | Имя файла не используется текущим кодом; экспортирует using originals false | JPEG через PhotoKit; оригиналы через original_resource |
-| [`SystemPhotosAdapter.reuse_indexed_backend`](../media_manager/photos_adapter.py#L88) | Вызовов не найдено; только сбрасывает _backend | Профили сопоставляются через PhotoLibraries.refresh_connection |
-| [`format_percent`](../ui.py#L53) | Вызовов в UI/тестах не найдено | Подписи прогресса формируются в профильных компонентах |
-| [`Catalog.enqueue_media_thumbnail`](../media_manager/catalog.py#L513) | Вызовов не найдено; сохранена индивидуальная постановка photo в очередь | enqueue_source_thumbnails / prioritize_folder_thumbnails |
+| [`SystemPhotosAdapter.reuse_indexed_backend`](reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter.reuse_indexed_backend) | Вызовов не найдено; только сбрасывает _backend | Профили сопоставляются через PhotoLibraries.refresh_connection |
+| [`format_percent`](reference/ui.md#symbol-format_percent) | Вызовов в UI/тестах не найдено | Подписи прогресса формируются в профильных компонентах |
+| [`Catalog.enqueue_media_thumbnail`](reference/media_manager--catalog.md#symbol-Catalog.enqueue_media_thumbnail) | Вызовов не найдено; сохранена индивидуальная постановка photo в очередь | enqueue_source_thumbnails / prioritize_folder_thumbnails |
 
 Для этих частей при будущей очистке потребуется повторный поиск в конфигурациях
 Launcher, ручных командах и внешних скриптах. В этой работе они лишь описаны и
@@ -48,11 +48,11 @@ Launcher, ручных командах и внешних скриптах. В �
 | copy_groups.next_number | Всё ещё записывается некоторыми операциями, но groups вычисляет актуальное значение по связям | Сохранённое число не источник истины для выдачи следующего номера |
 | photos://system | Поддерживается как URI прежнего источника и мигрируется с сохранением media_id | Имеющиеся превью, квитанции и история завязаны на прежние ID |
 
-Код: [`ComparisonCatalog.resume`](../media_manager/comparison.py#L226),
-[`ComparisonCatalog.create`](../media_manager/comparison.py#L189),
-[`CopyCatalog.groups`](../media_manager/copies.py#L189),
-[`PhotosOriginals._receipt`](../media_manager/photos_originals.py#L394),
-[`PhotoLibraries._migrate`](../media_manager/photo_libraries.py#L55).
+Код: [`ComparisonCatalog.resume`](reference/media_manager--comparison.md#symbol-ComparisonCatalog.resume),
+[`ComparisonCatalog.create`](reference/media_manager--comparison.md#symbol-ComparisonCatalog.create),
+[`CopyCatalog.groups`](reference/media_manager--copies.md#symbol-CopyCatalog.groups),
+[`PhotosOriginals._receipt`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._receipt),
+[`PhotoLibraries._migrate`](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries._migrate).
 Точные поля и индексы: [схема данных](data-model.md).
 
 ## Действующая совместимость и старые подсистемы

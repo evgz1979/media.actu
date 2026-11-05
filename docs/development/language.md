@@ -9,18 +9,18 @@
 
 `app.py` создаёт экземпляры служб на уровне модуля. Импорт — действие с побочными
 эффектами инициализации SQLite, даже если сервер не запущен.
-[`local_thumbnail_cache_directory`](../../app.py#L50) читает конфигурацию; [`lifespan`](../../app.py#L131)
+[`local_thumbnail_cache_directory`](../reference/app.md#symbol-local_thumbnail_cache_directory) читает конфигурацию; [`lifespan`](../reference/app.md#symbol-lifespan)
 запускается уже сервером. `if __name__ == '__main__'` в `app.py`, `ui.py` и runtime
 различает прямой запуск и импорт. Для NiceGUI учтён также `__mp_main__`.
 
-[`main`](../../media_manager/service_runtime.py#L91) использует `runpy.run_module` для `-m` и
+[`main`](../reference/media_manager--service_runtime.md#symbol-main) использует `runpy.run_module` для `-m` и
 `exec(compile(...))` для `-c`, предварительно меняя `sys.argv` и потоки журналов.
 Это исполнение доверенной локальной команды Launcher, не интерпретатор пользовательского
 ввода из HTTP. Параметры запуска описаны в [эксплуатации](../deployment.md).
 
 ## Типы данных и классы
 
-[`MediaFile`](../../media_manager/scanner.py#L50), `ScanError` и `ScanReport` — dataclass:
+[`MediaFile`](../reference/media_manager--scanner.md#symbol-MediaFile), `ScanError` и `ScanReport` — dataclass:
 описанные поля становятся параметрами конструктора, а методы `to_dict` дают JSON-совместимое
 представление. `@property` у счётчиков вычисляет значение при обращении как к полю.
 Это не отдельная сохраняемая колонка и не фоновый расчёт.
@@ -29,13 +29,13 @@
 объединяют зависимости, состояние, блокировки и методы подсистемы. Передача каталога
 через конструктор позволяет тестам использовать временную SQLite и подменённое
 обнаружение томов. `self` — конкретный экземпляр, `@staticmethod` не получает его
-автоматически. Например [`PairedComparisonCatalog._status`](../../media_manager/paired_comparison.py#L363)
+автоматически. Например [`PairedComparisonCatalog._status`](../reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog._status)
 классифицирует переданные записи без доступа к состоянию объекта.
 
 Исключения вроде `PhotosLibraryUnavailable` — отдельные классы, даже если тело содержит
 только `pass`. Тип исключения определяет обработку: ожидание медиатеки, отсутствие
 разрешения, отложенное превью, пауза или окончательная ошибка — разные ветви.
-См. [`SystemPhotosAdapter._check_response`](../../media_manager/photos_adapter.py#L313).
+См. [`SystemPhotosAdapter._check_response`](../reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._check_response).
 
 ## Аннотации, Literal и Pydantic
 
@@ -59,8 +59,8 @@
 `set` используется для принадлежности, дедупликации и проверки циклов; порядок множества
 не является пользовательским порядком. Перед показом строки сортируются явно.
 
-[`inherited_location`](../../media_manager/copies.py#L88) выбирает самый глубокий подходящий
-корень по длине пути. [`PairedComparisonCatalog._classify`](../../media_manager/paired_comparison.py#L393)
+[`inherited_location`](../reference/media_manager--copies.md#symbol-inherited_location) выбирает самый глубокий подходящий
+корень по длине пути. [`PairedComparisonCatalog._classify`](../reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog._classify)
 объединяет ключи сторон и затем строит стабильный порядок строк. `name_key` выполняет
 NFC/casefold только для общей сверки; парная сверка использует точные относительные пути.
 
@@ -72,12 +72,12 @@ NFC/casefold только для общей сверки; парная свер�
 
 `async def` создаёт coroutine; чтобы исполнить её, нужен `await` или планирование
 задачи. `asyncio.to_thread` переносит синхронную функцию в поток, возвращая ожидаемый
-результат. [`comparison_call`](../../app.py#L680) использует этот переход и переводит ошибки в HTTP.
+результат. [`comparison_call`](../reference/app.md#symbol-comparison_call) использует этот переход и переводит ошибки в HTTP.
 `asyncio.gather` в UI может одновременно загружать две независимые стороны; порядок
 аргументов сохраняет соответствие результатов, но завершение запросов не синхронно.
 
 Отмена coroutine не откатывает уже сделанную SQLite-запись или запись файла в потоке.
-Для длинной работы есть `threading.Event` и явные `_check`. [`lifespan`](../../app.py#L131)
+Для длинной работы есть `threading.Event` и явные `_check`. [`lifespan`](../reference/app.md#symbol-lifespan)
 через `asyncio.create_task` создаёт монитор Photos и отменяет его при завершении.
 Подробнее о жизненном цикле и гонках: [runtime](runtime.md).
 
@@ -86,7 +86,7 @@ NFC/casefold только для общей сверки; парная свер�
 `with` вызывает вход и выход ресурса; `try/finally` освобождает дескрипторы даже при
 исключении. `@contextmanager` превращает функцию с `yield` в такой ресурс:
 до yield — открыть/проверить, после — проверить/закрыть. У
-[`open_readonly`](../../media_manager/comparison.py#L49) повторная проверка ID при выходе способна
+[`open_readonly`](../reference/media_manager--comparison.md#symbol-open_readonly) повторная проверка ID при выходе способна
 сама завершиться ошибкой. Успешное чтение внутри блока ещё не доказывает успешный выход.
 
 `@asynccontextmanager` у lifespan применяет ту же идею к асинхронному запуску и остановке.
@@ -99,7 +99,7 @@ NFC/casefold только для общей сверки; парная свер�
 Вложенная функция удерживает переменные своего внешнего вызова. `nonlocal count`
 в обработчиках потоковой записи меняет значение внешнего счётчика; без `nonlocal`
 присваивание создало бы локальную переменную.
-[`PhotosOriginals._save.write`](../../media_manager/photos_originals.py#L575) и вложенный `flush`
+[`PhotosOriginals._save.write`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._save.write) и вложенный `flush`
 разделяют один буфер и дескриптор конечного файла.
 
 В циклах UI используется `lambda g=group: ...`: значение фиксируется аргументом
@@ -112,12 +112,12 @@ NFC/casefold только для общей сверки; парная свер�
 JSON принимает строки, числа, bool, null, массивы и объекты. `sqlite3.Row` поэтому
 переводится в `dict`; UUID — в строку, даты — в ISO, а файловые параметры — в словарь.
 Большие inode/device вне int64 кодируются как `fsid:<число>` для предотвращения
-округления SQLite: [`sqlite_file_identifier`](../../media_manager/comparison.py#L85).
+округления SQLite: [`sqlite_file_identifier`](../reference/media_manager--comparison.md#symbol-sqlite_file_identifier).
 
 NDJSON отделяет сообщения переводом строки; base64 переносит двоичные JPEG и блоки
 оригинала в JSON, увеличивая размер передачи. `bytearray` — изменяемый накопитель,
 `memoryview` — представление уже существующего буфера. Метод
-[`PhotosOriginals._write`](../../media_manager/photos_originals.py#L457) учитывает частичную запись
+[`PhotosOriginals._write`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals._write) учитывает частичную запись
 `os.write` и освобождает memoryview; один вызов write не обещает записать весь блок.
 
 ## Остальные языки

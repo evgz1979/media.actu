@@ -13,23 +13,23 @@ from .photos_adapter import PhotosAccessDenied, PhotosAdapterError, PhotosLibrar
 from .storage import relative_path
 
 
-# Возвращает текущее время UTC для записей профиля и журнала.
-# Использует datetime.now, datetime.now(timezone.utc).isoformat.
+#: Возвращает текущее время UTC для записей профиля и журнала.
+#: Использует datetime.now, datetime.now(timezone.utc).isoformat.
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-# Проверяет совпадение найденных ID с якорями сохранённой медиатеки.
-# Использует set(anchors).intersection.
+#: Проверяет совпадение найденных ID с якорями сохранённой медиатеки.
+#: Использует set(anchors).intersection.
 def matches(anchors, found):
     return bool(anchors) and len(set(anchors).intersection(found)) >= min(3, len(anchors))
 
 
-# Управляет идентичностью, доступностью и привязанными копиями медиатек Photos.
-# Зависимости конструктора: catalog, storage, adapter.
+#: Управляет идентичностью, доступностью и привязанными копиями медиатек Photos.
+#: Зависимости конструктора: catalog, storage, adapter.
 class PhotoLibraries:
-    # Инициализирует PhotoLibraries и его рабочее состояние.
-    # Обновляет состояние объекта: _lock, adapter, catalog, connection, originals, polling, schedule, storage.
+    #: Инициализирует PhotoLibraries и его рабочее состояние.
+    #: Обновляет состояние объекта: _lock, adapter, catalog, connection, originals, polling, schedule, storage.
     def __init__(self, catalog, storage, adapter):
         self.catalog, self.storage, self.adapter = catalog, storage, adapter
         self._lock = threading.RLock()
@@ -39,8 +39,8 @@ class PhotoLibraries:
         self.schedule = None
         self._migrate()
 
-    # Предоставляет транзакционное соединение медиаиндекса с гарантированным закрытием.
-    # Использует db.close, self.catalog.connect.
+    #: Предоставляет транзакционное соединение медиаиндекса с гарантированным закрытием.
+    #: Использует db.close, self.catalog.connect.
     @contextmanager
     def _db(self):
         db = self.catalog.connect()
@@ -50,8 +50,8 @@ class PhotoLibraries:
         finally:
             db.close()
 
-    # Создаёт профили для прежних Photos-источников и сбрасывает активность до проверки.
-    # Изменяет SQLite-таблицы: photos_copy_sources, photos_libraries.
+    #: Создаёт профили для прежних Photos-источников и сбрасывает активность до проверки.
+    #: Изменяет SQLite-таблицы: photos_copy_sources, photos_libraries.
     def _migrate(self):
         # Preserve legacy media IDs: their 3,410 cached previews remain valid.
         if getattr(self.adapter, 'supported', True) and not any(s['kind'] == 'photos' for s in self.catalog.list_sources()):
@@ -66,8 +66,8 @@ class PhotoLibraries:
                            (source['id'], uuid.uuid4().hex, json.dumps(anchors)))
             db.execute("UPDATE photos_libraries SET active=0,state='unknown'")
 
-    # Читает все профили и декодирует сохранённые якорные идентификаторы.
-    # Читает SQLite-таблицы: photos_libraries.
+    #: Читает все профили и декодирует сохранённые якорные идентификаторы.
+    #: Читает SQLite-таблицы: photos_libraries.
     def _profiles(self):
         with self._db() as db:
             rows = [dict(r) for r in db.execute('SELECT * FROM photos_libraries ORDER BY source_id')]
@@ -75,24 +75,24 @@ class PhotoLibraries:
             row['anchors'] = json.loads(row['anchors'])
         return rows
 
-    # Возвращает профиль медиатеки по ID источника либо поднимает KeyError.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает профиль медиатеки по ID источника либо поднимает KeyError.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def profile(self, source_id):
         profile = next((p for p in self._profiles() if p['source_id'] == source_id), None)
         if not profile:
             raise KeyError('Медиатека не найдена')
         return profile
 
-    # Помечает медиатеки неактивными и сохраняет причину недоступности.
-    # Изменяет SQLite-таблицы: photos_libraries, sources.
+    #: Помечает медиатеки неактивными и сохраняет причину недоступности.
+    #: Изменяет SQLite-таблицы: photos_libraries, sources.
     def _unavailable(self, state, error):
         with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE photos_libraries SET active=0,state=?,error=?,checked_at=?', (state, str(error), now()))
             db.execute("UPDATE sources SET status=?,error=? WHERE kind='photos'", ('no_access' if state == 'no_access' else 'offline', str(error)))
         self.connection = dict(state=state, error=str(error))
 
-    # Сопоставляет системную медиатеку с одним профилем через PhotoKit probe.
-    # Изменяет SQLite-таблицы: photos_libraries, sources.
+    #: Сопоставляет системную медиатеку с одним профилем через PhotoKit probe.
+    #: Изменяет SQLite-таблицы: photos_libraries, sources.
     def refresh_connection(self, *, restart=True):
         with self._lock:
             profiles = self._profiles()
@@ -127,14 +127,14 @@ class PhotoLibraries:
             self.connection = dict(state='ready', source_id=profile['source_id'], count=probe.get('count', 0))
             return self.connection
 
-    # Запрашивает системное разрешение Photos и повторяет сопоставление профиля.
-    # Использует self.adapter.status, self.refresh_connection.
+    #: Запрашивает системное разрешение Photos и повторяет сопоставление профиля.
+    #: Использует self.adapter.status, self.refresh_connection.
     def authorize(self):
         self.adapter.status(request_authorization=True)
         return self.refresh_connection()
 
-    # Регистрирует текущую непустую медиатеку отдельным виртуальным источником.
-    # Изменяет SQLite-таблицы: photos_libraries, sources.
+    #: Регистрирует текущую непустую медиатеку отдельным виртуальным источником.
+    #: Изменяет SQLite-таблицы: photos_libraries, sources.
     def register(self, label):
         label = label.strip()
         if not label or len(label) > 120:
@@ -157,8 +157,8 @@ class PhotoLibraries:
             self.connection = dict(state='ready', source_id=source_id, count=probe.get('count', 0))
             return self.profile(source_id)
 
-    # Меняет пользовательское название сохранённой медиатеки.
-    # Изменяет SQLite-таблицы: sources.
+    #: Меняет пользовательское название сохранённой медиатеки.
+    #: Изменяет SQLite-таблицы: sources.
     def rename(self, source_id, label):
         self.profile(source_id)
         if not label.strip() or len(label.strip()) > 120:
@@ -166,8 +166,8 @@ class PhotoLibraries:
         with self.catalog._write_lock, self._db() as db:
             db.execute('UPDATE sources SET label=? WHERE id=?', (label.strip(), source_id))
 
-    # Сохраняет ручную паузу превью медиатеки и обновляет очередь при продолжении.
-    # Изменяет SQLite-таблицы: photos_libraries, thumbnail_waits.
+    #: Сохраняет ручную паузу превью медиатеки и обновляет очередь при продолжении.
+    #: Изменяет SQLite-таблицы: photos_libraries, thumbnail_waits.
     def set_paused(self, source_id, paused):
         with self._lock:
             self.profile(source_id)
@@ -181,16 +181,16 @@ class PhotoLibraries:
                 if not paused:
                     db.execute('DELETE FROM thumbnail_waits WHERE media_id IN (SELECT id FROM media_files WHERE source_id=?)', (source_id,))
 
-    # Требует активную медиатеку в состоянии ready для обращения к PhotoKit.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Требует активную медиатеку в состоянии ready для обращения к PhotoKit.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def _require_active(self, source_id):
         profile = self.profile(source_id)
         if not profile['active'] or profile['state'] != 'ready':
             raise PhotosLibraryUnavailable('Эта медиатека сейчас не подключена. Сохранённые превью доступны.')
         return profile
 
-    # Получает каталог активной медиатеки и обновляет индекс и якоря.
-    # Изменяет SQLite-таблицы: photos_libraries.
+    #: Получает каталог активной медиатеки и обновляет индекс и якоря.
+    #: Изменяет SQLite-таблицы: photos_libraries.
     def scan(self, source_id):
         with self._lock:
             if self.schedule and self.schedule.blocked(source_id):
@@ -206,8 +206,8 @@ class PhotoLibraries:
                                (json.dumps([a['id'] for a in assets[:12]]), source_id))
             return assets
 
-    # Создаёт превью объекта только из подтверждённой активной медиатеки.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Создаёт превью объекта только из подтверждённой активной медиатеки.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def create_thumbnail(self, source_id, asset_identifier, target):
         with self._lock:
             if self.schedule and self.schedule.blocked(source_id):
@@ -219,8 +219,8 @@ class PhotoLibraries:
                 self._unavailable('no_access' if isinstance(error, PhotosAccessDenied) else 'offline', error)
                 raise
 
-    # Выделяет объект активной медиатеки в системном приложении Photos.
-    # Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
+    #: Выделяет объект активной медиатеки в системном приложении Photos.
+    #: Явно отклоняет недопустимое состояние через PhotosLibraryUnavailable.
     def open_asset(self, source_id, identifier):
         with self._lock:
             profile = self._require_active(source_id)
@@ -230,8 +230,8 @@ class PhotoLibraries:
                 raise PhotosLibraryUnavailable('Открыта другая медиатека Photos')
             self.adapter.open_asset(identifier)
 
-    # Собирает профили, виртуальные тома, прогресс превью, копии и расписание.
-    # Поля результата: libraries, connection.
+    #: Собирает профили, виртуальные тома, прогресс превью, копии и расписание.
+    #: Поля результата: libraries, connection.
     def list(self):
         profiles = {p['source_id']: p for p in self._profiles()}
         try:
@@ -265,15 +265,15 @@ class PhotoLibraries:
                                sync_schedule=self.schedule.describe(source['id']) if self.schedule else None))
         return dict(libraries=result, connection=self.connection)
 
-    # Возвращает ID копии-источника либо None для прямого источника Photos.
-    # Читает SQLite-таблицы: photos_copy_sources.
+    #: Возвращает ID копии-источника либо None для прямого источника Photos.
+    #: Читает SQLite-таблицы: photos_copy_sources.
     def copy_source(self, link_id):
         with self._db() as db:
             row = db.execute('SELECT source_link_id FROM photos_copy_sources WHERE link_id=?', (link_id,)).fetchone()
         return row[0] if row else None
 
-    # Поднимается по цепочке источников к первой копии и проверяет циклы.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Поднимается по цепочке источников к первой копии и проверяет циклы.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def root_copy(self, link_id):
         visited = set()
         while True:
@@ -285,8 +285,8 @@ class PhotoLibraries:
                 return link_id
             link_id = source
 
-    # Меняет источник копии медиатеки с проверкой связей и отсутствия циклов.
-    # Изменяет SQLite-таблицы: photos_copy_sources, photos_sync_requests.
+    #: Меняет источник копии медиатеки с проверкой связей и отсутствия циклов.
+    #: Изменяет SQLite-таблицы: photos_copy_sources, photos_sync_requests.
     def set_copy_source(self, source_id, link_id, source_link_id):
         self.profile(source_id)
         with self.catalog._write_lock, self._db() as db:
@@ -314,8 +314,8 @@ class PhotoLibraries:
                 if db.execute("SELECT 1 FROM sqlite_master WHERE name='photos_sync_requests'").fetchone():
                     db.execute('UPDATE photos_sync_requests SET enabled=0 WHERE link_id=?', (link_id,))
 
-    # Перенумеровывает копии медиатеки, ставя выбранную первой без изменения маршрутов.
-    # Изменяет SQLite-таблицы: photos_copy_links.
+    #: Перенумеровывает копии медиатеки, ставя выбранную первой без изменения маршрутов.
+    #: Изменяет SQLite-таблицы: photos_copy_links.
     def make_first_copy(self, source_id, link_id):
         self.profile(source_id)
         with self.catalog._write_lock, self._db() as db:
@@ -331,8 +331,8 @@ class PhotoLibraries:
             for number, identifier in enumerate(links, 1):
                 db.execute('UPDATE photos_copy_links SET number=? WHERE id=?', (number, identifier))
 
-    # Привязывает доступную проверенную папку к медиатеке с отдельным номером.
-    # Изменяет SQLite-таблицы: photos_copy_links.
+    #: Привязывает доступную проверенную папку к медиатеке с отдельным номером.
+    #: Изменяет SQLite-таблицы: photos_copy_links.
     def bind_copy(self, source_id, volume_id, path):
         self.profile(source_id)
         path = relative_path(path)
@@ -357,8 +357,8 @@ class PhotoLibraries:
             db.execute('INSERT INTO photos_copy_links VALUES (:id,:source_id,:volume_id,:path,:number,:created_at,:connected)', link)
         return link
 
-    # Отключает привязку копии медиатеки, сохраняя запись и квитанции ресурсов.
-    # Изменяет SQLite-таблицы: photos_copy_links.
+    #: Отключает привязку копии медиатеки, сохраняя запись и квитанции ресурсов.
+    #: Изменяет SQLite-таблицы: photos_copy_links.
     def unbind_copy(self, source_id, link_id):
         self.profile(source_id)
         with self.catalog._write_lock, self._db() as db:

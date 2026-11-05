@@ -2,6 +2,8 @@
 
 Показывает выбранный файл или папку в соседней панели: JPEG, кадр видео, плитки, дозагрузку и готовность Photos-превью.
 
+Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
+
 [Исходный модуль](../../storage_preview_ui.py)
  · [Общий справочник](README.md) · [Языковые механизмы](../development/language.md)
 
@@ -9,30 +11,39 @@
 
 Импортирует из проекта: [media_manager/scanner.py](media_manager--scanner.md), [media_manager/storage.py](media_manager--storage.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: [tests/test_storage_previews.py](../../tests/test_storage_previews.py#L17).
+Тестовые модули с прямым импортом: [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews).
 
 ## Оглавление определений
 
-- [StoragePreview](#symbol-storagepreview) — Управляет превью выбранного файла или плитками папки одной панели.
-- [StoragePreview.__init__](#symbol-storagepreview---init--) — Инициализирует StoragePreview и его рабочее состояние.
-- [StoragePreview.snapshot](#symbol-storagepreview-snapshot) — Возвращает компактное состояние превью для восстановления вкладки.
-- [StoragePreview.show](#symbol-storagepreview-show) — Загружает выбранный объект или папку и отбрасывает устаревшие ответы.
-- [StoragePreview.open_folder](#symbol-storagepreview-open-folder) — Открывает папку внутри текущей панели превью.
-- [StoragePreview.parent](#symbol-storagepreview-parent) — Переходит к родительскому пути текущего превью.
-- [StoragePreview.refresh](#symbol-storagepreview-refresh) — Повторно загружает текущую папку или объект превью.
-- [StoragePreview.update_header](#symbol-storagepreview-update-header) — Обновляет путь и подписи панели превью.
-- [StoragePreview.image_url](#symbol-storagepreview-image-url) — Выбирает URL готового Photos-превью или производного JPEG файлового тома.
-- [StoragePreview.image](#symbol-storagepreview-image) — Создаёт элемент изображения с выбранным размером превью.
-- [StoragePreview.refresh_pending](#symbol-storagepreview-refresh-pending) — Проверяет готовность ожидаемых Photos-превью и обновляет изображения.
-- [StoragePreview.more](#symbol-storagepreview-more) — Догружает следующую страницу плиток текущей папки.
-- [StoragePreview.render](#symbol-storagepreview-render) — Перерисовывает выбранный файл, состояние ожидания или плитки папки.
-- [StoragePreview.render_folder](#symbol-storagepreview-render-folder) — Показывает плитки папок и файлов с командами открытия и выбора.
+- [StoragePreview](#symbol-StoragePreview) — Управляет превью выбранного файла или плитками папки одной панели.
+- [StoragePreview.__init__](#symbol-StoragePreview.__init__) — Инициализирует StoragePreview и его рабочее состояние.
+- [StoragePreview.image](#symbol-StoragePreview.image) — Создаёт элемент изображения с выбранным размером превью.
+- [StoragePreview.image_url](#symbol-StoragePreview.image_url) — Выбирает URL готового Photos-превью или производного JPEG файлового тома.
+- [StoragePreview.more](#symbol-StoragePreview.more) — Догружает следующую страницу плиток текущей папки.
+- [StoragePreview.open_folder](#symbol-StoragePreview.open_folder) — Открывает папку внутри текущей панели превью.
+- [StoragePreview.parent](#symbol-StoragePreview.parent) — Переходит к родительскому пути текущего превью.
+- [StoragePreview.refresh](#symbol-StoragePreview.refresh) — Повторно загружает текущую папку или объект превью.
+- [StoragePreview.refresh_pending](#symbol-StoragePreview.refresh_pending) — Проверяет готовность ожидаемых Photos-превью и обновляет изображения.
+- [StoragePreview.render](#symbol-StoragePreview.render) — Перерисовывает выбранный файл, состояние ожидания или плитки папки.
+- [StoragePreview.render_folder](#symbol-StoragePreview.render_folder) — Показывает плитки папок и файлов с командами открытия и выбора.
+- [StoragePreview.show](#symbol-StoragePreview.show) — Загружает выбранный объект или папку и отбрасывает устаревшие ответы.
+- [StoragePreview.snapshot](#symbol-StoragePreview.snapshot) — Возвращает компактное состояние превью для восстановления вкладки.
+- [StoragePreview.update_header](#symbol-StoragePreview.update_header) — Обновляет путь и подписи панели превью.
 
-<a id="symbol-storagepreview"></a>
+## Константы и значения по умолчанию
+
+<a id="constant-PREVIEW_CSS"></a>
+
+### `PREVIEW_CSS`
+
+`Объёмное значение см. в исходном модуле`
+
+
+<a id="symbol-StoragePreview"></a>
 
 ## `StoragePreview`
 
-[storage_preview_ui.py:36](../../storage_preview_ui.py#L36)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview`
 
 Управляет превью выбранного файла или плитками папки одной панели. Зависимости конструктора: pane.
 
@@ -43,11 +54,11 @@
 
 Именованные методы: `__init__`, `snapshot`, `show`, `open_folder`, `parent`, `refresh`, `update_header`, `image_url`, `image`, `refresh_pending`, `more`, `render`, `render_folder`.
 
-<a id="symbol-storagepreview---init--"></a>
+<a id="symbol-StoragePreview.__init__"></a>
 
 ## `StoragePreview.__init__`
 
-[storage_preview_ui.py:39](../../storage_preview_ui.py#L39)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.__init__`
 
 Инициализирует StoragePreview и его рабочее состояние. Обновляет состояние объекта: content, data, entry, generation, kind, limit, loading, pane, path, pending_images, preview_revision, volume_id, ws.
 
@@ -62,122 +73,28 @@ def __init__(self, pane)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-storagepreview-snapshot"></a>
+<a id="symbol-StoragePreview.image"></a>
 
-## `StoragePreview.snapshot`
+## `StoragePreview.image`
 
-[storage_preview_ui.py:57](../../storage_preview_ui.py#L57)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.image`
 
-Возвращает компактное состояние превью для восстановления вкладки. Поля результата: volume_id, path, kind.
-
-```python
-def snapshot(self)
-```
-
-Прямые выражения вызова: `dict`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
-- `dict(volume_id=self.volume_id, path=self.path, kind=self.kind)`
-
-
-<a id="symbol-storagepreview-show"></a>
-
-## `StoragePreview.show`
-
-[storage_preview_ui.py:64](../../storage_preview_ui.py#L64)
-
-Загружает выбранный объект или папку и отбрасывает устаревшие ответы. Обновляет состояние объекта: data, entry, generation, kind, limit, loading, path, preview_revision, volume_id.
+Создаёт элемент изображения с выбранным размером превью. Использует entry.get, preview.add_slot, self.image_url, ui.image, ui.image(self.image_url(entry, large=large)).props.
 
 ```python
-async def show(self, volume_id, entry)
+def image(self, entry, *, large=False)
 ```
 
-Присваивания полям `self`: `data`, `entry`, `generation`, `kind`, `limit`, `loading`, `path`, `preview_revision`, `volume_id`.
-
-Прямые выражения вызова: `data.get`, `data.get('volume', {}).get`, `dict`, `entry.get`, `relative_path`, `self.pending_images.clear`, [self.render](../../storage_preview_ui.py#L202), `self.ws.error_text`, `self.ws.is_photos`, `self.ws.notice`, `self.ws.persist_workspace`, `self.ws.read_directory`.
-
-Перехватываемые типы: `Exception`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
-
-
-<a id="symbol-storagepreview-open-folder"></a>
-
-## `StoragePreview.open_folder`
-
-[storage_preview_ui.py:110](../../storage_preview_ui.py#L110)
-
-Открывает папку внутри текущей панели превью. Асинхронно ожидает: self.show.
-
-```python
-async def open_folder(self, path)
-```
-
-Прямые выражения вызова: `PurePosixPath`, `dict`, [self.show](../../storage_preview_ui.py#L64).
+Прямые выражения вызова: `entry.get`, `preview.add_slot`, [self.image_url](storage_preview_ui.md#symbol-StoragePreview.image_url), `ui.image`, `ui.image(self.image_url(entry, large=large)).props`, `ui.image(self.image_url(entry, large=large)).props('fit=contain loading=lazy').classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-storagepreview-parent"></a>
-
-## `StoragePreview.parent`
-
-[storage_preview_ui.py:115](../../storage_preview_ui.py#L115)
-
-Переходит к родительскому пути текущего превью. Асинхронно ожидает: self.open_folder.
-
-```python
-async def parent(self)
-```
-
-Прямые выражения вызова: `PurePosixPath`, `relative_path`, [self.open_folder](../../storage_preview_ui.py#L110), `str`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-storagepreview-refresh"></a>
-
-## `StoragePreview.refresh`
-
-[storage_preview_ui.py:120](../../storage_preview_ui.py#L120)
-
-Повторно загружает текущую папку или объект превью. Асинхронно ожидает: self.show.
-
-```python
-async def refresh(self)
-```
-
-Прямые выражения вызова: [self.show](../../storage_preview_ui.py#L64).
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-storagepreview-update-header"></a>
-
-## `StoragePreview.update_header`
-
-[storage_preview_ui.py:126](../../storage_preview_ui.py#L126)
-
-Обновляет путь и подписи панели превью. Использует (self.entry or {}).get, data.get, pane.folder_size.set_visibility, pane.hidden.set_visibility, pane.location.set_visibility.
-
-```python
-def update_header(self)
-```
-
-Прямые выражения вызова: `(self.entry or {}).get`, `bool`, `data.get`, `len`, `pane.folder_size.set_visibility`, `pane.hidden.set_visibility`, `pane.location.set_visibility`, `pane.navigation.set_visibility`, `pane.parent_button.set_enabled`, `pane.path_bar.clear`, `pane.path_bar.set_visibility`, `pane.refresh_button.set_enabled`, `pane.render_path`, `pane.result_filter.set_visibility`, `pane.root_button.set_enabled`, `pane.toolbar.set_visibility`, `pane.update_volume_select`, `pane.volume_select.set_enabled`, `pane.volume_select.set_visibility`, `self.ws.format_date`, `self.ws.is_photos`, `ui.label`, `ui.label('Выбери папку или файл в соседнем дереве').classes`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-storagepreview-image-url"></a>
+<a id="symbol-StoragePreview.image_url"></a>
 
 ## `StoragePreview.image_url`
 
-[storage_preview_ui.py:158](../../storage_preview_ui.py#L158)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.image_url`
 
 Выбирает URL готового Photos-превью или производного JPEG файлового тома. Использует entry.get, quote, self.ws.core_url.rstrip, str(large).lower, urlencode.
 
@@ -193,49 +110,11 @@ def image_url(self, entry, *, large=False)
 - `self.ws.core_url.rstrip('/') + f"/api/storage/volumes/{quote(self.volume_id, safe='')}/preview?" + urlencode(params)`
 
 
-<a id="symbol-storagepreview-image"></a>
-
-## `StoragePreview.image`
-
-[storage_preview_ui.py:166](../../storage_preview_ui.py#L166)
-
-Создаёт элемент изображения с выбранным размером превью. Использует entry.get, preview.add_slot, self.image_url, ui.image, ui.image(self.image_url(entry, large=large)).props.
-
-```python
-def image(self, entry, *, large=False)
-```
-
-Прямые выражения вызова: `entry.get`, `preview.add_slot`, [self.image_url](../../storage_preview_ui.py#L158), `ui.image`, `ui.image(self.image_url(entry, large=large)).props`, `ui.image(self.image_url(entry, large=large)).props('fit=contain loading=lazy').classes`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-storagepreview-refresh-pending"></a>
-
-## `StoragePreview.refresh_pending`
-
-[storage_preview_ui.py:174](../../storage_preview_ui.py#L174)
-
-Проверяет готовность ожидаемых Photos-превью и обновляет изображения. Обновляет состояние объекта: preview_revision.
-
-```python
-async def refresh_pending(self, revision)
-```
-
-Присваивания полям `self`: `preview_revision`.
-
-Прямые выражения вызова: `dict`, `len`, `list`, `preview.set_source`, `range`, [self.image_url](../../storage_preview_ui.py#L158), `self.pending_images.pop`, `self.ws.request`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
-
-
-<a id="symbol-storagepreview-more"></a>
+<a id="symbol-StoragePreview.more"></a>
 
 ## `StoragePreview.more`
 
-[storage_preview_ui.py:193](../../storage_preview_ui.py#L193)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.more`
 
 Догружает следующую страницу плиток текущей папки. Обновляет состояние объекта: data, limit.
 
@@ -245,16 +124,88 @@ async def more(self)
 
 Присваивания полям `self`: `data`, `limit`.
 
-Прямые выражения вызова: `dict`, `len`, `self.data.get`, [self.render](../../storage_preview_ui.py#L202), `self.ws.read_directory`.
+Прямые выражения вызова: `dict`, `len`, `self.data.get`, [self.render](storage_preview_ui.md#symbol-StoragePreview.render), `self.ws.read_directory`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-storagepreview-render"></a>
+<a id="symbol-StoragePreview.open_folder"></a>
+
+## `StoragePreview.open_folder`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.open_folder`
+
+Открывает папку внутри текущей панели превью. Асинхронно ожидает: self.show.
+
+```python
+async def open_folder(self, path)
+```
+
+Прямые выражения вызова: `PurePosixPath`, `dict`, [self.show](storage_preview_ui.md#symbol-StoragePreview.show).
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-StoragePreview.parent"></a>
+
+## `StoragePreview.parent`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.parent`
+
+Переходит к родительскому пути текущего превью. Асинхронно ожидает: self.open_folder.
+
+```python
+async def parent(self)
+```
+
+Прямые выражения вызова: `PurePosixPath`, `relative_path`, [self.open_folder](storage_preview_ui.md#symbol-StoragePreview.open_folder), `str`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-StoragePreview.refresh"></a>
+
+## `StoragePreview.refresh`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.refresh`
+
+Повторно загружает текущую папку или объект превью. Асинхронно ожидает: self.show.
+
+```python
+async def refresh(self)
+```
+
+Прямые выражения вызова: [self.show](storage_preview_ui.md#symbol-StoragePreview.show).
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-StoragePreview.refresh_pending"></a>
+
+## `StoragePreview.refresh_pending`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.refresh_pending`
+
+Проверяет готовность ожидаемых Photos-превью и обновляет изображения. Обновляет состояние объекта: preview_revision.
+
+```python
+async def refresh_pending(self, revision)
+```
+
+Присваивания полям `self`: `preview_revision`.
+
+Прямые выражения вызова: `dict`, `len`, `list`, `preview.set_source`, `range`, [self.image_url](storage_preview_ui.md#symbol-StoragePreview.image_url), `self.pending_images.pop`, `self.ws.request`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
+<a id="symbol-StoragePreview.render"></a>
 
 ## `StoragePreview.render`
 
-[storage_preview_ui.py:202](../../storage_preview_ui.py#L202)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.render`
 
 Перерисовывает выбранный файл, состояние ожидания или плитки папки. Использует ' · '.join, Path, PurePosixPath, details.append, entry.get.
 
@@ -262,18 +213,18 @@ async def more(self)
 def render(self)
 ```
 
-Прямые выражения вызова: `' · '.join`, `Path`, `PurePosixPath`, `details.append`, `entry.get`, `media_kind`, `self.content.clear`, [self.image](../../storage_preview_ui.py#L166), `self.pending_images.clear`, [self.render_folder](../../storage_preview_ui.py#L238), [self.update_header](../../storage_preview_ui.py#L126), `self.ws.format_bytes`, `self.ws.format_date`, `ui.button`, `ui.button('К папке', icon='arrow_back', on_click=self.parent).props`, `ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda : self.ws.open_photo(entry['media_id'])).props`, `ui.icon`, `ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes`, `ui.label`, `ui.label(' · '.join(details)).classes`, `ui.label('Выбери папку или файл в соседнем дереве.').classes`, `ui.label('Для этого типа файла доступна информация без изображения.').classes`, `ui.label('Кадр видео').classes`, `ui.label(entry.get('name') or PurePosixPath(self.path).name).classes`.
+Прямые выражения вызова: `' · '.join`, `Path`, `PurePosixPath`, `details.append`, `entry.get`, `media_kind`, `self.content.clear`, [self.image](storage_preview_ui.md#symbol-StoragePreview.image), `self.pending_images.clear`, [self.render_folder](storage_preview_ui.md#symbol-StoragePreview.render_folder), [self.update_header](storage_preview_ui.md#symbol-StoragePreview.update_header), `self.ws.format_bytes`, `self.ws.format_date`, `ui.button`, `ui.button('К папке', icon='arrow_back', on_click=self.parent).props`, `ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda: self.ws.open_photo(entry['media_id'])).props`, `ui.icon`, `ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes`, `ui.label`, `ui.label(' · '.join(details)).classes`, `ui.label('Выбери папку или файл в соседнем дереве.').classes`, `ui.label('Для этого типа файла доступна информация без изображения.').classes`, `ui.label('Кадр видео').classes`, `ui.label(entry.get('name') or PurePosixPath(self.path).name).classes`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
 
 
-<a id="symbol-storagepreview-render-folder"></a>
+<a id="symbol-StoragePreview.render_folder"></a>
 
 ## `StoragePreview.render_folder`
 
-[storage_preview_ui.py:238](../../storage_preview_ui.py#L238)
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.render_folder`
 
 Показывает плитки папок и файлов с командами открытия и выбора. Использует Path, data.get, e['name'].startswith, entry.get, media_kind.
 
@@ -281,8 +232,68 @@ def render(self)
 def render_folder(self)
 ```
 
-Прямые выражения вызова: `Path`, `data.get`, `e['name'].startswith`, `entry.get`, `len`, `media_kind`, [self.image](../../storage_preview_ui.py#L166), `self.ws.is_photos`, `ui.button`, `ui.button(f'Показать ещё ({total - self.limit})', on_click=self.more).props`, `ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props`, `ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props('flat no-caps').classes`, `ui.element`, `ui.element('div').classes`, `ui.icon`, `ui.label`, `ui.label('Нет видимых элементов' if data.get('entries') else 'Папка пуста' if data.get('scanned_at') else 'Снимок папки не сохранён.').classes`, `ui.label('Читаю папку…').classes`, `ui.label(data['error']).classes`, `ui.label(entry['name']).classes`, `ui.row`, `ui.row().classes`, `ui.spinner`, `{'directory': 'folder', 'symlink': 'link', 'mount': 'storage'}.get`.
+Прямые выражения вызова: `Path`, `data.get`, `e['name'].startswith`, `entry.get`, `len`, `media_kind`, [self.image](storage_preview_ui.md#symbol-StoragePreview.image), `self.ws.is_photos`, `ui.button`, `ui.button(f'Показать ещё ({total - self.limit})', on_click=self.more).props`, `ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props`, `ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props('flat no-caps').classes`, `ui.element`, `ui.element('div').classes`, `ui.icon`, `ui.label`, `ui.label('Нет видимых элементов' if data.get('entries') else 'Папка пуста' if data.get('scanned_at') else 'Снимок папки не сохранён.').classes`, `ui.label('Читаю папку…').classes`, `ui.label(data['error']).classes`, `ui.label(entry['name']).classes`, `ui.row`, `ui.row().classes`, `ui.spinner`, `{'directory': 'folder', 'symlink': 'link', 'mount': 'storage'}.get`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
+
+
+<a id="symbol-StoragePreview.show"></a>
+
+## `StoragePreview.show`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.show`
+
+Загружает выбранный объект или папку и отбрасывает устаревшие ответы. Обновляет состояние объекта: data, entry, generation, kind, limit, loading, path, preview_revision, volume_id.
+
+```python
+async def show(self, volume_id, entry)
+```
+
+Присваивания полям `self`: `data`, `entry`, `generation`, `kind`, `limit`, `loading`, `path`, `preview_revision`, `volume_id`.
+
+Прямые выражения вызова: `data.get`, `data.get('volume', {}).get`, `dict`, `entry.get`, `relative_path`, `self.pending_images.clear`, [self.render](storage_preview_ui.md#symbol-StoragePreview.render), `self.ws.error_text`, `self.ws.is_photos`, `self.ws.notice`, `self.ws.persist_workspace`, `self.ws.read_directory`.
+
+Перехватываемые типы: `Exception`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
+<a id="symbol-StoragePreview.snapshot"></a>
+
+## `StoragePreview.snapshot`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.snapshot`
+
+Возвращает компактное состояние превью для восстановления вкладки. Поля результата: volume_id, path, kind.
+
+```python
+def snapshot(self)
+```
+
+Прямые выражения вызова: `dict`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+- `dict(volume_id=self.volume_id, path=self.path, kind=self.kind)`
+
+
+<a id="symbol-StoragePreview.update_header"></a>
+
+## `StoragePreview.update_header`
+
+[storage_preview_ui.py](../../storage_preview_ui.py) · `StoragePreview.update_header`
+
+Обновляет путь и подписи панели превью. Использует (self.entry or {}).get, data.get, pane.folder_size.set_visibility, pane.hidden.set_visibility, pane.location.set_visibility.
+
+```python
+def update_header(self)
+```
+
+Прямые выражения вызова: `(self.entry or {}).get`, `bool`, `data.get`, `len`, `pane.folder_size.set_visibility`, `pane.hidden.set_visibility`, `pane.location.set_visibility`, `pane.navigation.set_visibility`, `pane.parent_button.set_enabled`, `pane.path_bar.clear`, `pane.path_bar.set_visibility`, `pane.refresh_button.set_enabled`, `pane.render_path`, `pane.result_filter.set_visibility`, `pane.root_button.set_enabled`, `pane.toolbar.set_visibility`, `pane.update_volume_select`, `pane.volume_select.set_enabled`, `pane.volume_select.set_visibility`, `self.ws.format_date`, `self.ws.is_photos`, `ui.label`, `ui.label('Выбери папку или файл в соседнем дереве').classes`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.

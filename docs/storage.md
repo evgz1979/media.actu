@@ -591,21 +591,21 @@ SMB TerraMaster не поддерживает эту публикацию: та�
 
 | Сценарий | Точка реализации |
 | --- | --- |
-| Навигация и режимы панелей | [`BrowserPane.set_mode`](../workspace_ui.py#L316) |
-| Снимки папок и отключённые тома | [`StorageCatalog.directory`](../media_manager/storage.py#L566) |
-| Поиск NAS | [`NetworkCatalog.scan`](../media_manager/network.py#L196) |
-| Регистрация носителя | [`StorageCatalog.register_removable`](../media_manager/storage.py#L302) |
-| Наборы, номера и источники | [`CopyCatalog.groups`](../media_manager/copies.py#L189) |
-| Служебные описания папок | [`FolderMarkerService.reconcile`](../media_manager/folder_markers.py#L235) |
-| Отслеживание изменений | [`FolderTrackingService.reconcile`](../media_manager/folder_tracking.py#L103) |
-| Пользовательские метки | [`StorageCatalog.set_folder_tags`](../media_manager/storage.py#L490) |
-| Размеры папок | [`DirectorySizeService.calculate`](../media_manager/directory_sizes.py#L122) |
-| Структура и файловая сверка | [`PairedComparisonCatalog.run`](../media_manager/paired_comparison.py#L444) |
-| План и выполнение копирования | [`MissingCopyCatalog.run`](../media_manager/copy_files.py#L466) |
-| Медиатеки и привязки | [`PhotoLibraries.list`](../media_manager/photo_libraries.py#L235) |
-| Сохранение оригиналов | [`PhotosOriginals.run`](../media_manager/photos_originals.py#L744) |
-| Окно работы Photos | [`PhotosSyncSchedule.tick`](../media_manager/photos_schedule.py#L202) |
-| Состояние вкладки | [`normalize_state`](../workspace_state.py#L56) |
+| Навигация и режимы панелей | [`BrowserPane.set_mode`](reference/workspace_ui.md#symbol-BrowserPane.set_mode) |
+| Снимки папок и отключённые тома | [`StorageCatalog.directory`](reference/media_manager--storage.md#symbol-StorageCatalog.directory) |
+| Поиск NAS | [`NetworkCatalog.scan`](reference/media_manager--network.md#symbol-NetworkCatalog.scan) |
+| Регистрация носителя | [`StorageCatalog.register_removable`](reference/media_manager--storage.md#symbol-StorageCatalog.register_removable) |
+| Наборы, номера и источники | [`CopyCatalog.groups`](reference/media_manager--copies.md#symbol-CopyCatalog.groups) |
+| Служебные описания папок | [`FolderMarkerService.reconcile`](reference/media_manager--folder_markers.md#symbol-FolderMarkerService.reconcile) |
+| Отслеживание изменений | [`FolderTrackingService.reconcile`](reference/media_manager--folder_tracking.md#symbol-FolderTrackingService.reconcile) |
+| Пользовательские метки | [`StorageCatalog.set_folder_tags`](reference/media_manager--storage.md#symbol-StorageCatalog.set_folder_tags) |
+| Размеры папок | [`DirectorySizeService.calculate`](reference/media_manager--directory_sizes.md#symbol-DirectorySizeService.calculate) |
+| Структура и файловая сверка | [`PairedComparisonCatalog.run`](reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog.run) |
+| План и выполнение копирования | [`MissingCopyCatalog.run`](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.run) |
+| Медиатеки и привязки | [`PhotoLibraries.list`](reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.list) |
+| Сохранение оригиналов | [`PhotosOriginals.run`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.run) |
+| Окно работы Photos | [`PhotosSyncSchedule.tick`](reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.tick) |
+| Состояние вкладки | [`normalize_state`](reference/workspace_state.md#symbol-normalize_state) |
 
 «Сделать первой» у Photos меняет нумерацию копий; маршруты «Источник копирования»
 задаются отдельно. Ручная пауза превью и пауза оригиналов независимы. Отключение

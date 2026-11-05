@@ -11,8 +11,8 @@
 #include <unistd.h>
 #include <signal.h>
 
-// Преобразует PHAuthorizationStatus в строковый статус протокола.
-// Не запрашивает разрешение и не читает объекты медиатеки.
+//: Преобразует PHAuthorizationStatus в строковый статус протокола.
+//: Не запрашивает разрешение и не читает объекты медиатеки.
 static NSString *statusName(PHAuthorizationStatus status) {
     switch (status) {
         case PHAuthorizationStatusAuthorized: return @"authorized";
@@ -24,8 +24,8 @@ static NSString *statusName(PHAuthorizationStatus status) {
     return @"unknown";
 }
 
-// Читает разрешение PhotoKit и при запросе показывает системный диалог.
-// Во время ожидания поддерживает главный NSRunLoop для ответа macOS.
+//: Читает разрешение PhotoKit и при запросе показывает системный диалог.
+//: Во время ожидания поддерживает главный NSRunLoop для ответа macOS.
 static PHAuthorizationStatus authorization(BOOL request) {
     __block PHAuthorizationStatus status =
         [PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite];
@@ -45,15 +45,15 @@ static PHAuthorizationStatus authorization(BOOL request) {
     return status;
 }
 
-// Проверяет, допускает ли статус чтение объектов Photos.
-// Принимает только authorized и limited; остальные состояния отклоняются.
+//: Проверяет, допускает ли статус чтение объектов Photos.
+//: Принимает только authorized и limited; остальные состояния отклоняются.
 static BOOL canRead(PHAuthorizationStatus status) {
     return status == PHAuthorizationStatusAuthorized ||
            status == PHAuthorizationStatusLimited;
 }
 
-// Отправляет один JSON-объект с переводом строки и немедленным fflush.
-// Блокирует FILE на время записи, чтобы события разных callback не смешивались.
+//: Отправляет один JSON-объект с переводом строки и немедленным fflush.
+//: Блокирует FILE на время записи, чтобы события разных callback не смешивались.
 static BOOL writeJSON(id value, FILE *stream) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:value options:0 error:nil];
     flockfile(stream);
@@ -63,19 +63,19 @@ static BOOL writeJSON(id value, FILE *stream) {
     return ok;
 }
 
-// Хранит сигнал недоступности текущей медиатеки для одного клиента службы.
-// Реализует PHPhotoLibraryAvailabilityObserver; флаг читается между шагами запросов.
+//: Хранит сигнал недоступности текущей медиатеки для одного клиента службы.
+//: Реализует PHPhotoLibraryAvailabilityObserver; флаг читается между шагами запросов.
 @interface LibraryState : NSObject <PHPhotoLibraryAvailabilityObserver>
 @property (atomic) BOOL unavailable;
 @end
 @implementation LibraryState
-// Помечает текущую медиатеку недоступной после уведомления PhotoKit.
-// Последующие проверки прерывают запрос с явным статусом unavailable.
+//: Помечает текущую медиатеку недоступной после уведомления PhotoKit.
+//: Последующие проверки прерывают запрос с явным статусом unavailable.
 - (void)photoLibraryDidBecomeUnavailable:(PHPhotoLibrary *)library { self.unavailable = YES; }
 @end
 
-// Выбирает исходное имя фото или видео из ресурсов объекта Photos.
-// При отсутствии подходящего ресурса использует первый ресурс или localIdentifier.
+//: Выбирает исходное имя фото или видео из ресурсов объекта Photos.
+//: При отсутствии подходящего ресурса использует первый ресурс или localIdentifier.
 static NSString *assetName(PHAsset *asset) {
     NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:asset];
     for (PHAssetResource *resource in resources) {
@@ -89,8 +89,8 @@ static NSString *assetName(PHAsset *asset) {
     return resources.firstObject.originalFilename ?: asset.localIdentifier;
 }
 
-// Обслуживает одноразовую команду проверки или запроса разрешения.
-// Печатает JSON количества объектов; отказ после запроса возвращает код 2.
+//: Обслуживает одноразовую команду проверки или запроса разрешения.
+//: Печатает JSON количества объектов; отказ после запроса возвращает код 2.
 static int statusCommand(BOOL request) {
     PHAuthorizationStatus status = authorization(request);
     NSUInteger count = canRead(status) ? [PHAsset fetchAssetsWithOptions:nil].count : 0;
@@ -98,8 +98,8 @@ static int statusCommand(BOOL request) {
     return request && !canRead(status) ? 2 : 0;
 }
 
-// Сохраняет одноразовую CLI-команду перечисления медиаобъектов Photos.
-// Текущий Python-клиент использует op=scan постоянной службы вместо этого режима.
+//: Сохраняет одноразовую CLI-команду перечисления медиаобъектов Photos.
+//: Текущий Python-клиент использует op=scan постоянной службы вместо этого режима.
 static int scanCommand(void) {
     PHAuthorizationStatus status = authorization(NO);
     if (!canRead(status)) {
@@ -140,8 +140,8 @@ static int scanCommand(void) {
     return 0;
 }
 
-// Сохраняет CLI-режим создания миниатюры в заданный выходной путь.
-// Текущий UI получает JPEG через протокол службы; это отдельный доступный режим CLI.
+//: Сохраняет CLI-режим создания миниатюры в заданный выходной путь.
+//: Текущий UI получает JPEG через протокол службы; это отдельный доступный режим CLI.
 static int thumbnailCommand(NSArray<NSString *> *arguments) {
     if (arguments.count != 6) {
         writeJSON(@{ @"error": @"thumbnail requires asset, output, width, height" }, stderr);
@@ -194,8 +194,8 @@ static int thumbnailCommand(NSArray<NSString *> *arguments) {
     return 0;
 }
 
-// Проверяет доступ и якоря, затем выполняет короткий запрос PhotoKit.
-// Обслуживает authorize, probe, scan, guard и локальное JPEG-превью thumbnail.
+//: Проверяет доступ и якоря, затем выполняет короткий запрос PhotoKit.
+//: Обслуживает authorize, probe, scan, guard и локальное JPEG-превью thumbnail.
 static NSDictionary *handleRequest(NSDictionary *request, LibraryState *state) {
     NSString *operation = request[@"op"];
     PHAuthorizationStatus access = authorization([operation isEqualToString:@"authorize"]);
@@ -276,14 +276,14 @@ static NSDictionary *handleRequest(NSDictionary *request, LibraryState *state) {
     return @{ @"status": @"ready", @"jpeg": [jpeg base64EncodedStringWithOptions:0] };
 }
 
-// Получает версию объекта по modificationDate либо creationDate.
-// Возвращает время с шестью знаками после точки для квитанций ресурсов Core.
+//: Получает версию объекта по modificationDate либо creationDate.
+//: Возвращает время с шестью знаками после точки для квитанций ресурсов Core.
 static NSString *assetVersion(PHAsset *asset) {
     return [NSString stringWithFormat:@"%.6f", (asset.modificationDate ?: asset.creationDate).timeIntervalSince1970];
 }
 
-// Выбирает исходные фото, видео, звук, RAW-вариант и движение Live Photo.
-// Сортирует ресурсы по типу, исходному имени и UTI для устойчивых ID.
+//: Выбирает исходные фото, видео, звук, RAW-вариант и движение Live Photo.
+//: Сортирует ресурсы по типу, исходному имени и UTI для устойчивых ID.
 static NSArray<PHAssetResource *> *originalResources(PHAsset *asset) {
     NSMutableArray *resources = [NSMutableArray array];
     for (PHAssetResource *r in [PHAssetResource assetResourcesForAsset:asset]) {
@@ -297,16 +297,16 @@ static NSArray<PHAssetResource *> *originalResources(PHAsset *asset) {
     }];
 }
 
-// Кодирует ID ресурса как тип и порядковый номер среди ресурсов того же типа.
-// Нумерация зависит от предварительной устойчивой сортировки originalResources.
+//: Кодирует ID ресурса как тип и порядковый номер среди ресурсов того же типа.
+//: Нумерация зависит от предварительной устойчивой сортировки originalResources.
 static NSString *resourceID(PHAssetResource *resource, NSArray *resources, NSUInteger index) {
     NSUInteger ordinal = 0;
     for (NSUInteger i = 0; i < index; i++) if (((PHAssetResource *)resources[i]).type == resource.type) ordinal++;
     return [NSString stringWithFormat:@"%ld:%lu", (long)resource.type, (unsigned long)ordinal];
 }
 
-// Без блокировки проверяет входной канал на quit, cancel или закрытие клиента.
-// Отмена принимается для token текущего потока; прочая строка не останавливает передачу.
+//: Без блокировки проверяет входной канал на quit, cancel или закрытие клиента.
+//: Отмена принимается для token текущего потока; прочая строка не останавливает передачу.
 static BOOL cancelled(FILE *input, NSString *token) {
     struct pollfd fd = { .fd = fileno(input), .events = POLLIN };
     if (poll(&fd, 1, 0) <= 0) return NO;
@@ -319,8 +319,8 @@ static BOOL cancelled(FILE *input, NSString *token) {
         ([request[@"op"] isEqualToString:@"cancel"] && [request[@"token"] isEqual:token]);
 }
 
-// Передаёт манифест или один оригинальный ресурс событиями протокола v2.
-// Данные идут блоками до 256 КиБ; helper не получает путей назначения и не пишет оригиналы.
+//: Передаёт манифест или один оригинальный ресурс событиями протокола v2.
+//: Данные идут блоками до 256 КиБ; helper не получает путей назначения и не пишет оригиналы.
 static void originalRequest(NSDictionary *request, LibraryState *state, FILE *input, FILE *output) {
     NSDictionary *guard = handleRequest(@{ @"op": @"guard", @"anchors": request[@"anchors"] ?: @[] }, state);
     if (![guard[@"status"] isEqualToString:@"authorized"]) { writeJSON(guard, output); return; }
@@ -404,8 +404,8 @@ static void originalRequest(NSDictionary *request, LibraryState *state, FILE *in
     writeJSON(@{ @"event": @"complete", @"size": @(size) }, output);
 }
 
-// Обслуживает последовательные JSON-запросы одного клиентского соединения.
-// Регистрирует наблюдатель доступности Photos и снимает его после закрытия канала.
+//: Обслуживает последовательные JSON-запросы одного клиентского соединения.
+//: Регистрирует наблюдатель доступности Photos и снимает его после закрытия канала.
 static int serve(FILE *input, FILE *output) {
     setvbuf(input, NULL, _IONBF, 0); // cancellation poll must see every queued line
     LibraryState *state = [LibraryState new];
@@ -437,8 +437,8 @@ static int serve(FILE *input, FILE *output) {
     return 0;
 }
 
-// Принимает несколько локальных клиентов Unix-сокета и обслуживает их независимо.
-// Проверяет UID клиента; без подключений завершает службу после 30 секунд простоя.
+//: Принимает несколько локальных клиентов Unix-сокета и обслуживает их независимо.
+//: Проверяет UID клиента; без подключений завершает службу после 30 секунд простоя.
 static int serveSocket(NSString *path) {
     struct sockaddr_un address = {0}; address.sun_family = AF_UNIX;
     if (strlen(path.fileSystemRepresentation) >= sizeof(address.sun_path)) return 65;
@@ -484,8 +484,8 @@ static int serveSocket(NSString *path) {
     return 0;
 }
 
-// Создаёт приватный endpoint пользователя и удерживает единственную блокировку службы.
-// Только владелец service.lock удаляет устаревший photos.sock перед запуском.
+//: Создаёт приватный endpoint пользователя и удерживает единственную блокировку службы.
+//: Только владелец service.lock удаляет устаревший photos.sock перед запуском.
 static int serveDefaultSocket(void) {
     NSString *directory = [NSString stringWithFormat:@"/private/tmp/media-actu-photos-v2-%u", getuid()];
     umask(0077);
@@ -505,8 +505,8 @@ static int serveDefaultSocket(void) {
     return result;
 }
 
-// Выбирает режим запуска PhotoKit-helper и инициализирует GUI-сеанс AppKit.
-// Без аргументов запускает службу; SIGPIPE отключён для безопасного закрытия клиента.
+//: Выбирает режим запуска PhotoKit-helper и инициализирует GUI-сеанс AppKit.
+//: Без аргументов запускает службу; SIGPIPE отключён для безопасного закрытия клиента.
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         signal(SIGPIPE, SIG_IGN);

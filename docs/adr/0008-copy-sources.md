@@ -7,7 +7,7 @@
 
 Явные источники обычных и Photos-копий действуют. Уточнение текущего поведения: make_first_copy меняет номера, а маршруты меняются отдельно set_copy_source. Отключение Photos-копии сохраняет квитанции и не перенаправляет её потомков автоматически.
 
-Код: [`CopyCatalog.set_copy_source`](../../media_manager/copies.py#L240), [`PhotoLibraries.set_copy_source`](../../media_manager/photo_libraries.py#L290), [`PhotoLibraries.make_first_copy`](../../media_manager/photo_libraries.py#L319).
+Код: [`CopyCatalog.set_copy_source`](../reference/media_manager--copies.md#symbol-CopyCatalog.set_copy_source), [`PhotoLibraries.set_copy_source`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.set_copy_source), [`PhotoLibraries.make_first_copy`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.make_first_copy).
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 

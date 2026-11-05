@@ -10,7 +10,7 @@
 Список объектов и импортов см. [app.py](../reference/app.md).
 
 Каталоги и схема создаются уже при импорте. Потоки запускает
-[`lifespan`](../../app.py#L131) либо явный запрос, как у размеров и операций сверки.
+[`lifespan`](../reference/app.md#symbol-lifespan) либо явный запрос, как у размеров и операций сверки.
 Условия первичного сканирования Photos отличаются от обычных источников:
 завершённый индекс Photos не перечитывается целиком при каждом старте.
 
@@ -19,11 +19,11 @@
 FastAPI и NiceGUI исполняют coroutine в event loop. Долгое чтение диска нельзя
 делать синхронно в том же цикле: `asyncio.to_thread` переносит его в исполнитель
 потоков. Для сканирования также есть отдельный ThreadPoolExecutor(2).
-[`scan_source`](../../app.py#L86) использует неблокирующее получение Lock по source_id:
+[`scan_source`](../reference/app.md#symbol-scan_source) использует неблокирующее получение Lock по source_id:
 повторный одновременный скан возвращает `already_scanning`.
 
-Обработчики вроде [`copy_catalog_action`](../../app.py#L549) переводят KeyError в 404,
-ValueError/OSError в 400; [`library_call`](../../app.py#L1012) отдельно различает разрешение,
+Обработчики вроде [`copy_catalog_action`](../reference/app.md#symbol-copy_catalog_action) переводят KeyError в 404,
+ValueError/OSError в 400; [`library_call`](../reference/app.md#symbol-library_call) отдельно различает разрешение,
 недоступную медиатеку и другие ошибки адаптера. Ошибка фонового потока не может
 автоматически стать HTTP-ответом давно завершённого запроса: её сохраняют в задании.
 
@@ -43,9 +43,9 @@ ValueError/OSError в 400; [`library_call`](../../app.py#L1012) отдельно
 | Маркеры папок | Собственный поток | folder_marker_jobs | Незавершённые записи повторяются |
 | Изменения основных папок | Фоновое согласование + Watchdog | Настройки tracking и подключение | Наблюдатели восстанавливаются |
 
-Источники: [`ThumbnailWorkerPool.start`](../../media_manager/thumbnail_workers.py#L35),
-[`DirectorySizeService.request`](../../media_manager/directory_sizes.py#L54),
-[`PhotosSyncSchedule.start`](../../media_manager/photos_schedule.py#L252) и конструкторы служб
+Источники: [`ThumbnailWorkerPool.start`](../reference/media_manager--thumbnail_workers.md#symbol-ThumbnailWorkerPool.start),
+[`DirectorySizeService.request`](../reference/media_manager--directory_sizes.md#symbol-DirectorySizeService.request),
+[`PhotosSyncSchedule.start`](../reference/media_manager--photos_schedule.md#symbol-PhotosSyncSchedule.start) и конструкторы служб
 в [справочнике](../reference/README.md). У таблиц нет единого универсального enum state:
 одинаковые слова в разных подсистемах могут иметь разную семантику.
 
@@ -60,9 +60,9 @@ ValueError/OSError в 400; [`library_call`](../../app.py#L1012) отдельно
 некоторыми изменениями связей. `PairedComparisonCatalog._idle` проверяет также общую
 сверку, а `busy` учитывает связанный перенос отсутствующего. Блокировка не удерживается
 всё время копирования: актуальность связи и корней повторно проверяется при работе.
-См. [`start_comparison_exclusive`](../../app.py#L691),
-[`PairedComparisonCatalog._idle`](../../media_manager/paired_comparison.py#L89) и
-[`MissingCopyCatalog._validate`](../../media_manager/copy_files.py#L306).
+См. [`start_comparison_exclusive`](../reference/app.md#symbol-start_comparison_exclusive),
+[`PairedComparisonCatalog._idle`](../reference/media_manager--paired_comparison.md#symbol-PairedComparisonCatalog._idle) и
+[`MissingCopyCatalog._validate`](../reference/media_manager--copy_files.md#symbol-MissingCopyCatalog._validate).
 
 У превью есть блокировка на media_id, два слота folder и один photos. Разные объекты
 папок обрабатываются параллельно, одинаковый media_id не генерируется одновременно.
@@ -82,12 +82,12 @@ ValueError/OSError в 400; [`library_call`](../../app.py#L1012) отдельно
 
 Ручная пауза превью медиатеки хранится в `photos_libraries.paused` и учитывается
 выдачей превью. Это не автоматическая пауза сохранения оригиналов.
-[`PhotoLibraries._require_active`](../../media_manager/photo_libraries.py#L186) проверяет только
+[`PhotoLibraries._require_active`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries._require_active) проверяет только
 active/state. У оригиналов есть отдельный `pause`; у расписания — блокировка времени.
 
 ## Расписание
 
-[`in_window`](../../media_manager/photos_schedule.py#L14) использует ZoneInfo и полуинтервал
+[`in_window`](../reference/media_manager--photos_schedule.md#symbol-in_window) использует ZoneInfo и полуинтервал
 начала/конца: начало включено, конец исключён. Для окна через полночь условие состоит
 из двух частей. Часы должны различаться и лежать в 0..23, зона в API фиксирована
 `Europe/Moscow`. По умолчанию night_only=False, предлагаемые часы 00–07.
@@ -101,7 +101,7 @@ active/state. У оригиналов есть отдельный `pause`; у р
 
 ## Превью: временная и окончательная ошибка
 
-[`ThumbnailWorkerPool._work`](../../media_manager/thumbnail_workers.py#L114) различает:
+[`ThumbnailWorkerPool._work`](../reference/media_manager--thumbnail_workers.md#symbol-ThumbnailWorkerPool._work) различает:
 
 - `PhotosThumbnailPending`: ресурс не локален, ставится retry_at, по умолчанию на час.
 - Отсутствие разрешения/медиатеки: задание возвращается в очередь, поток ожидает условия.
@@ -115,7 +115,7 @@ active/state. У оригиналов есть отдельный `pause`; у р
 
 ## Watchdog и область актуальности
 
-[`DebouncedHandler`](../../media_manager/watcher.py#L13) объединяет частые события обычного
+[`DebouncedHandler`](../reference/media_manager--watcher.md#symbol-DebouncedHandler) объединяет частые события обычного
 источника с задержкой 1,5 секунды и вызывает полный перескан. Отдельный
 FolderTrackingService следит за зарегистрированными основными папками и сохраняет
 только отметку changed_at. Это сигнал пользователю, не готовая сверка всех копий.
@@ -130,6 +130,6 @@ FolderTrackingService следит за зарегистрированными �
 
 Журналы сервисов ограничены 2 МиБ, сохраняются три резервных файла. `SIGUSR1` у
 процесса, запущенного через runtime, пишет стеки всех потоков в отдельный файл.
-[`ServiceFileHandler.handleError`](../../media_manager/service_runtime.py#L20) предотвращает
+[`ServiceFileHandler.handleError`](../reference/media_manager--service_runtime.md#symbol-ServiceFileHandler.handleError) предотвращает
 рекурсивную запись в stderr при отказе самого журнала. Состояния заданий и журналы
 операций в SQLite существуют независимо от stdout/stderr.

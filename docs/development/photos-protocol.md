@@ -7,7 +7,7 @@
 читает объекты Photos, миниатюры и оригинальные ресурсы. Core владеет каталогами,
 целями записи, квитанциями и прогрессом. Helper не получает путь назначения оригинала.
 
-[`SystemPhotosAdapter.ensure_built`](../../media_manager/photos_adapter.py#L93) собирает app-bundle
+[`SystemPhotosAdapter.ensure_built`](../reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter.ensure_built) собирает app-bundle
 в `data/native/media-actu-photos.app`, копирует Info.plist и выполняет ad-hoc codesign.
 Изменение main.m или Info.plist вызывает пересборку по mtime. Разрешение Photos и
 право scripting-открытия объекта относятся к GUI-сеансу M4; они не выдаются кодом
@@ -21,9 +21,9 @@
 быть настоящим каталогом и иметь 0700. Helper создаёт файлы под umask 0077 и принимает
 только клиентов с тем же UID, проверяемым getpeereid.
 
-[`serveDefaultSocket`](../../photos_adapter/main.m#L489) удерживает flock service.lock, очищает
+[`serveDefaultSocket`](../reference/native.md#symbol-photos_adapter.main.m.serveDefaultSocket) удерживает flock service.lock, очищает
 устаревший endpoint только как его владелец и запускает сервер.
-[`serveSocket`](../../photos_adapter/main.m#L442) обслуживает подключения независимо; один
+[`serveSocket`](../reference/native.md#symbol-photos_adapter.main.m.serveSocket) обслуживает подключения независимо; один
 клиент закрывает свой канал, а не весь helper. Без клиентов служба завершает работу
 после 30 секунд простоя, поддерживая NSRunLoop для PhotoKit.
 
@@ -34,7 +34,7 @@
 ## Фрейминг и ошибки
 
 Транспорт — UTF-8 JSON, один объект на строку. `_buffer` хранит байты после первой
-полной строки. [`SystemPhotosAdapter._receive`](../../media_manager/photos_adapter.py#L287)
+полной строки. [`SystemPhotosAdapter._receive`](../reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._receive)
 ограничивает размер ответа и ждёт готовности канала через selector.
 Одноразовые запросы сериализуются RLock клиента.
 
@@ -47,13 +47,13 @@
 | error | PhotosAdapterError | Остальная ошибка helper |
 | Истёкший срок чтения строки | PhotosResponseTimeout | Нет полного ответа за отведённое время |
 
-Преобразование: [`SystemPhotosAdapter._check_response`](../../media_manager/photos_adapter.py#L313).
+Преобразование: [`SystemPhotosAdapter._check_response`](../reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._check_response).
 Транспортный сбой закрывает канал. `_request` не выполняет скрытый полный экспорт
 или неограниченный повтор операции после ошибки.
 
 ## Короткие операции
 
-[`handleRequest`](../../photos_adapter/main.m#L199) обслуживает:
+[`handleRequest`](../reference/native.md#symbol-photos_adapter.main.m.handleRequest) обслуживает:
 
 - `authorize`: запрос системного разрешения и возврат его статуса.
 - `probe`: count, до 12 распределённых sample ID и matched переданных identifiers.
@@ -62,7 +62,7 @@
 - `thumbnail`: локальный JPEG, ограниченные размеры, без разрешения сетевой загрузки оригинала.
 
 Якоря требуют не менее `min(3, count)` найденных ID. В Python
-[`matches`](../../media_manager/photo_libraries.py#L24) использует такой же порог при сопоставлении
+[`matches`](../reference/media_manager--photo_libraries.md#symbol-matches) использует такой же порог при сопоставлении
 профилей. Если ровно один прежний профиль пуст и ещё не индексирован, он может принять
 первую медиатеку. Наполненные профили требуют доказательств идентичности; неоднозначное
 совпадение не объединяет каталоги автоматически.
@@ -81,7 +81,7 @@ helper передаёт created_at; `Catalog.replace_photos_scan` записыв
 
 ## Манифест оригиналов
 
-[`originalRequest`](../../photos_adapter/main.m#L324) сначала выполняет guard, затем отправляет
+[`originalRequest`](../reference/native.md#symbol-photos_adapter.main.m.originalRequest) сначала выполняет guard, затем отправляет
 `event=begin, protocol=2, pid=...`. Для `op=original_manifest` перечисляет также скрытые
 объекты (`includeHiddenAssets=YES`). Это отличается от обычного scan, где этот флаг
 не задан. На каждый подходящий объект выдаётся событие asset:
@@ -115,7 +115,7 @@ Python декодирует base64 с validate=True и проверяет неп
 при остановке отправляется `cancel` с token, после 5 секунд ожидания отмены клиент
 прерывает свою сторону. Ошибка callback-потребителя тоже закрывает канал, прекращая
 ненужную передачу после отказа диска. Код:
-[`SystemPhotosAdapter._stream_request`](../../media_manager/photos_adapter.py#L341).
+[`SystemPhotosAdapter._stream_request`](../reference/media_manager--photos_adapter.md#symbol-SystemPhotosAdapter._stream_request).
 
 Системный progress загрузки, число принятых байтов, буферизованные байты и записанные
 байты — разные величины. UI не должен считать fraction=1 доказательством fsync и
@@ -123,7 +123,7 @@ Python декодирует base64 с validate=True и проверяет неп
 
 ## Манифест, квитанции и запись Core
 
-[`PhotosOriginals.run`](../../media_manager/photos_originals.py#L744) проверяет привязку и корень,
+[`PhotosOriginals.run`](../reference/media_manager--photos_originals.md#symbol-PhotosOriginals.run) проверяет привязку и корень,
 индексирует stat назначения, принимает манифест, восстанавливает готовность, затем
 сохраняет оставшееся. До новой загрузки ресурсы уже известных копий имеют приоритет.
 Готовые квитанции сопоставляются по ID ресурса, версии и параметрам файла.
@@ -146,7 +146,7 @@ Python декодирует base64 с validate=True и проверяет неп
 upstream не разрешает незаметно переключиться на Photos. У корня допускается
 приоритетное восстановление из уже известных копий той же медиатеки.
 
-[`PhotoLibraries.make_first_copy`](../../media_manager/photo_libraries.py#L319) меняет номера,
+[`PhotoLibraries.make_first_copy`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.make_first_copy) меняет номера,
 но не таблицу источников. Источники задаются `set_copy_source` отдельно.
 `unbind_copy` помечает connected=0, не удаляя квитанции; зависимая маршрутизация
 может после этого ожидать недоступный источник. Документация не должна обещать

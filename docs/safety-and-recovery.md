@@ -29,9 +29,9 @@
 незаметно перенести доверие на другой диск. Повреждённые или повторяющиеся ID
 дают неподтверждённость и блокировку живых операций, а не потерю сохранённой истории.
 
-Код: [`open_readonly`](../media_manager/comparison.py#L49),
-[`verify_identity`](../media_manager/volume_identity.py#L109),
-[`StorageCatalog.refresh`](../media_manager/storage.py#L216).
+Код: [`open_readonly`](reference/media_manager--comparison.md#symbol-open_readonly),
+[`verify_identity`](reference/media_manager--volume_identity.md#symbol-verify_identity),
+[`StorageCatalog.refresh`](reference/media_manager--storage.md#symbol-StorageCatalog.refresh).
 Старая модель folder-источников использует отдельные проверки Path.resolve;
 различия реализации перечислены в [документации файловых операций](development/data-and-files.md).
 
@@ -47,9 +47,9 @@
 видимой до окончания операции: её наличие и размер не доказывают готовность.
 Она сохраняется в staging-журнале и получает «Копия не завершена».
 
-Код: [`MissingCopyCatalog.plan`](../media_manager/copy_files.py#L251),
-[`MissingCopyCatalog._write_file`](../media_manager/copy_files.py#L377),
-[`publish_exclusive`](../media_manager/copy_files.py#L42).
+Код: [`MissingCopyCatalog.plan`](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog.plan),
+[`MissingCopyCatalog._write_file`](reference/media_manager--copy_files.md#symbol-MissingCopyCatalog._write_file),
+[`publish_exclusive`](reference/media_manager--copy_files.md#symbol-publish_exclusive).
 Остановка сохраняет готовые результаты. После перезапуска обычная операция
 становится interrupted: нужно заново сверить файлы и создать новый план.
 
@@ -69,9 +69,9 @@ SHA-256-сверка, которую нельзя подменять подпи�
 Конечные незавершённые Photos-файлы не удаляются и не перезаписываются. Повторная
 передача использует свободное имя. Журнал показывает incomplete_paths для ручного
 разбора. Готовность Live Photo требует всех ресурсов объекта.
-Код: [`PhotosOriginals._save`](../media_manager/photos_originals.py#L524),
-[`PhotosOriginals._receipt`](../media_manager/photos_originals.py#L394),
-[`PhotosOriginals.journal`](../media_manager/photos_originals.py#L167).
+Код: [`PhotosOriginals._save`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._save),
+[`PhotosOriginals._receipt`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals._receipt),
+[`PhotosOriginals.journal`](reference/media_manager--photos_originals.md#symbol-PhotosOriginals.journal).
 
 ## Что делать после сбоя
 

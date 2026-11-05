@@ -25,26 +25,26 @@ LABELS = {
 NAME_STATUSES = ('names_found', 'other_folder', 'names_missing', 'unverified', 'skipped')
 
 
-# Нормализует имя в Unicode NFC и приводит регистр для сравнения.
-# Использует unicodedata.normalize, unicodedata.normalize('NFC', name).casefold.
+#: Нормализует имя в Unicode NFC и приводит регистр для сравнения.
+#: Использует unicodedata.normalize, unicodedata.normalize('NFC', name).casefold.
 def name_key(name):
     return unicodedata.normalize('NFC', name).casefold()
 
 
-# Нормализует имя непосредственного родительского каталога.
-# Использует PurePosixPath, name_key.
+#: Нормализует имя непосредственного родительского каталога.
+#: Использует PurePosixPath, name_key.
 def parent_key(parent):
     return name_key(PurePosixPath(parent).name) if parent else ''
 
 
-# Сигнализирует кооперативную остановку фоновой сверки.
-# Базовые типы: Exception.
+#: Сигнализирует кооперативную остановку фоновой сверки.
+#: Базовые типы: Exception.
 class Paused(Exception):
     pass
 
 
-# Открывает проверенный файл или каталог относительно дескрипторов родителей.
-# Запрещает symlink, специальные файлы и смену тома; повторно проверяет ID при выходе.
+#: Открывает проверенный файл или каталог относительно дескрипторов родителей.
+#: Запрещает symlink, специальные файлы и смену тома; повторно проверяет ID при выходе.
 @contextmanager
 def open_readonly(volume: dict, path: str, *, directory=False):
     """No symlinks, no special files, no crossing a mount boundary."""
@@ -80,8 +80,8 @@ def open_readonly(volume: dict, path: str, *, directory=False):
             os.close(descriptor)
 
 
-# Сохраняет большие inode и device без округления SQLite.
-# Значения вне signed int64 кодируются текстом fsid:, обычные целые сохраняют тип.
+#: Сохраняет большие inode и device без округления SQLite.
+#: Значения вне signed int64 кодируются текстом fsid:, обычные целые сохраняют тип.
 def sqlite_file_identifier(value: int) -> int | str:
     """Preserve opaque IDs outside SQLite's signed int64 without REAL coercion.
 
@@ -92,18 +92,18 @@ def sqlite_file_identifier(value: int) -> int | str:
     return value if -(1 << 63) <= value < (1 << 63) else f'fsid:{value}'
 
 
-# Собирает размер, времена и идентификаторы файлового объекта из stat.
-# Поля результата: size, mtime_ns, ctime_ns, inode, device.
+#: Собирает размер, времена и идентификаторы файлового объекта из stat.
+#: Поля результата: size, mtime_ns, ctime_ns, inode, device.
 def fingerprint(info):
     return dict(size=info.st_size, mtime_ns=info.st_mtime_ns, ctime_ns=info.st_ctime_ns,
                 inode=sqlite_file_identifier(info.st_ino), device=sqlite_file_identifier(info.st_dev))
 
 
-# Ведёт задания, индексы, результаты и историю поиска по именам.
-# Зависимости конструктора: storage.
+#: Ведёт задания, индексы, результаты и историю поиска по именам.
+#: Зависимости конструктора: storage.
 class ComparisonCatalog:
-    # Инициализирует ComparisonCatalog и его рабочее состояние.
-    # Изменяет SQLite-таблицы: comparison_entries, comparison_events, comparison_hashes, comparison_jobs, comparison_results, comparison_scans.
+    #: Инициализирует ComparisonCatalog и его рабочее состояние.
+    #: Изменяет SQLite-таблицы: comparison_entries, comparison_events, comparison_hashes, comparison_jobs, comparison_results, comparison_scans.
     def __init__(self, storage: StorageCatalog):
         self.storage = storage
         self._lock = threading.RLock()
@@ -164,28 +164,28 @@ class ComparisonCatalog:
                            ('Приложение было остановлено. Продолжение запускается вручную.', now(), row['id']))
                 self._event(db, row['id'], 'warning', 'Проверка прервана перезапуском приложения')
 
-    # Добавляет событие в журнал сверки в переданной транзакции.
-    # Изменяет SQLite-таблицы: comparison_events.
+    #: Добавляет событие в журнал сверки в переданной транзакции.
+    #: Изменяет SQLite-таблицы: comparison_events.
     @staticmethod
     def _event(db, job, level, message, path=''):
         db.execute('INSERT INTO comparison_events(job_id,at,level,message,path) VALUES (?,?,?,?,?)',
                    (job, now(), level, message, path))
 
-    # Обновляет поля задания сверки и время изменения.
-    # Изменяет SQLite-таблицы: comparison_jobs.
+    #: Обновляет поля задания сверки и время изменения.
+    #: Изменяет SQLite-таблицы: comparison_jobs.
     def _update(self, job, **values):
         values['updated_at'] = now()
         with self.storage.connect() as db:
             db.execute('UPDATE comparison_jobs SET ' + ','.join(k + '=?' for k in values) + ' WHERE id=?', (*values.values(), job))
 
-    # Прерывает текущую обработку, если запрошена остановка сверки.
-    # Явно отклоняет недопустимое состояние через Paused.
+    #: Прерывает текущую обработку, если запрошена остановка сверки.
+    #: Явно отклоняет недопустимое состояние через Paused.
     def _check(self):
         if self._stop.is_set():
             raise Paused()
 
-    # Создаёт сверку имён непересекающихся областей и при необходимости запускает её.
-    # Изменяет SQLite-таблицы: comparison_jobs, comparison_scans.
+    #: Создаёт сверку имён непересекающихся областей и при необходимости запускает её.
+    #: Изменяет SQLite-таблицы: comparison_jobs, comparison_scans.
     def create(self, source: dict, targets: list[dict], reread=False, *, background=True, reuse_index=True):
         scopes = []
         if not targets or len(targets) > 16:
@@ -215,14 +215,14 @@ class ComparisonCatalog:
                 self.resume(job)
             return self.job(job)
 
-    # Запрещает новый запуск, пока предыдущий поток сверки работает.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Запрещает новый запуск, пока предыдущий поток сверки работает.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def _assert_idle(self):
         if self._thread and self._thread.is_alive():
             raise ValueError('Уже выполняется сверка. Сначала останови её.')
 
-    # Продолжает сверку имён или создаёт её вместо старой сверки содержимого.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Продолжает сверку имён или создаёт её вместо старой сверки содержимого.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def resume(self, job):
         with self._lock:
             self._assert_idle()
@@ -241,8 +241,8 @@ class ComparisonCatalog:
             self._thread.start()
         return self.job(job)
 
-    # Запрашивает остановку сверки после текущего шага чтения.
-    # Использует self._stop.set, self._update, self.job.
+    #: Запрашивает остановку сверки после текущего шага чтения.
+    #: Использует self._stop.set, self._update, self.job.
     def pause(self, job):
         with self._lock:
             report = self.job(job)
@@ -251,15 +251,15 @@ class ComparisonCatalog:
                 self._update(job, state='pausing', message='Остановка после текущего чтения')
         return self.job(job)
 
-    # Останавливает поток сверки при завершении Core.
-    # Использует self._stop.set, self._thread.join.
+    #: Останавливает поток сверки при завершении Core.
+    #: Использует self._stop.set, self._thread.join.
     def close(self):
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
 
-    # Собирает или повторно использует списки и классифицирует совпадения имён.
-    # Изменяет SQLite-таблицы: comparison_entries, comparison_results, comparison_scans.
+    #: Собирает или повторно использует списки и классифицирует совпадения имён.
+    #: Изменяет SQLite-таблицы: comparison_entries, comparison_results, comparison_scans.
     def run(self, job):
         """Continue completed lists, reuse earlier inventories, and compare names only."""
         try:
@@ -308,8 +308,8 @@ class ComparisonCatalog:
                 db.execute("UPDATE comparison_scans SET state='error',error=?,finished_at=? WHERE job_id=? AND state='running'", (str(error), now(), job))
                 self._event(db, job, 'error', str(error))
 
-    # Переносит подходящий завершённый индекс из прежнего задания.
-    # Изменяет SQLite-таблицы: comparison_entries, comparison_scans.
+    #: Переносит подходящий завершённый индекс из прежнего задания.
+    #: Изменяет SQLite-таблицы: comparison_entries, comparison_scans.
     def _reuse_inventory(self, job, scan):
         with self.storage.connect() as db:
             previous = db.execute("""SELECT * FROM comparison_scans WHERE volume_id=? AND root_path=?
@@ -332,8 +332,8 @@ class ComparisonCatalog:
             self._event(db, job, 'info', 'Использован готовый список от ' + (previous['finished_at'] or ''), scan['volume_id'] + '/' + scan['root_path'])
         return True
 
-    # Обходит выбранную область и сохраняет метаданные и ошибки элементов.
-    # Изменяет SQLite-таблицы: comparison_entries, comparison_scans, directories.
+    #: Обходит выбранную область и сохраняет метаданные и ошибки элементов.
+    #: Изменяет SQLite-таблицы: comparison_entries, comparison_scans, directories.
     def _inventory(self, job, scan, volume):
         with self.storage.connect() as db:
             db.execute("UPDATE comparison_scans SET state='running',started_at=? WHERE id=?", (now(), scan['id']))
@@ -401,8 +401,8 @@ class ComparisonCatalog:
                        ('error' if errors else 'complete', now(), f'Ошибок обхода: {errors}' if errors else None, scan['id']))
             self._event(db, job, 'warning' if errors else 'info', 'Обход завершён' + (f', ошибок: {errors}' if errors else ''), (volume['name'] if volume else scan['volume_id']) + '/' + scan['root_path'])
 
-    # Сопоставляет нормализованные имена, типы и непосредственные родительские папки.
-    # Изменяет SQLite-таблицы: comparison_results.
+    #: Сопоставляет нормализованные имена, типы и непосредственные родительские папки.
+    #: Изменяет SQLite-таблицы: comparison_results.
     def _classify_names(self, job):
         with self.storage.connect() as db:
             scans = [dict(s) for s in db.execute('SELECT * FROM comparison_scans WHERE job_id=?', (job,))]
@@ -438,15 +438,15 @@ class ComparisonCatalog:
             self._check()
             db.executemany('INSERT OR REPLACE INTO comparison_results VALUES (?,?,?)', results)
 
-    # Возвращает недавние задания общей сверки.
-    # Читает SQLite-таблицы: comparison_jobs.
+    #: Возвращает недавние задания общей сверки.
+    #: Читает SQLite-таблицы: comparison_jobs.
     def jobs(self):
         with self.storage.connect() as db:
             ids = [r[0] for r in db.execute('SELECT id FROM comparison_jobs ORDER BY created_at DESC LIMIT 30')]
         return [self.job(job) for job in ids]
 
-    # Собирает состояние задания, области поиска и счётчики результатов.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Собирает состояние задания, области поиска и счётчики результатов.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def job(self, job):
         with self.storage.connect() as db:
             row = db.execute('SELECT * FROM comparison_jobs WHERE id=?', (job,)).fetchone()
@@ -464,8 +464,8 @@ class ComparisonCatalog:
             result['errors'] = db.execute("SELECT COUNT(*) FROM comparison_events WHERE job_id=? AND level='error'", (job,)).fetchone()[0]
             return result
 
-    # Возвращает страницу исходного дерева отчёта с фильтром статуса.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Возвращает страницу исходного дерева отчёта с фильтром статуса.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def tree(self, job, path=None, status='', offset=0, limit=200):
         report = self.job(job)
         if status and status not in LABELS:
@@ -492,8 +492,8 @@ class ComparisonCatalog:
                 entries.append(e)
         return dict(entries=entries, total=total, path=path, root_path=scan['root_path'])
 
-    # Считает непосредственные дочерние элементы выбранной области индекса.
-    # Читает SQLite-таблицы: comparison_entries, comparison_results.
+    #: Считает непосредственные дочерние элементы выбранной области индекса.
+    #: Читает SQLite-таблицы: comparison_entries, comparison_results.
     @staticmethod
     def _counts(db, scan, path):
         condition = ' AND e.path>=? AND e.path<?' if path else ''
@@ -501,8 +501,8 @@ class ComparisonCatalog:
         return {r['status']: r['n'] for r in db.execute('''SELECT r.status,COUNT(*) n FROM comparison_entries e JOIN comparison_results r ON r.entry_id=e.id
             WHERE e.scan_id=?''' + condition + ' GROUP BY r.status', params)}
 
-    # Возвращает подробности элемента и найденные пути в целях сверки.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает подробности элемента и найденные пути в целях сверки.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def detail(self, job, path=None):
         report = self.job(job)
         scan = next(s for s in report['scans'] if s['side'] == 'source')
@@ -531,8 +531,8 @@ class ComparisonCatalog:
 
         return dict(entry=entry, matches=matches, matches_limit=100)
 
-    # Читает один уровень сохранённого дерева целевой области.
-    # Явно отклоняет недопустимое состояние через KeyError, ValueError.
+    #: Читает один уровень сохранённого дерева целевой области.
+    #: Явно отклоняет недопустимое состояние через KeyError, ValueError.
     def target_tree(self, job, scan_id, path=None, offset=0, limit=200):
         """Read one level of a target snapshot. Never visit the mounted filesystem."""
         with self.storage.connect() as db:
@@ -551,8 +551,8 @@ class ComparisonCatalog:
             entries = [dict(row, scan_id=scan_id) for row in db.execute("SELECT path,name,kind,error FROM comparison_entries WHERE scan_id=? AND parent=? ORDER BY kind!='directory',name COLLATE NOCASE LIMIT ? OFFSET ?", (scan_id, path, limit, offset))]
         return dict(entries=entries, total=total, path=path, scan_id=scan_id, volume_name=scan['volume_name'], error=folder['error'])
 
-    # Возвращает страницу журнала сверки с обратной пагинацией.
-    # Читает SQLite-таблицы: comparison_events.
+    #: Возвращает страницу журнала сверки с обратной пагинацией.
+    #: Читает SQLite-таблицы: comparison_events.
     def events(self, job, before=None, limit=100):
         self.job(job)
         with self.storage.connect() as db:

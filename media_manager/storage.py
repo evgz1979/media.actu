@@ -31,14 +31,14 @@ FLAGS = {"no_duplicate": "Не дублировать", "planned_move": "Пла�
 FOLDER_TAGS = {'old_copy': 'старая копия', 'sort': 'разобрать', 'check': 'проверить'}
 
 
-# Возвращает текущее время UTC в формате ISO 8601.
-# Использует datetime.now, datetime.now(timezone.utc).isoformat.
+#: Возвращает текущее время UTC в формате ISO 8601.
+#: Использует datetime.now, datetime.now(timezone.utc).isoformat.
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Проверяет и нормализует путь относительно корня выбранного тома.
-# Явно отклоняет недопустимое состояние через ValueError.
+#: Проверяет и нормализует путь относительно корня выбранного тома.
+#: Явно отклоняет недопустимое состояние через ValueError.
 def relative_path(value: str) -> str:
     if "\x00" in value or value.startswith("/") or ".." in value.split("/"):
         raise ValueError("Нужен путь внутри выбранного тома")
@@ -46,14 +46,14 @@ def relative_path(value: str) -> str:
     return "" if path == "." else path
 
 
-# Получает короткий стабильный ID из строки идентичности тома.
-# Использует hashlib.sha256, hashlib.sha256(identity.encode()).hexdigest, identity.encode.
+#: Получает короткий стабильный ID из строки идентичности тома.
+#: Использует hashlib.sha256, hashlib.sha256(identity.encode()).hexdigest, identity.encode.
 def volume_key(identity: str) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
-# Читает существующие монтирования macOS и собирает доступные тома.
-# Обрабатывает ошибки: (OSError, ValueError, subprocess.SubprocessError).
+#: Читает существующие монтирования macOS и собирает доступные тома.
+#: Обрабатывает ошибки: (OSError, ValueError, subprocess.SubprocessError).
 def discover_volumes() -> list[dict[str, Any]]:
     """Use mount identity, never just a mount-point name. No mounting or automounting."""
     result = subprocess.run(["/sbin/mount"], capture_output=True, text=True, timeout=8, check=True)
@@ -80,8 +80,8 @@ def discover_volumes() -> list[dict[str, Any]]:
     return volumes
 
 
-# Определяет идентичность, тип, ресурс NAS и ёмкость одного тома.
-# Явно отклоняет недопустимое состояние через OSError.
+#: Определяет идентичность, тип, ресурс NAS и ёмкость одного тома.
+#: Явно отклоняет недопустимое состояние через OSError.
 def _inspect_volume(device: str, mount_path: str, filesystem: str) -> dict[str, Any] | None:
     network = filesystem in {"smbfs", "nfs", "afpfs", "webdav"}
     name = Path(mount_path).name
@@ -154,11 +154,11 @@ def _inspect_volume(device: str, mount_path: str, filesystem: str) -> dict[str, 
     return volume
 
 
-# Хранит зарегистрированные тома, снимки папок и пользовательские отметки.
-# Зависимости конструктора: database, discover.
+#: Хранит зарегистрированные тома, снимки папок и пользовательские отметки.
+#: Зависимости конструктора: database, discover.
 class StorageCatalog:
-    # Инициализирует StorageCatalog и его рабочее состояние.
-    # Изменяет SQLite-таблицы: annotations, directories, directory_tags, network_volume_links, volume_aliases, volume_capacity, volume_details, volume_origins, volumes.
+    #: Инициализирует StorageCatalog и его рабочее состояние.
+    #: Изменяет SQLite-таблицы: annotations, directories, directory_tags, network_volume_links, volume_aliases, volume_capacity, volume_details, volume_origins, volumes.
     def __init__(self, database: Path, discover: Callable = discover_volumes) -> None:
         self.database = database
         self.database.parent.mkdir(parents=True, exist_ok=True)
@@ -198,8 +198,8 @@ class StorageCatalog:
                 free_bytes INTEGER NOT NULL, available_bytes INTEGER NOT NULL, checked_at TEXT NOT NULL)''')
             db.executescript(COPY_SCHEMA)
 
-    # Предоставляет транзакционное соединение storage.sqlite3 с гарантированным закрытием.
-    # Использует db.close, db.execute, sqlite3.connect.
+    #: Предоставляет транзакционное соединение storage.sqlite3 с гарантированным закрытием.
+    #: Использует db.close, db.execute, sqlite3.connect.
     @contextmanager
     def connect(self):
         db = sqlite3.connect(self.database, timeout=30)
@@ -211,8 +211,8 @@ class StorageCatalog:
         finally:
             db.close()
 
-    # Обновляет обнаруженные тома либо возвращает их сохранённое состояние.
-    # cached_only не запускает обнаружение; обычный результат кэшируется на 10 секунд.
+    #: Обновляет обнаруженные тома либо возвращает их сохранённое состояние.
+    #: cached_only не запускает обнаружение; обычный результат кэшируется на 10 секунд.
     def refresh(self, force: bool = False, *, cached_only: bool = False) -> dict:
         # Saved lists remain readable while another thread discovers slow mounts.
         with nullcontext() if cached_only else self._lock:
@@ -281,8 +281,8 @@ class StorageCatalog:
             rows = [row for row in rows if row['identity_status'] != 'unverified' or row['id'] in self._mounted or not row['mount_path']]
             return {"volumes": rows, "error": self._discovery_error, "checked_at": now(), "purposes": PURPOSES, "roles": ROLES}
 
-    # Дополняет запись тома сохранёнными сведениями об идентичности.
-    # Использует usb_share.
+    #: Дополняет запись тома сохранёнными сведениями об идентичности.
+    #: Использует usb_share.
     @staticmethod
     def _volume_details(volume: dict, details: dict | None) -> dict:
         if details:
@@ -297,8 +297,8 @@ class StorageCatalog:
         result['display_name'] = volume['name'] + (' · прежняя привязка' if result['identity_status'] == 'legacy' else '')
         return result
 
-    # Создаёт служебный ID сменного носителя и повторно обнаруживает тома.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Создаёт служебный ID сменного носителя и повторно обнаруживает тома.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def register_removable(self, volume_id: str, name: str) -> dict:
         with self._lock:
             volumes = self.refresh(True)['volumes']
@@ -314,8 +314,8 @@ class StorageCatalog:
                 raise ValueError('Файл ID создан, но подтвердить носитель не удалось. Обнови список томов.')
             return registered
 
-    # Переименовывает зарегистрированный носитель через его служебный маркер.
-    # Явно отклоняет недопустимое состояние через ValueError.
+    #: Переименовывает зарегистрированный носитель через его служебный маркер.
+    #: Явно отклоняет недопустимое состояние через ValueError.
     def rename_removable(self, volume_id: str, name: str) -> dict:
         with self._lock:
             volume = next((v for v in self.refresh(True)['volumes'] if v['id'] == volume_id), None)
@@ -329,8 +329,8 @@ class StorageCatalog:
                 raise ValueError('Имя записано на диск, но обновить сведения не удалось. Обнови список томов.')
             return renamed
 
-    # Определяет группу отображения тома по типу и сведениям о NAS.
-    # Поля результата: id, name, kind.
+    #: Определяет группу отображения тома по типу и сведениям о NAS.
+    #: Поля результата: id, name, kind.
     @staticmethod
     def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict:
         if volume['kind'] != 'network':
@@ -359,15 +359,15 @@ class StorageCatalog:
             name = name[:-len('.local')]
         return {'id': 'nas:' + normalized, 'name': name, 'kind': 'network'}
 
-    # Строит возможные ID ресурса по основному адресу и псевдонимам сервера.
-    # Использует dict.fromkeys, host.rstrip, host.rstrip('.').casefold, name.casefold, quote.
+    #: Строит возможные ID ресурса по основному адресу и псевдонимам сервера.
+    #: Использует dict.fromkeys, host.rstrip, host.rstrip('.').casefold, name.casefold, quote.
     @staticmethod
     def network_keys(hosts: list[str], share: str) -> list[str]:
         return list(dict.fromkeys(volume_key(f"smbfs:{host.rstrip('.').casefold()}/{name.casefold()}")
                                   for host in hosts for name in (share, quote(share, safe=''))))
 
-    # Ищет ранее известный сетевой том по адресам и имени ресурса.
-    # Читает SQLite-таблицы: volume_aliases, volumes.
+    #: Ищет ранее известный сетевой том по адресам и имени ресурса.
+    #: Читает SQLite-таблицы: volume_aliases, volumes.
     def find_network_volume(self, hosts: list[str], share: str) -> dict | None:
         normalized = {canonical_host(host) for host in hosts}
         for mounted in self._mounted.values():
@@ -389,8 +389,8 @@ class StorageCatalog:
                     return dict(row)
         return None
 
-    # Запоминает SMB-ресурс и его псевдонимы без монтирования.
-    # Изменяет SQLite-таблицы: network_volume_links, volume_aliases, volume_details, volumes.
+    #: Запоминает SMB-ресурс и его псевдонимы без монтирования.
+    #: Изменяет SQLite-таблицы: network_volume_links, volume_aliases, volume_details, volumes.
     def remember_network_volume(self, host: str, aliases: list[str], share: str) -> dict:
         with self._lock:
             hosts = list(dict.fromkeys([host, *aliases]))
@@ -416,8 +416,8 @@ class StorageCatalog:
                         db.execute('INSERT OR IGNORE INTO volume_aliases VALUES (?,?)', (key, volume_id))
             return self.get_volume(volume_id)
 
-    # Возвращает известный том с сохранёнными сведениями либо поднимает KeyError.
-    # Явно отклоняет недопустимое состояние через KeyError.
+    #: Возвращает известный том с сохранёнными сведениями либо поднимает KeyError.
+    #: Явно отклоняет недопустимое состояние через KeyError.
     def get_volume(self, volume_id: str) -> dict:
         with self.connect() as db:
             row = db.execute("SELECT v.*, l.url AS network_url FROM volumes v LEFT JOIN network_volume_links l ON l.volume_id=v.id WHERE v.id=?", (volume_id,)).fetchone()
@@ -428,8 +428,8 @@ class StorageCatalog:
         volume.update(self._volume_details(volume, dict(details) if details else None))
         return volume
 
-    # Проверяет выбранный путь и передаёт его Finder на машине Core.
-    # Явно отклоняет недопустимое состояние через KeyError, OSError, ValueError.
+    #: Проверяет выбранный путь и передаёт его Finder на машине Core.
+    #: Явно отклоняет недопустимое состояние через KeyError, OSError, ValueError.
     def open_in_finder(self, volume_id: str, path: str = '') -> dict:
         path = relative_path(path)
         volume = next((v for v in self.refresh(True)['volumes'] if v['id'] == volume_id), None)
@@ -466,8 +466,8 @@ class StorageCatalog:
                     os.close(descriptor)
         return {'path': str(target)}
 
-    # Возвращает наследуемые отметки и роль папки из каталога.
-    # Поля результата: copy, tags.
+    #: Возвращает наследуемые отметки и роль папки из каталога.
+    #: Поля результата: copy, tags.
     def metadata(self, volume_id: str, path: str) -> dict:
         path = relative_path(path)
         self.get_volume(volume_id)
@@ -478,15 +478,15 @@ class StorageCatalog:
         return {**self._metadata(path, annotations), 'copy': inherited_location(path, locations),
                 'tags': tags.get(path, [])}
 
-    # Читает пользовательские метки папок одного тома.
-    # Читает SQLite-таблицы: directory_tags.
+    #: Читает пользовательские метки папок одного тома.
+    #: Читает SQLite-таблицы: directory_tags.
     @staticmethod
     def _tags(db, volume_id):
         return {row['path']: json.loads(row['tags'])
                 for row in db.execute('SELECT path,tags FROM directory_tags WHERE volume_id=?', (volume_id,))}
 
-    # Сохраняет проверенный набор меток для выбранной папки.
-    # Изменяет SQLite-таблицы: directory_tags.
+    #: Сохраняет проверенный набор меток для выбранной папки.
+    #: Изменяет SQLite-таблицы: directory_tags.
     def set_folder_tags(self, volume_id: str, path: str, tags: list[str]) -> dict:
         path = relative_path(path)
         volume = self.get_volume(volume_id)
@@ -508,8 +508,8 @@ class StorageCatalog:
                 db.execute('DELETE FROM directory_tags WHERE volume_id=? AND path=?', (volume_id, path))
         return self.metadata(volume_id, path)
 
-    # Вычисляет наследование назначения, роли и флагов от родительских папок.
-    # Поля результата: own, effective, inherited_from.
+    #: Вычисляет наследование назначения, роли и флагов от родительских папок.
+    #: Поля результата: own, effective, inherited_from.
     @staticmethod
     def _metadata(path: str, annotations: dict) -> dict:
         ancestors = [path]
@@ -528,8 +528,8 @@ class StorageCatalog:
                     break
         return {"own": {key: own.get(key) for key in ("purpose", "role", *FLAGS, "comment")}, "effective": effective, "inherited_from": inherited_from}
 
-    # Сохраняет назначение, прежнюю роль, флаги и комментарий расположения.
-    # Изменяет SQLite-таблицы: annotations.
+    #: Сохраняет назначение, прежнюю роль, флаги и комментарий расположения.
+    #: Изменяет SQLite-таблицы: annotations.
     def annotate(self, volume_id: str, path: str, values: dict) -> dict:
         path = relative_path(path)
         volume = self.get_volume(volume_id)
@@ -553,16 +553,16 @@ class StorageCatalog:
             """, (volume_id, path, values.get("purpose"), values.get("role"), values.get("no_duplicate"), values.get("planned_move"), values.get("comment", "")))
         return self.metadata(volume_id, path)
 
-    # Читает сохранённый список одной папки без обращения к носителю.
-    # Читает SQLite-таблицы: directories.
+    #: Читает сохранённый список одной папки без обращения к носителю.
+    #: Читает SQLite-таблицы: directories.
     @staticmethod
     def _snapshot(db, volume_id: str, path: str) -> dict:
         import json
         row = db.execute("SELECT * FROM directories WHERE volume_id=? AND path=?", (volume_id, path)).fetchone()
         return {"entries": json.loads(row["entries"]), "scanned_at": row["scanned_at"]} if row else {"entries": [], "scanned_at": None}
 
-    # Возвращает живой список папки или снимок с явной отметкой кэша.
-    # Изменяет SQLite-таблицы: directories.
+    #: Возвращает живой список папки или снимок с явной отметкой кэша.
+    #: Изменяет SQLite-таблицы: directories.
     def directory(self, volume_id: str, path: str = "", refresh: bool = True, *, discover: bool = True) -> dict:
         import json
         path = relative_path(path)
@@ -596,8 +596,8 @@ class StorageCatalog:
         return {**snapshot, "path": path, "volume": volume, "cached": cached, "error": error,
                 "error_code": error_code, "metadata": self.metadata(volume_id, path)}
 
-    # Перечисляет один каталог через проверенный дескриптор тома.
-    # Явно отклоняет недопустимое состояние через OSError.
+    #: Перечисляет один каталог через проверенный дескриптор тома.
+    #: Явно отклоняет недопустимое состояние через OSError.
     @staticmethod
     def _read_directory(volume: dict, path: str) -> list[dict]:
         """Read through directory descriptors: no symlinks, no crossing into another volume."""
