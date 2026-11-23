@@ -112,6 +112,7 @@ class ICloudCopies:
                     active INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'idle',
                     current_path TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '',
                     retry_at REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+                    source_link_id TEXT REFERENCES icloud_copies(id),
                     UNIQUE(volume_id, path)
                 );
                 CREATE TABLE IF NOT EXISTS icloud_copy_items (
@@ -123,6 +124,8 @@ class ICloudCopies:
                 );
                 CREATE INDEX IF NOT EXISTS icloud_copy_due ON icloud_copy_items(copy_id, state, retry_at);
             """)
+            if 'source_link_id' not in {row['name'] for row in db.execute('PRAGMA table_info(icloud_copies)')}:
+                db.execute('ALTER TABLE icloud_copies ADD COLUMN source_link_id TEXT REFERENCES icloud_copies(id)')
             db.execute("UPDATE icloud_copies SET current_path='' WHERE active=1")
 
     #: Возвращает доступный путь облачного источника для операций чтения.
@@ -160,19 +163,35 @@ class ICloudCopies:
             raise OSError('Сначала подтверди том назначения')
         return volume
 
-    #: Создаёт привязку существующей папки назначения к области iCloud Drive.
+    #: Привязывает папку назначения к облачной области или её сохранённой копии.
     #: Проверяет непересечение корней и сохраняет их идентичность.
-    def bind(self, source_path, volume_id, path):
+    def bind(self, source_path, volume_id, path, source_link_id=None):
         source_path, path = relative_path(source_path), relative_path(path)
         if not path:
             raise ValueError('Выбери папку назначения внутри тома')
-        volumes = dict(left=self._source_volume(), right=self._target_volume(volume_id, force=True))
-        scopes = dict(left={'path': source_path}, right={'path': path})
-        roots = MissingCopyCatalog._roots(dict(left={'path': ''}, right=scopes['right']), volumes)
-        with open_readonly(volumes['left'], source_path, directory=True) as source:
-            roots['scope'] = object_id(os.fstat(source))
+        destination = self._target_volume(volume_id, force=True)
         copy_id = uuid4().hex
         with self._lock, self.storage.connect() as db:
+            upstream = self._copy(source_link_id) if source_link_id else None
+            if upstream and upstream['source_path'] != source_path:
+                raise ValueError('Выбери копию той же папки iCloud Drive')
+            if upstream and self.root is not None:
+                cloud_path = self.root.resolve()
+                target_path = (Path(destination['mount_path']) / path).resolve()
+                if target_path.is_relative_to(cloud_path) or cloud_path.is_relative_to(target_path):
+                    raise ValueError('Папка назначения и iCloud Drive пересекаются.')
+                if self.root.is_dir():
+                    MissingCopyCatalog._roots(dict(left={'path': ''}, right={'path': path}),
+                                              dict(left=self._source_volume(), right=destination))
+            origin = self._target_volume(upstream['volume_id']) if upstream else self._source_volume()
+            scopes = dict(left={'path': upstream['path'] if upstream else ''}, right={'path': path})
+            roots = MissingCopyCatalog._roots(scopes, dict(left=origin, right=destination))
+            if upstream:
+                if roots['left'] != json.loads(upstream['roots'])['right']:
+                    raise OSError('Папка копии-источника заменена. Проверь привязку.')
+            else:
+                with open_readonly(origin, source_path, directory=True) as source:
+                    roots['scope'] = object_id(os.fstat(source))
             for row in db.execute('SELECT volume_id,path,roots FROM icloud_copies'):
                 other, target = PurePosixPath(row['path']), PurePosixPath(path)
                 if json.loads(row['roots'])['right'] == roots['right'] or (
@@ -180,8 +199,9 @@ class ICloudCopies:
                 ):
                     raise ValueError('Папка пересекается с уже привязанной копией iCloud Drive')
             number = db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone()[0]
-            db.execute('INSERT INTO icloud_copies (id,number,source_path,volume_id,path,roots,updated_at) VALUES (?,?,?,?,?,?,?)',
-                       (copy_id, number, source_path, volume_id, path, json.dumps(roots), now()))
+            db.execute('''INSERT INTO icloud_copies (id,number,source_path,volume_id,path,roots,source_link_id,updated_at)
+                          VALUES (?,?,?,?,?,?,?,?)''',
+                       (copy_id, number, source_path, volume_id, path, json.dumps(roots), source_link_id, now()))
         return dict(id=copy_id, number=number)
 
     #: Возвращает краткое состояние копий для боковой панели.
@@ -190,20 +210,23 @@ class ICloudCopies:
         volumes = {v['id']: v for v in self.storage.refresh(cached_only=True)['volumes']}
         with self.storage.connect() as db:
             rows = db.execute("""
-                SELECT c.id,c.number,c.source_path,c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,
+                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,
+                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,
                     COUNT(*) FILTER (WHERE i.kind='file') AS total,
                     COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,
                     COUNT(*) FILTER (WHERE i.state='retry') AS waiting,
                     COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,
                     MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt
-                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON c.id=i.copy_id
+                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id
+                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id
                 GROUP BY c.id ORDER BY c.number
             """).fetchall()
         copies = []
         for row in rows:
             volume = volumes.get(row['volume_id'], {})
             copies.append(dict(row, volume_name=volume.get('display_name') or volume.get('name') or 'Том',
-                               availability=volume.get('availability', 'offline')))
+                               availability=volume.get('availability', 'offline'),
+                               source_label=f"{row['source_number']:02d}-copy" if row['source_number'] else 'iCloud Drive'))
         try:
             self._source_volume()
             available = True
@@ -234,9 +257,14 @@ class ICloudCopies:
                 with self.storage.connect() as db:
                     if copy['state'] in ('idle', 'completed', 'completed_with_conflicts'):
                         db.execute('DELETE FROM icloud_copy_items WHERE copy_id=?', (copy_id,))
+                    empty = not db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? LIMIT 1', (copy_id,)).fetchone()
+                    waiting_source = empty and copy['source_link_id']
+                    if empty and not waiting_source:
                         db.execute("INSERT INTO icloud_copy_items (copy_id,path,kind,updated_at) VALUES (?,'','directory',?)",
                                    (copy_id, now()))
-                    self._update_copy(db, copy_id, active=1, state='running', retry_at=0, message='')
+                    upstream = self._copy(copy['source_link_id']) if waiting_source else None
+                    self._update_copy(db, copy_id, active=1, state='waiting_source' if waiting_source else 'running', retry_at=0,
+                                      message=f"Ждёт завершения {upstream['number']:02d}-copy. Запусти или продолжи источник." if upstream else '')
         self._wake.set()
         return dict(id=copy_id)
 
@@ -255,6 +283,8 @@ class ICloudCopies:
         with self._lock, self.storage.connect() as db:
             if self._copy(copy_id)['active'] or self._current == copy_id:
                 raise ValueError('Сначала поставь копирование на паузу и дождись остановки')
+            if db.execute('SELECT 1 FROM icloud_copies WHERE source_link_id=? LIMIT 1', (copy_id,)).fetchone():
+                raise ValueError('Сначала отвяжи копии, которые используют это звено как источник')
             if db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND staging IS NOT NULL', (copy_id,)).fetchone():
                 raise ValueError('Возобнови копирование, чтобы обработать незавершённую запись')
             db.execute('DELETE FROM icloud_copies WHERE id=?', (copy_id,))
@@ -301,11 +331,31 @@ class ICloudCopies:
         if self._stop.is_set() or not self._copy(copy_id)['active']:
             raise CopyStopped()
 
+    #: Формирует очередь зависимой копии из завершённого прохода копии-источника.
+    #: Переносит только готовые пути и журналирует расхождения предыдущего звена.
+    def _queue_ready_sources(self, db):
+        rows = db.execute("""
+            SELECT c.id,c.source_link_id FROM icloud_copies c
+            JOIN icloud_copies p ON p.id=c.source_link_id
+            WHERE c.active=1 AND c.state='waiting_source' AND p.active=0
+                AND p.state IN ('completed','completed_with_conflicts')
+                AND EXISTS (SELECT 1 FROM icloud_copy_items i WHERE i.copy_id=p.id AND i.path='')
+        """).fetchall()
+        for row in rows:
+            db.execute("""
+                INSERT INTO icloud_copy_items (copy_id,path,kind,state,message,updated_at)
+                SELECT ?,path,kind,CASE WHEN state='conflict' THEN 'conflict' ELSE 'pending' END,
+                    CASE WHEN state='conflict' THEN 'В копии-источнике: ' || message ELSE '' END,?
+                FROM icloud_copy_items WHERE copy_id=? AND state IN ('done','existing','conflict')
+            """, (row['id'], now(), row['source_link_id']))
+            self._update_copy(db, row['id'], state='running', message='')
+
     #: Выбирает следующий доступный элемент, затем вычисляет состояние ожидающих привязок.
     #: Изменяет SQLite-таблицу icloud_copies.
     def _next(self):
         current = time.time()
         with self.storage.connect() as db:
+            self._queue_ready_sources(db)
             item = db.execute("""
                 SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id
                 WHERE c.active=1 AND c.retry_at<=? AND i.state IN ('pending','retry') AND i.retry_at<=?
@@ -318,7 +368,7 @@ class ICloudCopies:
                     COUNT(*) FILTER (WHERE i.state='pending') AS pending,
                     COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts
                 FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id
-                WHERE c.active=1 AND c.retry_at<=? GROUP BY c.id
+                WHERE c.active=1 AND c.state!='waiting_source' AND c.retry_at<=? GROUP BY c.id
             """, (current,)).fetchall():
                 if row['waiting']:
                     db.execute("UPDATE icloud_copies SET state='waiting',current_path='' WHERE id=? AND state!='waiting'", (row['id'],))
@@ -362,12 +412,15 @@ class ICloudCopies:
             self._wake.wait(2)
             self._wake.clear()
 
-    #: Сопоставляет облачный, выбранный и целевой корни с привязкой.
+    #: Сопоставляет действующий источник и целевой корень с сохранённой привязкой.
     #: Явно отклоняет недопустимое состояние через OSError.
     def _validate_roots(self, copy, source_volume, target_volume):
         expected = json.loads(copy['roots'])
-        for volume, path, key in ((source_volume, '', 'left'), (source_volume, copy['source_path'], 'scope'),
-                                  (target_volume, copy['path'], 'right')):
+        if copy['source_link_id']:
+            source_checks = ((source_volume, copy['read_path'], 'left'),)
+        else:
+            source_checks = ((source_volume, '', 'left'), (source_volume, copy['read_path'], 'scope'))
+        for volume, path, key in (*source_checks, (target_volume, copy['path'], 'right')):
             with open_readonly(volume, path, directory=True) as descriptor:
                 if object_id(os.fstat(descriptor)) != expected[key]:
                     raise OSError('Папка источника или назначения заменена. Проверь привязку.')
@@ -379,7 +432,13 @@ class ICloudCopies:
         self._check(identifier)
         copy = self._copy(identifier)
         try:
-            source_volume = self._source_volume()
+            if copy['source_link_id']:
+                upstream = self._copy(copy['source_link_id'])
+                source_volume = self._target_volume(upstream['volume_id'])
+                copy['read_path'] = upstream['path']
+            else:
+                source_volume = self._source_volume()
+                copy['read_path'] = copy['source_path']
             target_volume = self._target_volume(copy['volume_id'])
             self._validate_roots(copy, source_volume, target_volume)
         except OSError as error:
@@ -403,24 +462,26 @@ class ICloudCopies:
             self._update_item(item, state='retry', attempts=attempts, retry_at=time.time() + delay, message=str(error))
         self._finish_item(identifier)
 
-    #: Читает метаданные одной папки и добавляет её дочерние элементы в очередь.
+    #: Добавляет облачные дочерние пути или создаёт папку из очереди зависимой копии.
     #: Сохраняет пустые каталоги и пропускает ссылки и специальные объекты.
     def _scan(self, item, copy, source_volume, target_volume):
         path = item['path']
-        source = '/'.join(filter(None, (copy['source_path'], path)))
+        source = '/'.join(filter(None, (copy['read_path'], path)))
         children = []
-        with open_readonly(source_volume, source, directory=True) as descriptor, os.scandir(descriptor) as entries:
-            device = os.fstat(descriptor).st_dev
-            for entry in entries:
-                if service_file(entry.name, volume_root=not source):
-                    continue
-                try:
-                    info = entry.stat(follow_symlinks=False)
-                except FileNotFoundError:
-                    continue
-                if info.st_dev == device and (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
-                    children.append(('/'.join(filter(None, (path, entry.name))),
-                                     'directory' if stat.S_ISDIR(info.st_mode) else 'file'))
+        with open_readonly(source_volume, source, directory=True) as descriptor:
+            if not copy['source_link_id']:
+                with os.scandir(descriptor) as entries:
+                    device = os.fstat(descriptor).st_dev
+                    for entry in entries:
+                        if service_file(entry.name, volume_root=not source):
+                            continue
+                        try:
+                            info = entry.stat(follow_symlinks=False)
+                        except FileNotFoundError:
+                            continue
+                        if info.st_dev == device and (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+                            children.append(('/'.join(filter(None, (path, entry.name))),
+                                             'directory' if stat.S_ISDIR(info.st_mode) else 'file'))
         with self._lock:
             self._check(copy['id'])
             self._validate_roots(copy, source_volume, target_volume)
@@ -429,9 +490,10 @@ class ICloudCopies:
                     pass
             except NotADirectoryError:
                 return 'conflict', 'Путь папки занят другим объектом'
-            with self.storage.connect() as db:
-                db.executemany('INSERT OR IGNORE INTO icloud_copy_items (copy_id,path,kind,updated_at) VALUES (?,?,?,?)',
-                               ((copy['id'], name, kind, now()) for name, kind in children))
+            if children:
+                with self.storage.connect() as db:
+                    db.executemany('INSERT OR IGNORE INTO icloud_copy_items (copy_id,path,kind,updated_at) VALUES (?,?,?,?)',
+                                   ((copy['id'], name, kind, now()) for name, kind in children))
         return 'done', ''
 
     #: Удаляет собственную незавершённую запись после сверки идентичности.
@@ -453,7 +515,7 @@ class ICloudCopies:
     @staticmethod
     @contextmanager
     def _source_parent(copy, source_volume, path):
-        full = PurePosixPath(copy['source_path']) / path
+        full = PurePosixPath(copy['read_path']) / path
         with open_readonly(source_volume, relative_path(str(full.parent)), directory=True) as parent:
             yield parent, full.name
 
@@ -480,6 +542,21 @@ class ICloudCopies:
         except NotADirectoryError:
             return 'conflict', 'Путь к файлу занят другим объектом'
 
+    #: Читает подтверждённый локальный файл из предыдущего звена по дескриптору.
+    #: Сверяет файловые метаданные перед чтением и проверяет паузу между блоками.
+    @staticmethod
+    def _read_local(parent, name, source, check):
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(descriptor, 'rb') as stream:
+            if fingerprint(os.fstat(descriptor)) != fingerprint(source):
+                raise OSError('Файл в копии-источнике изменился перед чтением')
+            while True:
+                check()
+                block = stream.read(1024 * 1024)
+                if not block:
+                    return
+                yield block
+
     #: Сохраняет содержимое во временный файл и публикует без перезаписи.
     #: Перед публикацией сверяет размер, версию исходника и идентичность папки назначения.
     def _write(self, item, copy, source_volume, target_volume, original, source, parent, target, name):
@@ -499,8 +576,10 @@ class ICloudCopies:
                     check_at = time.monotonic() + .5
 
             size = 0
+            reader = (self._read_local(original, name, source, check) if copy['source_link_id']
+                      else self.reader.stream(original, name, check))
             with os.fdopen(os.dup(descriptor), 'wb') as output:
-                with closing(self.reader.stream(original, name, check)) as stream:
+                with closing(reader) as stream:
                     for block in stream:
                         size += len(block)
                         if size > source.st_size:

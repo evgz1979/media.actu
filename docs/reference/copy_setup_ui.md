@@ -28,7 +28,9 @@
 - [CopySetupUI.destination.browse_source](#symbol-CopySetupUI.destination.browse_source) — Открывает выбор папки и применяет только подтверждённый адрес.
 - [CopySetupUI.destination.can_save](#symbol-CopySetupUI.destination.can_save) — Проверяет оба адреса и состояние диалога перед сохранением связи.
 - [CopySetupUI.destination.change_source](#symbol-CopySetupUI.destination.change_source) — Подписывает выбранную область и обновляет доступность сохранения.
+- [CopySetupUI.destination.change_upstream](#symbol-CopySetupUI.destination.change_upstream) — Обновляет маршрут и доступность сохранения после выбора предыдущего звена.
 - [CopySetupUI.destination.change_volume](#symbol-CopySetupUI.destination.change_volume) — Обрабатывает выбор тома только для актуального значения поля.
+- [CopySetupUI.destination.cloud_choices](#symbol-CopySetupUI.destination.cloud_choices) — Предлагает копии той же области iCloud Drive и прямой источник при доступности.
 - [CopySetupUI.destination.submit](#symbol-CopySetupUI.destination.submit) — Отправляет подтверждённую связь и оставляет поля доступными для исправления ошибки.
 - [CopySetupUI.destination.update_destination](#symbol-CopySetupUI.destination.update_destination) — Согласует выбранный том, предложенный тип копии и доступность сохранения.
 - [CopySetupUI.destination.update_origin](#symbol-CopySetupUI.destination.update_origin) — Показывает фактический путь передачи и выбранную область iCloud.
@@ -36,8 +38,8 @@
 - [CopySetupUI.save](#symbol-CopySetupUI.save) — Сохраняет настроенную связь через API соответствующего источника.
 - [CopySetupUI.source](#symbol-CopySetupUI.source) — Определяет допустимый источник из дерева, бокового списка или панели операций.
 - [CopySetupUI.suggested](#symbol-CopySetupUI.suggested) — Выбирает доступную папку из панели напротив источника как быстрый вариант назначения.
+- [copy_origin_route](#symbol-copy_origin_route) — Показывает адрес и предыдущие звенья выбранной копии Photos или iCloud.
 - [copy_volume](#symbol-copy_volume) — Определяет подключённый том, пригодный для выбора папки копии.
-- [photo_route](#symbol-photo_route) — Показывает адрес и предыдущие звенья выбранной копии Photos.
 - [scope_title](#symbol-scope_title) — Формирует читаемый путь по короткому имени тома и пути внутри него.
 
 ## Константы и значения по умолчанию
@@ -226,7 +228,7 @@ def changed()
 async def destination(self, source, volumes, suggestion, preferred_kind)
 ```
 
-Прямые выражения вызова: [CopyFolderPicker](copy_setup_ui.md#symbol-CopyFolderPicker), `confirm.disable`, `copy.get`, `dialog.delete`, `dict`, `iter`, `next`, `picker.set_locked`, `problem.set_visibility`, [scope_title](copy_setup_ui.md#symbol-scope_title), `selector.on_value_change`, `self.ws.resolve_volume`, `shortcut.tooltip`, `sorted`, `source.get`, `ui.button`, `ui.button('Весь iCloud Drive', on_click=lambda: change_source('')).props`, `ui.button('Выбрать папку…', icon='folder_open', on_click=browse_source).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props('flat dense no-caps color=green-9').classes`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.button('Сохранить связь', on_click=submit).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.dialog().props`, `ui.label`, `ui.label('Добавить копию').classes`, `ui.label('Из').classes`, `ui.label('Куда').classes`, `ui.label().classes`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props('dense outlined options-dense').classes`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props('dense outlined options-dense').classes`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props('dense outlined options-dense').classes`, `ui.timer`, `update_origin`, `upstream.on_value_change`, `volumes.items`.
+Прямые выражения вызова: [CopyFolderPicker](copy_setup_ui.md#symbol-CopyFolderPicker), `cloud_choices`, `confirm.disable`, `copy.get`, `dialog.delete`, `dict`, `iter`, `len`, `next`, `picker.set_locked`, `problem.set_visibility`, [scope_title](copy_setup_ui.md#symbol-scope_title), `selector.on_value_change`, `self.ws.photo_libraries.cloud.get`, `self.ws.resolve_volume`, `shortcut.tooltip`, `sorted`, `source.get`, `ui.button`, `ui.button('Весь iCloud Drive', on_click=lambda: change_source('')).props`, `ui.button('Выбрать папку…', icon='folder_open', on_click=browse_source).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props('flat dense no-caps color=green-9').classes`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.button('Сохранить связь', on_click=submit).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.dialog().props`, `ui.label`, `ui.label('Добавить копию').classes`, `ui.label('Из').classes`, `ui.label('Куда').classes`, `ui.label().classes`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props('dense outlined options-dense').classes`, `ui.select(choices, value=(direct or all_copies[0])['id'], label='Копировать из').props`, `ui.select(choices, value=(direct or all_copies[0])['id'], label='Копировать из').props('dense outlined options-dense').classes`, `ui.select(options, value=initial, label='Копировать из').props`, `ui.select(options, value=initial, label='Копировать из').props('dense outlined options-dense').classes`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props('dense outlined options-dense').classes`, `ui.timer`, `update_origin`, `upstream.on_value_change`, `upstream.set_visibility`, `volumes.items`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -268,7 +270,7 @@ def can_save()
 
 Выражения возврата (ветви, без исполнения):
 
-- `source_path is not None and picker.ready and bool(picker.path) and ((picker.volume_id, picker.path) != (source['volume_id'], source_path)) and (not (state['saving'] or state['selecting_source']))`
+- `source_path is not None and (cloud_online or not cloud_kind or bool(upstream and upstream.value)) and picker.ready and bool(picker.path) and ((picker.volume_id, picker.path) != (source['volume_id'], source_path)) and (not (state['saving'] or state['selecting_source']))`
 
 
 <a id="symbol-CopySetupUI.destination.change_source"></a>
@@ -283,11 +285,28 @@ def can_save()
 def change_source(path)
 ```
 
-Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), `confirm.set_enabled`, `problem.set_visibility`, [update_origin](copy_setup_ui.md#symbol-CopySetupUI.destination.update_origin).
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), [cloud_choices](copy_setup_ui.md#symbol-CopySetupUI.destination.cloud_choices), `confirm.set_enabled`, `iter`, `len`, `next`, `problem.set_visibility`, [update_origin](copy_setup_ui.md#symbol-CopySetupUI.destination.update_origin), `upstream.set_options`, `upstream.set_visibility`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
+
+
+<a id="symbol-CopySetupUI.destination.change_upstream"></a>
+
+## `CopySetupUI.destination.change_upstream`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.change_upstream`
+
+Обновляет маршрут и доступность сохранения после выбора предыдущего звена. Вызывается только после построения всех элементов формы.
+
+```python
+def change_upstream()
+```
+
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), `confirm.set_enabled`, [update_origin](copy_setup_ui.md#symbol-CopySetupUI.destination.update_origin).
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-CopySetupUI.destination.change_volume"></a>
@@ -305,6 +324,25 @@ async def change_volume(event)
 Прямые выражения вызова: `picker.navigate`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopySetupUI.destination.cloud_choices"></a>
+
+## `CopySetupUI.destination.cloud_choices`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.cloud_choices`
+
+Предлагает копии той же области iCloud Drive и прямой источник при доступности. Показывает только подключённые копии для новой привязки.
+
+```python
+def cloud_choices()
+```
+
+Прямые выражения вызова: `options.update`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `options`
 
 
 <a id="symbol-CopySetupUI.destination.submit"></a>
@@ -351,13 +389,13 @@ def update_destination()
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.update_origin`
 
-Показывает фактический путь передачи и выбранную область iCloud. Использует photo_route для отображения промежуточных звеньев.
+Показывает фактический путь передачи и выбранную область iCloud. Использует общий маршрут для промежуточных звеньев Photos и iCloud.
 
 ```python
 def update_origin()
 ```
 
-Прямые выражения вызова: [photo_route](copy_setup_ui.md#symbol-photo_route), [scope_title](copy_setup_ui.md#symbol-scope_title).
+Прямые выражения вызова: [copy_origin_route](copy_setup_ui.md#symbol-copy_origin_route), `library.get`, [scope_title](copy_setup_ui.md#symbol-scope_title).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -391,7 +429,7 @@ async def open(self, volume_id, path='', *, index=None, preferred_kind=None)
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.save`
 
-Сохраняет настроенную связь через API соответствующего источника. Для iCloud сохраняет выбранный путь, включая явно выбранный корень.
+Сохраняет настроенную связь через API соответствующего источника. Для iCloud сохраняет выбранный путь и предыдущее звено цепочки.
 
 ```python
 async def save(self, source, target, kind, upstream)
@@ -403,7 +441,7 @@ async def save(self, source, target, kind, upstream)
 
 - `await self.ws.request('POST', '/api/storage/folder-copy-bindings', json=dict(source=origin, destination=dict(target, kind=kind)))`
 - `await self.ws.request('POST', f"/api/photos/libraries/{source['library']['id']}/copies", json=dict(target, source_link_id=upstream or None))`
-- `await self.ws.request('POST', '/api/icloud/copies', json=dict(target, source_path=source['path']))`
+- `await self.ws.request('POST', '/api/icloud/copies', json=dict(target, source_path=source['path'], source_link_id=upstream if upstream != ICLOUD_VOLUME_ID else None))`
 
 
 <a id="symbol-CopySetupUI.source"></a>
@@ -412,19 +450,20 @@ async def save(self, source, target, kind, upstream)
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.source`
 
-Определяет допустимый источник из дерева, бокового списка или панели операций. Для Photos выбирает всю медиатеку, для iCloud Drive сохраняет выбранную папку.
+Определяет допустимый источник из дерева, бокового списка или панели операций. Для корня привязанной копии iCloud предлагает продолжить её цепочку.
 
 ```python
 def source(self, volume_id, path, entry_kind='directory')
 ```
 
-Прямые выражения вызова: [copy_volume](copy_setup_ui.md#symbol-copy_volume), `dict`, `self.ws.copies.membership`, `self.ws.resolve_volume`.
+Прямые выражения вызова: [copy_volume](copy_setup_ui.md#symbol-copy_volume), `dict`, `getattr`, `libraries.cloud.get`, `next`, `self.ws.copies.membership`, `self.ws.resolve_volume`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
 - `dict(kind='photos', volume_id=volume_id, path='', library=volume['library'])`
 - `dict(kind='icloud', volume_id=volume_id, path=path)`
+- `dict(kind='icloud', volume_id=ICLOUD_VOLUME_ID, path=upstream['source_path'], source_link_id=upstream['id'])`
 - `dict(kind='folder', volume_id=volume_id, path=path)`
 
 
@@ -448,6 +487,27 @@ def suggested(self, source, index)
 - `None`
 
 
+<a id="symbol-copy_origin_route"></a>
+
+## `copy_origin_route`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `copy_origin_route`
+
+Показывает адрес и предыдущие звенья выбранной копии Photos или iCloud. Недоступное звено отображается отдельной подписью в маршруте.
+
+```python
+def copy_origin_route(label, copies, link_id)
+```
+
+Прямые выражения вызова: `' → '.join`, `copy_route`, `dict`, `next`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `label`
+- `'Недоступный источник'`
+- `' → '.join((node['label'] for node in route))`
+
+
 <a id="symbol-copy_volume"></a>
 
 ## `copy_volume`
@@ -465,27 +525,6 @@ def copy_volume(volume)
 Выражения возврата (ветви, без исполнения):
 
 - `bool(volume and volume['kind'] not in ('photos', 'icloud') and (volume['availability'] == 'online') and (volume.get('identity_status') not in ('unverified', 'legacy')))`
-
-
-<a id="symbol-photo_route"></a>
-
-## `photo_route`
-
-[copy_setup_ui.py](../../copy_setup_ui.py) · `photo_route`
-
-Показывает адрес и предыдущие звенья выбранной копии Photos. Недоступное звено отображается отдельно от прямого маршрута Photos.
-
-```python
-def photo_route(library, link_id)
-```
-
-Прямые выражения вызова: `' → '.join`, `copy_route`, `dict`, `library.get`, `next`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `label`
-- `'Недоступный источник'`
-- `' → '.join((node['label'] for node in route))`
 
 
 <a id="symbol-scope_title"></a>

@@ -1,6 +1,6 @@
 import unittest
 
-from copy_panels import copy_route, copy_upstream
+from copy_panels import branch_summary, copy_branches, copy_route, copy_upstream
 
 
 #: Проверяет построение маршрута между связанными панелями.
@@ -57,3 +57,16 @@ class CopyRouteTests(unittest.TestCase):
                 self.assertEqual(copy_route(self.root, [self.first, sibling], target, parent_key=parent_key),
                                  (self.root, target))
                 self.assertIs(copy_upstream(self.root, [self.first, sibling], target, parent_key=parent_key), self.root)
+
+    #: Проверяет порядок раскрытия по источникам после перенумерации копий.
+    #: Сводка показывает главное звено и наличие другой зависимой ветки.
+    def test_sidebar_orders_real_branches_even_if_numbers_are_not_in_route_order(self):
+        first = dict(id='parent', number=3)
+        second = dict(id='child', number=1, source='parent')
+        sibling = dict(id='sibling', number=2, source='parent')
+        leaf = dict(id='leaf', number=4, source='child')
+        direct = dict(id='direct', number=5)
+        branches = copy_branches([second, sibling, first, leaf, direct], parent_key='source')
+        self.assertEqual(branches, [(first,), (first, second), (first, second, leaf), (first, sibling), (direct,)])
+        self.assertEqual(branch_summary(branches), '03-copy → 01-copy → 04-copy · …')
+        self.assertEqual(branch_summary(copy_branches([first, direct], parent_key='source')), '')

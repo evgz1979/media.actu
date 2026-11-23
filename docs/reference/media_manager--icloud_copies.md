@@ -24,20 +24,22 @@
 - [ICloudCopies._next](#symbol-ICloudCopies._next) — Выбирает следующий доступный элемент, затем вычисляет состояние ожидающих привязок.
 - [ICloudCopies._process](#symbol-ICloudCopies._process) — Выполняет одну попытку, фиксируя временный сбой тома или выбранного пути.
 - [ICloudCopies._publish](#symbol-ICloudCopies._publish) — Публикует временный путь атомарно, где это поддерживает файловая система.
-- [ICloudCopies._scan](#symbol-ICloudCopies._scan) — Читает метаданные одной папки и добавляет её дочерние элементы в очередь.
+- [ICloudCopies._queue_ready_sources](#symbol-ICloudCopies._queue_ready_sources) — Формирует очередь зависимой копии из завершённого прохода копии-источника.
+- [ICloudCopies._read_local](#symbol-ICloudCopies._read_local) — Читает подтверждённый локальный файл из предыдущего звена по дескриптору.
+- [ICloudCopies._scan](#symbol-ICloudCopies._scan) — Добавляет облачные дочерние пути или создаёт папку из очереди зависимой копии.
 - [ICloudCopies._source_parent](#symbol-ICloudCopies._source_parent) — Безопасно открывает подтверждённого родителя исходного файла.
 - [ICloudCopies._source_volume](#symbol-ICloudCopies._source_volume) — Возвращает доступный путь облачного источника для операций чтения.
 - [ICloudCopies._target_volume](#symbol-ICloudCopies._target_volume) — Проверяет доступность и подтверждённую идентичность тома назначения.
 - [ICloudCopies._transfer](#symbol-ICloudCopies._transfer) — Планирует запись одного отсутствующего файла с учётом существующего назначения.
 - [ICloudCopies._update_copy](#symbol-ICloudCopies._update_copy) — Обновляет состояние привязки внутри переданной транзакции.
 - [ICloudCopies._update_item](#symbol-ICloudCopies._update_item) — Обновляет состояние элемента очереди и его промежуточной записи.
-- [ICloudCopies._validate_roots](#symbol-ICloudCopies._validate_roots) — Сопоставляет облачный, выбранный и целевой корни с привязкой.
+- [ICloudCopies._validate_roots](#symbol-ICloudCopies._validate_roots) — Сопоставляет действующий источник и целевой корень с сохранённой привязкой.
 - [ICloudCopies._validate_transfer](#symbol-ICloudCopies._validate_transfer) — Проверяет после записи версию источника и идентичность папки назначения.
 - [ICloudCopies._work](#symbol-ICloudCopies._work) — Обходит готовые элементы и оставляет временные ошибки для последующих попыток.
 - [ICloudCopies._write](#symbol-ICloudCopies._write) — Сохраняет содержимое во временный файл и публикует без перезаписи.
 - [ICloudCopies._write.check](#symbol-ICloudCopies._write.check) — Проверяет активность копии во время чтения с ограничением обращения к SQLite.
 - [ICloudCopies._write_network](#symbol-ICloudCopies._write_network) — Записывает готовый промежуточный файл на SMB без перезаписи существующего пути.
-- [ICloudCopies.bind](#symbol-ICloudCopies.bind) — Создаёт привязку существующей папки назначения к области iCloud Drive.
+- [ICloudCopies.bind](#symbol-ICloudCopies.bind) — Привязывает папку назначения к облачной области или её сохранённой копии.
 - [ICloudCopies.browse](#symbol-ICloudCopies.browse) — Читает метаданные папки iCloud для обычного дерева без скачивания содержимого.
 - [ICloudCopies.close](#symbol-ICloudCopies.close) — Кооперативно завершает поток перед остановкой Core.
 - [ICloudCopies.journal](#symbol-ICloudCopies.journal) — Возвращает страницу журнала с причинами задержек и временем повтора.
@@ -86,7 +88,7 @@
 
 Состояние, присваиваемое конструктором: `_current`, `_lock`, `_stop`, `_thread`, `_wake`, `reader`, `root`, `storage`.
 
-Именованные методы: `__init__`, `_source_volume`, `browse`, `_copy`, `_target_volume`, `bind`, `list`, `journal`, `start_copy`, `pause_copy`, `unbind`, `start`, `close`, `_update_copy`, `_update_item`, `_check`, `_next`, `_finish_item`, `_work`, `_validate_roots`, `_process`, `_scan`, `_cleanup`, `_source_parent`, `_transfer`, `_write`, `_validate_transfer`, `_publish`, `_write_network`.
+Именованные методы: `__init__`, `_source_volume`, `browse`, `_copy`, `_target_volume`, `bind`, `list`, `journal`, `start_copy`, `pause_copy`, `unbind`, `start`, `close`, `_update_copy`, `_update_item`, `_check`, `_queue_ready_sources`, `_next`, `_finish_item`, `_work`, `_validate_roots`, `_process`, `_scan`, `_cleanup`, `_source_parent`, `_transfer`, `_read_local`, `_write`, `_validate_transfer`, `_publish`, `_write_network`.
 
 <a id="symbol-ICloudCopies.__init__"></a>
 
@@ -209,7 +211,7 @@ def _next(self)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `db.execute`, `db.execute("\n                SELECT c.id,COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='pending') AS pending,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts\n                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id\n                WHERE c.active=1 AND c.retry_at<=? GROUP BY c.id\n            ", (current,)).fetchall`, `db.execute("\n                SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                WHERE c.active=1 AND c.retry_at<=? AND i.state IN ('pending','retry') AND i.retry_at<=?\n                ORDER BY c.updated_at, i.retry_at, i.path LIMIT 1\n            ", (current, current)).fetchone`, `dict`, [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self.storage.connect`, `time.time`.
+Прямые выражения вызова: `db.execute`, `db.execute("\n                SELECT c.id,COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='pending') AS pending,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts\n                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id\n                WHERE c.active=1 AND c.state!='waiting_source' AND c.retry_at<=? GROUP BY c.id\n            ", (current,)).fetchall`, `db.execute("\n                SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                WHERE c.active=1 AND c.retry_at<=? AND i.state IN ('pending','retry') AND i.retry_at<=?\n                ORDER BY c.updated_at, i.retry_at, i.path LIMIT 1\n            ", (current, current)).fetchone`, `dict`, [self._queue_ready_sources](media_manager--icloud_copies.md#symbol-ICloudCopies._queue_ready_sources), [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self.storage.connect`, `time.time`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -263,13 +265,57 @@ def _publish(target, temporary, name, network)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
+<a id="symbol-ICloudCopies._queue_ready_sources"></a>
+
+## `ICloudCopies._queue_ready_sources`
+
+[media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._queue_ready_sources`
+
+Формирует очередь зависимой копии из завершённого прохода копии-источника. Переносит только готовые пути и журналирует расхождения предыдущего звена.
+
+```python
+def _queue_ready_sources(self, db)
+```
+
+SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL `icloud_copy_items`. См. [схему данных](../data-model.md).
+
+Прямые выражения вызова: `db.execute`, `db.execute("\n            SELECT c.id,c.source_link_id FROM icloud_copies c\n            JOIN icloud_copies p ON p.id=c.source_link_id\n            WHERE c.active=1 AND c.state='waiting_source' AND p.active=0\n                AND p.state IN ('completed','completed_with_conflicts')\n                AND EXISTS (SELECT 1 FROM icloud_copy_items i WHERE i.copy_id=p.id AND i.path='')\n        ").fetchall`, `now`, [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy).
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-ICloudCopies._read_local"></a>
+
+## `ICloudCopies._read_local`
+
+[media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._read_local`
+
+Читает подтверждённый локальный файл из предыдущего звена по дескриптору. Сверяет файловые метаданные перед чтением и проверяет паузу между блоками.
+
+```python
+def _read_local(parent, name, source, check)
+```
+
+Декораторы: `staticmethod`.
+
+Прямые выражения вызова: `OSError`, `check`, `fingerprint`, `os.fdopen`, `os.fstat`, `os.open`, `stream.read`.
+
+Явные `raise`:
+
+- `OSError('Файл в копии-источнике изменился перед чтением')`
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
 <a id="symbol-ICloudCopies._scan"></a>
 
 ## `ICloudCopies._scan`
 
 [media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._scan`
 
-Читает метаданные одной папки и добавляет её дочерние элементы в очередь. Сохраняет пустые каталоги и пропускает ссылки и специальные объекты.
+Добавляет облачные дочерние пути или создаёт папку из очереди зависимой копии. Сохраняет пустые каталоги и пропускает ссылки и специальные объекты.
 
 ```python
 def _scan(self, item, copy, source_volume, target_volume)
@@ -424,7 +470,7 @@ SQLite: чтение не найдено; запись/DDL `icloud_copy_items`. 
 
 [media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._validate_roots`
 
-Сопоставляет облачный, выбранный и целевой корни с привязкой. Явно отклоняет недопустимое состояние через OSError.
+Сопоставляет действующий источник и целевой корень с сохранённой привязкой. Явно отклоняет недопустимое состояние через OSError.
 
 ```python
 def _validate_roots(self, copy, source_volume, target_volume)
@@ -494,7 +540,7 @@ def _work(self)
 def _write(self, item, copy, source_volume, target_volume, original, source, parent, target, name)
 ```
 
-Прямые выражения вызова: `OSError`, `closing`, `dict`, `json.dumps`, `len`, `object_id`, `os.close`, `os.dup`, `os.fdopen`, `os.fstat`, `os.fsync`, `os.open`, `os.stat`, `os.utime`, `output.flush`, `output.write`, [self._check](media_manager--icloud_copies.md#symbol-ICloudCopies._check), [self._cleanup](media_manager--icloud_copies.md#symbol-ICloudCopies._cleanup), [self._publish](media_manager--icloud_copies.md#symbol-ICloudCopies._publish), [self._update_item](media_manager--icloud_copies.md#symbol-ICloudCopies._update_item), [self._validate_transfer](media_manager--icloud_copies.md#symbol-ICloudCopies._validate_transfer), [self._write_network](media_manager--icloud_copies.md#symbol-ICloudCopies._write_network), `self.reader.stream`, `target_volume.get`, `uuid4`.
+Прямые выражения вызова: `OSError`, `closing`, `dict`, `json.dumps`, `len`, `object_id`, `os.close`, `os.dup`, `os.fdopen`, `os.fstat`, `os.fsync`, `os.open`, `os.stat`, `os.utime`, `output.flush`, `output.write`, [self._check](media_manager--icloud_copies.md#symbol-ICloudCopies._check), [self._cleanup](media_manager--icloud_copies.md#symbol-ICloudCopies._cleanup), [self._publish](media_manager--icloud_copies.md#symbol-ICloudCopies._publish), [self._read_local](media_manager--icloud_copies.md#symbol-ICloudCopies._read_local), [self._update_item](media_manager--icloud_copies.md#symbol-ICloudCopies._update_item), [self._validate_transfer](media_manager--icloud_copies.md#symbol-ICloudCopies._validate_transfer), [self._write_network](media_manager--icloud_copies.md#symbol-ICloudCopies._write_network), `self.reader.stream`, `target_volume.get`, `uuid4`.
 
 Явные `raise`:
 
@@ -555,19 +601,22 @@ def _write_network(self, item, copy, source_volume, target_volume, source, paren
 
 [media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies.bind`
 
-Создаёт привязку существующей папки назначения к области iCloud Drive. Проверяет непересечение корней и сохраняет их идентичность.
+Привязывает папку назначения к облачной области или её сохранённой копии. Проверяет непересечение корней и сохраняет их идентичность.
 
 ```python
-def bind(self, source_path, volume_id, path)
+def bind(self, source_path, volume_id, path, source_link_id=None)
 ```
 
 SQLite: чтение `icloud_copies`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `MissingCopyCatalog._roots`, `PurePosixPath`, `ValueError`, `db.execute`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone`, `dict`, `json.dumps`, `json.loads`, `now`, `object_id`, `open_readonly`, `os.fstat`, `other.is_relative_to`, `relative_path`, [self._source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._source_volume), [self._target_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._target_volume), `self.storage.connect`, `target.is_relative_to`, `uuid4`.
+Прямые выражения вызова: `(Path(destination['mount_path']) / path).resolve`, `MissingCopyCatalog._roots`, `OSError`, `Path`, `PurePosixPath`, `ValueError`, `cloud_path.is_relative_to`, `db.execute`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone`, `dict`, `json.dumps`, `json.loads`, `now`, `object_id`, `open_readonly`, `os.fstat`, `other.is_relative_to`, `relative_path`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), [self._source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._source_volume), [self._target_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._target_volume), `self.root.is_dir`, `self.root.resolve`, `self.storage.connect`, `target.is_relative_to`, `target_path.is_relative_to`, `uuid4`.
 
 Явные `raise`:
 
 - `ValueError('Выбери папку назначения внутри тома')`
+- `ValueError('Выбери копию той же папки iCloud Drive')`
+- `ValueError('Папка назначения и iCloud Drive пересекаются.')`
+- `OSError('Папка копии-источника заменена. Проверь привязку.')`
 - `ValueError('Папка пересекается с уже привязанной копией iCloud Drive')`
 
 Выражения возврата (ветви, без исполнения):
@@ -646,7 +695,7 @@ def list(self)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL не найдена. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.number,c.source_path,c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `dict`, [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), [self._source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._source_volume), `self.storage.connect`, `self.storage.refresh`, `volume.get`, `volumes.get`.
+Прямые выражения вызова: `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,\n                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id\n                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `dict`, [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), [self._source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._source_volume), `self.storage.connect`, `self.storage.refresh`, `volume.get`, `volumes.get`.
 
 Перехватываемые типы: `OSError`.
 
@@ -709,7 +758,7 @@ def start_copy(self, copy_id)
 
 SQLite: чтение `icloud_copy_items`; запись/DDL `icloud_copy_items`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `db.execute`, `dict`, `now`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self._wake.set`, `self.storage.connect`.
+Прямые выражения вызова: `db.execute`, `db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? LIMIT 1', (copy_id,)).fetchone`, `dict`, `now`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self._wake.set`, `self.storage.connect`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -730,11 +779,12 @@ def unbind(self, copy_id)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `ValueError`, `db.execute`, `db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND staging IS NOT NULL', (copy_id,)).fetchone`, `dict`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), `self.storage.connect`.
+Прямые выражения вызова: `ValueError`, `db.execute`, `db.execute('SELECT 1 FROM icloud_copies WHERE source_link_id=? LIMIT 1', (copy_id,)).fetchone`, `db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND staging IS NOT NULL', (copy_id,)).fetchone`, `dict`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), `self.storage.connect`.
 
 Явные `raise`:
 
 - `ValueError('Сначала поставь копирование на паузу и дождись остановки')`
+- `ValueError('Сначала отвяжи копии, которые используют это звено как источник')`
 - `ValueError('Возобнови копирование, чтобы обработать незавершённую запись')`
 
 Выражения возврата (ветви, без исполнения):

@@ -133,6 +133,93 @@ class ICloudCopiesTests(unittest.TestCase):
         self.assertEqual(list(self.target.glob('*.part')), [])
         self.assertEqual(self.copies.list()['copies'][0]['state'], 'completed')
 
+    #: Проверяет ожидание NVMe при отложенном файле и восстановление цепочки после перезапуска.
+    #: NAS получает только пути завершённого прохода с диска при отключённом iCloud.
+    def test_chain_waits_for_completed_source_and_never_reads_cloud_for_second_hop(self):
+        cloud = self.source / 'Scope'
+        (cloud / 'Empty').mkdir(parents=True)
+        (cloud / 'delayed').write_bytes(b'last')
+        (cloud / 'ready').write_bytes(b'first')
+        archive = self.disk / 'NAS'
+        archive.mkdir()
+        first = self.copies.bind('Scope', 'disk', 'Backup')['id']
+        second = self.copies.bind('Scope', 'disk', 'NAS', source_link_id=first)['id']
+        self.reader.unavailable.add('delayed')
+        self.copies.start_copy(second)
+        self.copies.start_copy(first)
+        self.read_pending()
+        self.assertEqual(self.copies._copy(second)['state'], 'waiting_source')
+        self.assertEqual(list(archive.iterdir()), [])
+        self.assertEqual((self.target / 'ready').read_bytes(), b'first')
+
+        self.copies = self.service()
+        self.reader.unavailable.clear()
+        with self.storage.connect() as db:
+            db.execute("UPDATE icloud_copy_items SET retry_at=0 WHERE state='retry'")
+        while self.copies._copy(first)['active']:
+            self.copies._process(self.copies._next())
+        (self.target / 'unrelated').write_bytes(b'not in the manifest')
+        self.source.rename(self.root / 'Offline')
+        calls = self.reader.calls[:]
+        self.read_pending()
+        self.assertEqual({path.name for path in archive.iterdir()}, {'Empty', 'delayed', 'ready'})
+        self.assertEqual((archive / 'delayed').read_bytes(), b'last')
+        self.assertEqual((archive / 'ready').read_bytes(), b'first')
+        self.assertEqual(self.reader.calls, calls)
+        copy = self.copies.list()['copies'][1]
+        self.assertEqual((copy['source_link_id'], copy['source_label'], copy['state'], copy['done']),
+                         (first, '01-copy', 'completed', 2))
+
+    #: Проверяет область, перекрывающиеся корни и защиту используемого звена от отвязки.
+    #: Сохраняет хранимый источник после отказа Core.
+    def test_chain_rejects_different_scopes_overlap_and_unbinding_its_source(self):
+        (self.source / 'Scope').mkdir()
+        (self.disk / 'Archive').mkdir()
+        (self.target / 'Nested').mkdir()
+        first = self.copies.bind('Scope', 'disk', 'Backup')['id']
+        with self.assertRaisesRegex(ValueError, 'той же папки'):
+            self.copies.bind('', 'disk', 'Archive', source_link_id=first)
+        with self.assertRaisesRegex(ValueError, 'пересекаются'):
+            self.copies.bind('Scope', 'disk', 'Backup/Nested', source_link_id=first)
+        self.copies.bind('Scope', 'disk', 'Archive', source_link_id=first)
+        with self.assertRaisesRegex(ValueError, 'используют это звено'):
+            self.copies.unbind(first)
+
+    #: Проверяет перенос расхождений предыдущего звена и сохранность файлов NAS.
+    #: Готовые файлы идут дальше, проблемный путь остаётся в журнале.
+    def test_chain_copies_ready_paths_and_carries_upstream_conflicts(self):
+        (self.source / 'good').write_bytes(b'good')
+        (self.source / 'bad').write_bytes(b'bad')
+        (self.target / 'bad').write_bytes(b'existing different size')
+        archive = self.disk / 'NAS'
+        archive.mkdir()
+        (archive / 'extra').write_bytes(b'existing')
+        first = self.copies.bind('', 'disk', 'Backup')['id']
+        second = self.copies.bind('', 'disk', 'NAS', source_link_id=first)['id']
+        self.copies.start_copy(first)
+        self.copies.start_copy(second)
+        self.read_pending()
+        self.assertEqual((archive / 'good').read_bytes(), b'good')
+        self.assertEqual((archive / 'extra').read_bytes(), b'existing')
+        self.assertFalse((archive / 'bad').exists())
+        journal = self.copies.journal(second)
+        self.assertEqual(journal['state'], 'completed_with_conflicts')
+        self.assertTrue(next(item for item in journal['items'] if item['path'] == 'bad')['message'].startswith('В копии-источнике'))
+
+    #: Проверяет обновление старой базы при сохранении привязки и частичной очереди.
+    #: Обычная копия остаётся прямой, ручная пауза сохраняется.
+    def test_existing_database_gains_source_link_without_changing_direct_copy(self):
+        copy_id = self.copies.bind('', 'disk', 'Backup')['id']
+        self.copies.start_copy(copy_id)
+        self.copies.pause_copy(copy_id)
+        with self.storage.connect() as db:
+            db.execute('ALTER TABLE icloud_copies DROP COLUMN source_link_id')
+        self.copies = self.service()
+        copy = self.copies.list()['copies'][0]
+        self.assertEqual((copy['id'], copy['state'], copy['source_link_id']), (copy_id, 'paused', None))
+        with self.storage.connect() as db:
+            self.assertIsNotNone(db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=?', (copy_id,)).fetchone())
+
     def test_reader_ends_on_silent_process(self):
         reader = ICloudReader(self.root)
         reader.executable.write_text('#!/bin/sh\nexec /bin/sleep 30\n')

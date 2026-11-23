@@ -1062,10 +1062,11 @@ class PhotosCopyBindingRequest(LibraryCopyRequest):
     source_link_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-#: Задаёт облачную область и существующую папку назначения.
-#: Поля: source_path, volume_id, path.
+#: Задаёт облачную область, папку назначения и необязательное предыдущее звено.
+#: Предыдущее звено должно копировать ту же облачную область.
 class ICloudCopyRequest(LibraryCopyRequest):
     source_path: str = Field(default='', max_length=4096)
+    source_link_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 #: Возвращает состояние iCloud Drive и прогресс его привязанных копий.

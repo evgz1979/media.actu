@@ -207,6 +207,14 @@ DirectorySizeService устраняет покрываемые одной обл
 обрабатываться. При перезапуске Core активные задания продолжаются с сохранённой
 очереди, а ручная пауза сохраняется. Журнал показывает время следующей попытки.
 
+Зависимая привязка хранит ID предыдущей копии той же облачной области. Когда
+она запущена, Core ждёт завершения прохода источника и формирует её очередь
+из его готовых путей и расхождений. Если источник уже завершил проход,
+Core сразу использует его список. Готовые файлы читаются из папки предыдущей
+копии, размер и версия проверяются по метаданным. Для этого прохода облачное
+содержимое запрашивает первое звено.
+
 Код: [`ICloudCopies.bind`](reference/media_manager--icloud_copies.md#symbol-ICloudCopies.bind),
+[`ICloudCopies._queue_ready_sources`](reference/media_manager--icloud_copies.md#symbol-ICloudCopies._queue_ready_sources),
 [`ICloudCopies._process`](reference/media_manager--icloud_copies.md#symbol-ICloudCopies._process),
 [`ICloudReader.stream`](reference/media_manager--icloud_copies.md#symbol-ICloudReader.stream).

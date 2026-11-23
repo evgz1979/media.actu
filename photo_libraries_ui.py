@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from nicegui import ui
 
-from copy_panels import copy_upstream, first_copy
+from copy_panels import branch_summary, copy_branches, copy_upstream, first_copy
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from sidebar_ui import sidebar_branch, sidebar_line, sidebar_menu
 
@@ -199,7 +199,8 @@ class PhotoLibrariesUI:
                         tuple((c['id'], c['volume_name'], c['path'], c['number'], c.get('source_link_id'),
                                c.get('source_label'), c['availability'], self.originals_running(c))
                               for c in library.get('copies', []))) for library in self.libraries)
-        cloud = tuple((c['id'], c['number'], c['volume_name'], c['active'], c['availability']) for c in self.cloud.get('copies', []))
+        cloud = tuple((c['id'], c['number'], c['volume_name'], c['active'], c['availability'], c.get('source_link_id'))
+                      for c in self.cloud.get('copies', []))
         return photos, cloud, self.cloud.get('volume'), self.connection.get('state')
 
     #: Возвращает виртуальный том iCloud Drive после первого успешного опроса.
@@ -218,7 +219,6 @@ class PhotoLibrariesUI:
                   for copy in (library if library else self.cloud).get('copies', [])]
         selected = next((copy for copy in copies if copy['id'] == copy_id), None) if copy_id else first_copy(copies)
         origin = selected.get('source_path', '') if selected else ''
-        parent_key = 'source_link_id' if library else None
         if not library:
             copies = [copy for copy in copies if copy.get('source_path', '') == origin]
         main = dict(id=virtual_id, volume_id=virtual_id, path=origin, availability=volume['availability'],
@@ -227,7 +227,7 @@ class PhotoLibrariesUI:
             (copy['id'], copy['number'], copy['volume_name'], copy['availability'], copy.get('source_link_id'),
              self.originals_running(copy) if library else copy['active'], (copy.get('originals') or {}).get('state') if library else copy['state'])
             for copy in copies))
-        return dict(main=main, copies=copies, parent_key=parent_key, virtual_id=virtual_id, signature=signature), selected
+        return dict(main=main, copies=copies, parent_key='source_link_id', virtual_id=virtual_id, signature=signature), selected
 
     #: Открывает виртуальный источник через тот же контроллер, что и обычную пару.
     #: При отсутствии назначений открывает только левую панель.
@@ -262,9 +262,10 @@ class PhotoLibrariesUI:
 
     #: Создаёт строку источника или копии с обновляемым показателем.
     #: Возвращает две ссылки для последующего обновления статуса.
-    def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library'):
+    def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None,
+                    icon='photo_library', depth=0, origin=''):
         with sidebar_line(name, on_open, tooltip=path, icon=None if copy else icon, offline=offline,
-                          indented=copy, toggle=toggle) as row:
+                          indented=copy, toggle=toggle, depth=depth, origin=origin) as row:
             status = ui.label().classes('sidebar-readout truncate')
             with status:
                 detail = ui.tooltip()
@@ -277,7 +278,7 @@ class PhotoLibrariesUI:
     #: Рисует строку медиатеки или облачного источника и раскрываемые копии.
     #: Использует общий шаблон боковой колонки и отдельную строку расписания.
     @contextmanager
-    def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None):
+    def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None, summary=''):
         #: Создаёт строку источника со значком либо переключателем его копий.
         #: Возвращает ссылки на текущий статус.
         def header(toggle):
@@ -287,7 +288,7 @@ class PhotoLibrariesUI:
                 ui.label(schedule).classes('sidebar-note')
             return status
 
-        with sidebar_branch(self.expanded, key, copies, header) as status:
+        with sidebar_branch(self.expanded, key, copies, header, summary=summary) as status:
             yield status
 
     #: Определяет, запущены ли оригиналы копии Photos либо ожидают расписания.
@@ -345,31 +346,41 @@ class PhotoLibrariesUI:
             for library in self.libraries:
                 source_id = library['id']
                 copies = library.get('copies', [])
+                branches = copy_branches(copies, parent_key='source_link_id')
                 title = library.get('label') or 'Photos'
                 with self.source(source_id, library_name(library), lambda sid=source_id: self.open_copy(f'photos-{sid}'),
                                  lambda s=library: self.library_menu(s), active=library['active'],
-                                 copies=copies, schedule=schedule_text(library), title=title) as status:
-                    self.rows[source_id] = dict(status=status, copies={})
-                    for copy in copies:
-                        self.rows[source_id]['copies'][copy['id']] = self.render_copy(
-                            f'photos-{source_id}', copy, lambda s=library, c=copy: self.photo_copy_menu(s, c))
+                                 copies=copies, schedule=schedule_text(library), title=title,
+                                 summary=branch_summary(branches)) as status:
+                    self.rows[source_id] = dict(status=status, copies=self.render_copies(
+                        f'photos-{source_id}', branches, lambda c, s=library: self.photo_copy_menu(s, c)))
             if not self.libraries:
                 self.rows['photos'] = dict(status=self.source_line('Photos', None, self.connection_menu))
             if self.cloud:
                 copies = self.cloud['copies']
+                branches = copy_branches(copies, parent_key='source_link_id')
                 with self.source(ICLOUD_VOLUME_ID, 'iCloud Drive', self.open_cloud, self.cloud_menu,
-                                 active=self.cloud_volume()['availability'] == 'online', copies=copies) as status:
-                    self.rows[ICLOUD_VOLUME_ID] = dict(status=status, copies={})
-                    for copy in copies:
-                        self.rows[ICLOUD_VOLUME_ID]['copies'][copy['id']] = self.render_copy(
-                            ICLOUD_VOLUME_ID, copy, lambda c=copy: self.cloud_copy_menu(c))
+                                 active=self.cloud_volume()['availability'] == 'online', copies=copies,
+                                 summary=branch_summary(branches)) as status:
+                    self.rows[ICLOUD_VOLUME_ID] = dict(status=status, copies=self.render_copies(
+                        ICLOUD_VOLUME_ID, branches, self.cloud_copy_menu))
 
-    #: Рисует строку копии с переходом в связанную пару и подсказкой назначения.
-    #: Возвращает показатель состояния строки.
-    def render_copy(self, virtual_id, copy, on_menu):
-        return self.source_line(f"{copy['number']:02d}-copy · {copy['volume_name']}",
-                                lambda: self.open_copy(virtual_id, copy['id']), on_menu,
-                                path=f"{copy['volume_name']} /{copy['path']}", copy=True)
+    #: Рисует общие строки копий в порядке фактических источников.
+    #: Для зависимой копии добавляет отступ и подпись непосредственного источника.
+    def render_copies(self, virtual_id, branches, on_menu):
+        rows = {}
+        for branch in branches:
+            copy = branch[-1]
+            depth = len(branch) - 1
+            origin = ''
+            if depth:
+                parent = branch[-2]
+                origin = f"из {parent['number']:02d}-copy" if 'number' in parent else 'Источник недоступен'
+            rows[copy['id']] = self.source_line(
+                f"{copy['number']:02d}-copy · {copy['volume_name']}",
+                lambda c=copy: self.open_copy(virtual_id, c['id']), lambda c=copy: on_menu(c),
+                path=f"{copy['volume_name']} /{copy['path']}", copy=True, depth=depth, origin=origin)
+        return rows
 
     #: Применяет краткую подпись и подробную подсказку к существующей строке.
     #: Обновляет поля элементов label и tooltip.
@@ -453,7 +464,7 @@ class PhotoLibrariesUI:
     def cloud_copy_status(copy):
         if copy['availability'] != 'online':
             return 'Офлайн'
-        return {'idle': '—', 'paused': 'Пауза', 'waiting': 'Ждёт', 'completed': '✓',
+        return {'idle': '—', 'paused': 'Пауза', 'waiting': 'Ждёт', 'waiting_source': 'Ждёт', 'completed': '✓',
                 'completed_with_conflicts': '⚠'}.get(copy['state'], f"{copy['done']}/{copy['total']}")
 
     #: Показывает команды передачи, журнала и отвязки копии iCloud.
@@ -464,9 +475,22 @@ class PhotoLibrariesUI:
         title = 'Пауза' if copy['active'] else 'Скопировать недостающие'
         ui.menu_item(title, on_click=lambda: self.action('POST', f'{endpoint}/{action}'))
         ui.menu_item('Подробности и журнал', on_click=lambda: self.cloud_details(copy['id']))
+        follow = ui.menu_item('Добавить следующую копию…', on_click=lambda: self.ws.copy_setup.open(copy['volume_id'], copy['path']))
+        follow.set_enabled(copy['availability'] == 'online')
         ui.separator()
         unbind = ui.menu_item('Отвязать копию', on_click=lambda: self.unbind_cloud(copy))
         unbind.set_enabled(not copy['active'])
+
+    #: Подписывает фактическую папку-источник для журнала или подтверждения отвязки.
+    #: Для прямой привязки показывает исходную область iCloud Drive.
+    def cloud_origin(self, copy):
+        source_id = copy.get('source_link_id')
+        if not source_id:
+            return f"iCloud Drive /{copy['source_path']}"
+        source = next((item for item in self.cloud['copies'] if item['id'] == source_id), None)
+        if not source:
+            return 'Копия-источник недоступна'
+        return f"{source['number']:02d}-copy · {source['volume_name']} /{source['path']}"
 
     #: Показывает запуск, журнал и меню выбранной виртуальной копии между панелями.
     #: Команды используют те же обработчики, что и строки в боковом списке.
@@ -477,7 +501,9 @@ class PhotoLibrariesUI:
             launch = lambda: self.action('POST', endpoint)
             details = lambda: self.cloud_details(copy['id'])
             menu = lambda: self.cloud_copy_menu(copy)
-            online = self.cloud_volume()['availability'] == 'online'
+            online = bool(copy.get('source_link_id') or self.cloud_volume()['availability'] == 'online')
+            if copy['state'] == 'waiting_source':
+                ui.label('Ждёт ' + copy['source_label']).classes('pair-rail-state')
         else:
             library = self.ws.resolve_volume(virtual_id)['library']
             running = self.originals_running(copy)
@@ -498,7 +524,7 @@ class PhotoLibrariesUI:
     async def unbind_cloud(self, copy):
         with ui.dialog() as dialog, ui.card().classes('w-[500px] max-w-full p-5 gap-3'):
             ui.label('Отвязать копию iCloud Drive?').classes('text-lg font-semibold')
-            ui.label(f"iCloud Drive /{copy['source_path']} → {copy['volume_name']} /{copy['path']}").classes('s-path break-all')
+            ui.label(f"{self.cloud_origin(copy)} → {copy['volume_name']} /{copy['path']}").classes('s-path break-all')
             ui.label('Уже скопированные файлы останутся в папке назначения. Очередь и журнал этой привязки будут удалены.').classes('s-note')
             with ui.row().classes('w-full justify-end'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps')
@@ -525,7 +551,7 @@ class PhotoLibrariesUI:
         offset = 0
         with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-2'):
             ui.label(f"iCloud Drive · {copy['number']:02d}-copy").classes('text-lg font-semibold')
-            ui.label(f"iCloud Drive /{copy['source_path']} → {copy['volume_name']} /{copy['path']}").classes('s-path break-words')
+            ui.label(f"{self.cloud_origin(copy)} → {copy['volume_name']} /{copy['path']}").classes('s-path break-words')
             ui.label(f"{copy['done']} из {copy['total']} файлов · ждут {copy['waiting']} · расхождений {copy['conflicts']}").classes('s-note')
             ui.linear_progress(value=copy['done'] / copy['total'] if copy['total'] else 0, show_value=False).props('color=green-7')
             if copy['message']:

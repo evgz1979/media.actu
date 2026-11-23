@@ -16,6 +16,8 @@
 ## Оглавление определений
 
 - [_copy_ancestry](#symbol-_copy_ancestry) — Поднимается от выбранной копии к корню по сохранённым ссылкам.
+- [branch_summary](#symbol-branch_summary) — Подписывает самый длинный маршрут для свёрнутой строки источника.
+- [copy_branches](#symbol-copy_branches) — Возвращает путь до каждой копии в порядке дерева, начиная с первого назначения.
 - [copy_heading](#symbol-copy_heading) — Формирует подпись источника, действующей копии или архивного назначения.
 - [copy_route](#symbol-copy_route) — Строит маршрут через выбранную копию по фактическим связям источников.
 - [copy_upstream](#symbol-copy_upstream) — Возвращает фактический источник выбранной копии, учитывая тип хранимой ссылки.
@@ -31,7 +33,7 @@
 Поднимается от выбранной копии к корню по сохранённым ссылкам. Возвращает путь и признак цикла, отмечает отсутствующий источник без подстановки корня.
 
 ```python
-def _copy_ancestry(root, copies, target, parent_key)
+def _copy_ancestry(root, by_id, target, parent_key)
 ```
 
 Прямые выражения вызова: `by_id.get`, `dict`, `list`, `nodes.append`, `nodes[-1].get`, `reversed`, `seen.add`.
@@ -39,6 +41,44 @@ def _copy_ancestry(root, copies, target, parent_key)
 Выражения возврата (ветви, без исполнения):
 
 - `(list(reversed(nodes)), cycle)`
+
+
+<a id="symbol-branch_summary"></a>
+
+## `branch_summary`
+
+[copy_panels.py](../../copy_panels.py) · `branch_summary`
+
+Подписывает самый длинный маршрут для свёрнутой строки источника. Многоточие указывает на недоступное звено или другие зависимые ветки.
+
+```python
+def branch_summary(branches)
+```
+
+Прямые выражения вызова: `' → '.join`, `any`, `len`, `max`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `summary + (' · …' if any((branch[-1]['id'] not in shown for branch in chains)) else '')`
+
+
+<a id="symbol-copy_branches"></a>
+
+## `copy_branches`
+
+[copy_panels.py](../../copy_panels.py) · `copy_branches`
+
+Возвращает путь до каждой копии в порядке дерева, начиная с первого назначения. Сохраняет недоступный источник и оставляет повреждённую связь видимой.
+
+```python
+def copy_branches(copies, *, parent_key)
+```
+
+Прямые выражения вызова: [_copy_ancestry](copy_panels.md#symbol-_copy_ancestry), `branches.append`, `by_id.values`, `dict`, `sorted`, `tuple`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `sorted(branches, key=lambda branch: tuple((node['number'] for node in branch if 'number' in node)))`
 
 
 <a id="symbol-copy_heading"></a>

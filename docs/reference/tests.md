@@ -924,6 +924,14 @@ def test_missing_parent_does_not_replace_the_actual_upstream_with_root(self)
 def test_route_selects_an_available_continuation_without_changing_the_target(self)
 ```
 
+<a id="symbol-tests.test_copy_panels.CopyRouteTests.test_sidebar_orders_real_branches_even_if_numbers_are_not_in_route_order"></a>
+
+### `CopyRouteTests.test_sidebar_orders_real_branches_even_if_numbers_are_not_in_route_order`
+
+```python
+def test_sidebar_orders_real_branches_even_if_numbers_are_not_in_route_order(self)
+```
+
 <a id="module-tests.test_copy_sandbox"></a>
 
 ## `test_copy_sandbox.py`
@@ -1555,6 +1563,38 @@ def test_reconnect_restores_tracking_and_replaced_or_symlink_roots_are_rejected(
 Пауза, восстановление очереди после перезапуска, тайм-ауты и безопасная публикация копий iCloud Drive.
 
 [tests/test_icloud_copies.py](../../tests/test_icloud_copies.py)
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_chain_copies_ready_paths_and_carries_upstream_conflicts"></a>
+
+### `ICloudCopiesTests.test_chain_copies_ready_paths_and_carries_upstream_conflicts`
+
+```python
+def test_chain_copies_ready_paths_and_carries_upstream_conflicts(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_chain_rejects_different_scopes_overlap_and_unbinding_its_source"></a>
+
+### `ICloudCopiesTests.test_chain_rejects_different_scopes_overlap_and_unbinding_its_source`
+
+```python
+def test_chain_rejects_different_scopes_overlap_and_unbinding_its_source(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_chain_waits_for_completed_source_and_never_reads_cloud_for_second_hop"></a>
+
+### `ICloudCopiesTests.test_chain_waits_for_completed_source_and_never_reads_cloud_for_second_hop`
+
+```python
+def test_chain_waits_for_completed_source_and_never_reads_cloud_for_second_hop(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_existing_database_gains_source_link_without_changing_direct_copy"></a>
+
+### `ICloudCopiesTests.test_existing_database_gains_source_link_without_changing_direct_copy`
+
+```python
+def test_existing_database_gains_source_link_without_changing_direct_copy(self)
+```
 
 <a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_manual_pause_survives_restart_and_copies_have_independent_destinations"></a>
 

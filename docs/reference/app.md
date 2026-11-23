@@ -31,7 +31,7 @@
 - [FolderCopyBindingRequest](#symbol-FolderCopyBindingRequest) — Описывает выбранные в одном диалоге источник и назначение обычной копии.
 - [FolderRequest](#symbol-FolderRequest) — Определяет Pydantic-контракт открытия папки источника.
 - [FolderTagsRequest](#symbol-FolderTagsRequest) — Определяет Pydantic-контракт меток папки.
-- [ICloudCopyRequest](#symbol-ICloudCopyRequest) — Задаёт облачную область и существующую папку назначения.
+- [ICloudCopyRequest](#symbol-ICloudCopyRequest) — Задаёт облачную область, папку назначения и необязательное предыдущее звено.
 - [LibraryCopyRequest](#symbol-LibraryCopyRequest) — Определяет Pydantic-контракт папки-копии медиатеки.
 - [LibraryNameRequest](#symbol-LibraryNameRequest) — Определяет Pydantic-контракт названия медиатеки.
 - [NetworkShareRequest](#symbol-NetworkShareRequest) — Определяет Pydantic-контракт запоминания SMB-ресурса.
@@ -438,13 +438,14 @@
 
 [app.py](../../app.py) · `ICloudCopyRequest`
 
-Задаёт облачную область и существующую папку назначения. Поля: source_path, volume_id, path.
+Задаёт облачную область, папку назначения и необязательное предыдущее звено. Предыдущее звено должно копировать ту же облачную область.
 
 Базовые классы: `LibraryCopyRequest`.
 
 | Поле | Аннотация | Значение / ограничение |
 | --- | --- | --- |
 | `source_path` | `str` | `Field(default='', max_length=4096)` |
+| `source_link_id` | `str &#124; None` | `Field(default=None, min_length=1, max_length=128)` |
 
 Именованные методы: собственных методов нет.
 

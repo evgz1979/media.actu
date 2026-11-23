@@ -19,7 +19,22 @@
 готовые ресурсы на NVMe служат источником для HDD.
 
 Код: [`PhotoLibraries.bind_copy`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.bind_copy),
-[`photo_route`](../reference/copy_setup_ui.md#symbol-photo_route).
+[`copy_origin_route`](../reference/copy_setup_ui.md#symbol-copy_origin_route).
+
+## Копии iCloud Drive — 2026-11-23
+
+Новое звено может получать файлы из копии той же облачной области. Привязка
+хранит ID копии-источника и идентичность её папки. Прямые привязки из прежней
+базы сохраняются. Копию-источник можно отвязать после её зависимых копий.
+
+После запуска зависимое звено ждёт завершения прохода выбранного источника.
+Его снимок очереди содержит готовые пути и расхождения. Готовые файлы читаются
+с диска предыдущего звена. У каждого звена своё управление паузой и запуском.
+Левая колонка показывает путь в свёрнутом виде и отступы по сохранённым связям
+в раскрытом списке.
+
+Код: [`ICloudCopies.bind`](../reference/media_manager--icloud_copies.md#symbol-ICloudCopies.bind),
+[`ICloudCopies._queue_ready_sources`](../reference/media_manager--icloud_copies.md#symbol-ICloudCopies._queue_ready_sources).
 
 ## Обычные папки
 

@@ -37,15 +37,15 @@
 
 [sidebar_ui.py](../../sidebar_ui.py) · `sidebar_branch`
 
-Рисует заголовок и раскрываемые под ним копии в общей боковой колонке. Сохраняет раскрытие между обновлениями списка по ключу источника.
+Рисует заголовок и раскрываемые под ним копии в общей боковой колонке. Сохраняет раскрытие и показывает короткий маршрут в свёрнутом виде.
 
 ```python
-def sidebar_branch(expanded, key, copies, header)
+def sidebar_branch(expanded, key, copies, header, *, summary='')
 ```
 
 Декораторы: `contextmanager`.
 
-Прямые выражения вызова: `children.set_visibility`, `header`, `ui.column`, `ui.column().classes`.
+Прямые выражения вызова: `children.set_visibility`, `header`, `route.set_visibility`, `route.tooltip`, `ui.button`, `ui.button(summary, icon='account_tree', on_click=change).props`, `ui.button(summary, icon='account_tree', on_click=change).props('flat dense no-caps').classes`, `ui.column`, `ui.column().classes`.
 
 Передаёт управление через `yield`; освобождение ресурса описано в теле контекстного менеджера.
 
@@ -62,7 +62,7 @@ def sidebar_branch(expanded, key, copies, header)
 def change()
 ```
 
-Прямые выражения вызова: `children.set_visibility`, `expanded.add`, `expanded.remove`, [update](sidebar_ui.md#symbol-sidebar_branch.update).
+Прямые выражения вызова: `children.set_visibility`, `expanded.add`, `expanded.remove`, `route.set_visibility`, [update](sidebar_ui.md#symbol-sidebar_branch.update).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -110,12 +110,12 @@ def update()
 Создаёт компактную строку с общими отступами и подсказкой полного названия. В контексте строки размещаются статус и необязательное меню действий.
 
 ```python
-def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggle=None, chosen=False, offline=False, indented=False)
+def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggle=None, chosen=False, offline=False, indented=False, depth=0, origin='')
 ```
 
 Декораторы: `contextmanager`.
 
-Прямые выражения вызова: `' '.join`, `button.tooltip`, `line.classes`, `toggle`, `ui.button`, `ui.button(name, color=None, on_click=on_open).props`, `ui.button(name, color=None, on_click=on_open).props('flat dense no-caps align=left').classes`, `ui.element`, `ui.element('span').classes`, `ui.icon`, `ui.icon(icon, size='13px').classes`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: `' '.join`, `button.tooltip`, `line.classes`, `line.classes('copy-dependent').style`, `min`, `toggle`, `ui.button`, `ui.button(name, color=None, on_click=on_open).props`, `ui.button(name, color=None, on_click=on_open).props('flat dense no-caps align=left').classes`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('span').classes`, `ui.icon`, `ui.icon('subdirectory_arrow_right', size='11px').classes`, `ui.icon(icon, size='13px').classes`, `ui.label`, `ui.label(origin).classes`, `ui.row`, `ui.row().classes`.
 
 Передаёт управление через `yield`; освобождение ресурса описано в теле контекстного менеджера.
 

@@ -36,13 +36,12 @@ def copy_volume(volume):
                 and volume.get('identity_status') not in ('unverified', 'legacy'))
 
 
-#: Показывает адрес и предыдущие звенья выбранной копии Photos.
-#: Недоступное звено отображается отдельно от прямого маршрута Photos.
-def photo_route(library, link_id):
-    label = library.get('label') or 'Photos'
+#: Показывает адрес и предыдущие звенья выбранной копии Photos или iCloud.
+#: Недоступное звено отображается отдельной подписью в маршруте.
+def copy_origin_route(label, copies, link_id):
     if not link_id:
         return label
-    copies = [dict(c, label=f"{c['number']:02d}-copy · {c['volume_name']}") for c in library['copies']]
+    copies = [dict(c, label=f"{c['number']:02d}-copy · {c['volume_name']}") for c in copies]
     target = next((copy for copy in copies if copy['id'] == link_id), None)
     if not target:
         return 'Недоступный источник'
@@ -138,7 +137,7 @@ class CopySetupUI:
         self.opened = False
 
     #: Определяет допустимый источник из дерева, бокового списка или панели операций.
-    #: Для Photos выбирает всю медиатеку, для iCloud Drive сохраняет выбранную папку.
+    #: Для корня привязанной копии iCloud предлагает продолжить её цепочку.
     def source(self, volume_id, path, entry_kind='directory'):
         volume = self.ws.resolve_volume(volume_id)
         if not volume:
@@ -151,6 +150,11 @@ class CopySetupUI:
             return dict(kind='icloud', volume_id=volume_id, path=path)
         if not path or not copy_volume(volume):
             return None
+        libraries = getattr(self.ws, 'photo_libraries', None)
+        cloud_copies = libraries.cloud.get('copies', []) if libraries else []
+        upstream = next((copy for copy in cloud_copies if (copy['volume_id'], copy['path']) == (volume_id, path)), None)
+        if upstream:
+            return dict(kind='icloud', volume_id=ICLOUD_VOLUME_ID, path=upstream['source_path'], source_link_id=upstream['id'])
         member = self.ws.copies.membership(volume_id, path)
         if member and (member['number'] != 0 or not member['is_root']):
             return None
@@ -211,7 +215,7 @@ class CopySetupUI:
             self.ws.editing = was_editing
 
     #: Сохраняет настроенную связь через API соответствующего источника.
-    #: Для iCloud сохраняет выбранный путь, включая явно выбранный корень.
+    #: Для iCloud сохраняет выбранный путь и предыдущее звено цепочки.
     async def save(self, source, target, kind, upstream):
         if source['kind'] == 'folder':
             origin = {key: source[key] for key in ('volume_id', 'path')}
@@ -221,7 +225,8 @@ class CopySetupUI:
             return await self.ws.request('POST', f"/api/photos/libraries/{source['library']['id']}/copies",
                                          json=dict(target, source_link_id=upstream or None))
         return await self.ws.request('POST', '/api/icloud/copies',
-                                     json=dict(target, source_path=source['path']))
+                                     json=dict(target, source_path=source['path'],
+                                               source_link_id=upstream if upstream != ICLOUD_VOLUME_ID else None))
 
     #: Позволяет выбрать вложенную папку iCloud Drive по её точному адресу.
     #: Возвращает подтверждённый путь или None после отмены.
@@ -251,22 +256,32 @@ class CopySetupUI:
     async def destination(self, source, volumes, suggestion, preferred_kind):
         source_volume = self.ws.resolve_volume(source['volume_id'])
         library = source.get('library')
-        all_copies = sorted(library['copies'], key=lambda c: c['number']) if library else []
-        direct = next((copy for copy in all_copies if not copy.get('source_link_id')), None)
-        upstream_choices = {}
-        for copy in all_copies:
-            title = f"{copy['number']:02d}-copy · {copy['volume_name']}"
-            upstream_choices[copy['id']] = title + (' · офлайн' if copy['availability'] != 'online' else '')
-
         state = dict(kind_volume=None, saving=False, selecting_source=False)
         cloud_kind = source['kind'] == 'icloud'
-        source_path = (source['path'] or None) if cloud_kind else source['path']
+        cloud_online = cloud_kind and source_volume['availability'] == 'online'
+        source_path = source['path']
+        if cloud_kind and not source_path and not source.get('source_link_id'):
+            source_path = None
         folder_kind = source['kind'] == 'folder'
+        all_copies = library['copies'] if library else self.ws.photo_libraries.cloud.get('copies', []) if cloud_kind else []
+        all_copies = sorted(all_copies, key=lambda copy: copy['number'])
+        direct = next((copy for copy in all_copies if not copy.get('source_link_id')), None)
+        choices = {copy['id']: f"{copy['number']:02d}-copy · {copy['volume_name']}" +
+                   (' · офлайн' if copy['availability'] != 'online' else '') for copy in all_copies}
+
+        #: Предлагает копии той же области iCloud Drive и прямой источник при доступности.
+        #: Показывает только подключённые копии для новой привязки.
+        def cloud_choices():
+            options = {ICLOUD_VOLUME_ID: 'Напрямую из iCloud Drive'} if cloud_online else {}
+            options.update((copy['id'], choices[copy['id']]) for copy in all_copies
+                           if copy['source_path'] == source_path and copy['availability'] == 'online')
+            return options
 
         #: Проверяет оба адреса и состояние диалога перед сохранением связи.
         #: Для iCloud отличает отсутствие выбора от явно выбранного корня.
         def can_save():
-            return (source_path is not None and picker.ready and bool(picker.path)
+            return (source_path is not None and (cloud_online or not cloud_kind or bool(upstream and upstream.value))
+                    and picker.ready and bool(picker.path)
                     and (picker.volume_id, picker.path) != (source['volume_id'], source_path)
                     and not (state['saving'] or state['selecting_source']))
 
@@ -277,6 +292,11 @@ class CopySetupUI:
             if state['saving'] or state['selecting_source']:
                 return
             source_path = path
+            if upstream:
+                options = cloud_choices()
+                selected = upstream.value if upstream.value in options else next(iter(options), None)
+                upstream.set_options(options, value=selected)
+                upstream.set_visibility(len(options) > 1 or not cloud_online)
             update_origin()
             problem.set_visibility(False)
             confirm.set_enabled(can_save())
@@ -301,11 +321,19 @@ class CopySetupUI:
             ui.label('Из').classes('text-xs font-semibold s-muted')
             origin = ui.label().classes('copy-setup-path w-full break-all')
             upstream = None
-            if all_copies:
-                upstream = ui.select(upstream_choices, value=(direct or all_copies[0])['id'],
+            if library and all_copies:
+                upstream = ui.select(choices, value=(direct or all_copies[0])['id'],
                                      label='Копировать из').props('dense outlined options-dense').classes('w-full')
+            if cloud_kind and all_copies:
+                options = cloud_choices()
+                initial = source.get('source_link_id') or (ICLOUD_VOLUME_ID if cloud_online else None)
+                if initial not in options:
+                    initial = next(iter(options), None)
+                upstream = ui.select(options, value=initial, label='Копировать из').props(
+                    'dense outlined options-dense').classes('w-full')
+                upstream.set_visibility(len(options) > 1 or not cloud_online)
             source_button = cloud_root = None
-            if cloud_kind:
+            if cloud_online:
                 with ui.row().classes('w-full gap-2 items-center'):
                     source_button = ui.button('Выбрать папку…', icon='folder_open', on_click=browse_source).props(
                         'flat dense no-caps color=green-9')
@@ -313,17 +341,25 @@ class CopySetupUI:
                         'flat dense no-caps color=dark')
 
             #: Показывает фактический путь передачи и выбранную область iCloud.
-            #: Использует photo_route для отображения промежуточных звеньев.
+            #: Использует общий маршрут для промежуточных звеньев Photos и iCloud.
             def update_origin():
                 if library:
-                    origin.text = photo_route(library, upstream.value if upstream else '')
-                elif cloud_kind and not source_path:
-                    origin.text = 'Выбери папку iCloud Drive' if source_path is None else 'Весь iCloud Drive'
+                    origin.text = copy_origin_route(library.get('label') or 'Photos', all_copies, upstream.value if upstream else None)
+                elif cloud_kind and source_path is None:
+                    origin.text = 'Выбери папку iCloud Drive'
+                elif cloud_kind:
+                    link_id = upstream.value if upstream and upstream.value != ICLOUD_VOLUME_ID else None
+                    label = scope_title(source_volume, source_path) if source_path or link_id else 'Весь iCloud Drive'
+                    origin.text = copy_origin_route(label, all_copies, link_id)
                 else:
                     origin.text = scope_title(source_volume, source_path)
 
-            if upstream:
-                upstream.on_value_change(update_origin)
+            #: Обновляет маршрут и доступность сохранения после выбора предыдущего звена.
+            #: Вызывается только после построения всех элементов формы.
+            def change_upstream():
+                update_origin()
+                confirm.set_enabled(can_save())
+
             update_origin()
             ui.label('Куда').classes('text-xs font-semibold s-muted')
             with ui.row().classes('w-full gap-2 items-center no-wrap'):
@@ -389,6 +425,8 @@ class CopySetupUI:
                 cancel = ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
                 confirm = ui.button('Сохранить связь', on_click=submit).props('unelevated no-caps color=green-9')
             confirm.disable()
+            if upstream:
+                upstream.on_value_change(change_upstream)
             first = suggestion['volume_id'] if suggestion else next(iter(volumes))
             ui.timer(.01, lambda: picker.navigate(first), once=True)
         try:

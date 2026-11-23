@@ -12,8 +12,8 @@
 | [comparison_tree_ui.py](comparison_tree_ui.md) | UI найденных путей | 1 / 13 |
 | [comparison_ui.py](comparison_ui.md) | Совместимость адреса /compare | 0 / 2 |
 | [copy_groups_ui.py](copy_groups_ui.md) | UI наборов копий | 1 / 30 |
-| [copy_panels.py](copy_panels.md) | Маршруты и роли панелей копирования | 0 / 6 |
-| [copy_setup_ui.py](copy_setup_ui.md) | Выбор источника и назначения копии | 2 / 22 |
+| [copy_panels.py](copy_panels.md) | Маршруты и роли панелей копирования | 0 / 8 |
+| [copy_setup_ui.py](copy_setup_ui.md) | Выбор источника и назначения копии | 2 / 24 |
 | [media_manager/__init__.py](media_manager--__init__.md) | Пакет Core | 0 / 0 |
 | [media_manager/catalog.py](media_manager--catalog.md) | Медиаиндекс и очередь превью | 1 / 34 |
 | [media_manager/comparison.py](media_manager--comparison.md) | Поиск совпадений по именам | 2 / 25 |
@@ -22,7 +22,7 @@
 | [media_manager/directory_sizes.py](media_manager--directory_sizes.md) | Размеры папок | 1 / 6 |
 | [media_manager/folder_markers.py](media_manager--folder_markers.md) | Служебные описания папок | 1 / 15 |
 | [media_manager/folder_tracking.py](media_manager--folder_tracking.md) | Отслеживание основных папок | 2 / 11 |
-| [media_manager/icloud_copies.py](media_manager--icloud_copies.md) | Копии iCloud Drive | 2 / 34 |
+| [media_manager/icloud_copies.py](media_manager--icloud_copies.md) | Копии iCloud Drive | 2 / 36 |
 | [media_manager/network.py](media_manager--network.md) | Обнаружение NAS | 2 / 16 |
 | [media_manager/paired_comparison.py](media_manager--paired_comparison.md) | Сверка связанных папок | 1 / 23 |
 | [media_manager/photo_libraries.py](media_manager--photo_libraries.md) | Профили медиатек Photos | 1 / 24 |
@@ -42,7 +42,7 @@
 | [network_ui.py](network_ui.md) | Диалог NAS | 0 / 8 |
 | [paired_tree.py](paired_tree.md) | Python-обёртка Vue-дерева | 1 / 2 |
 | [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 47 |
-| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 54 |
+| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 55 |
 | [scripts/build_documentation.py](scripts--build_documentation.md) | Генератор смысловых справочников | 3 / 44 |
 | [sidebar_ui.py](sidebar_ui.md) | Строки и меню боковой колонки | 0 / 6 |
 | [storage_preview_ui.py](storage_preview_ui.md) | UI превью и плиток | 1 / 13 |

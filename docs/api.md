@@ -1509,6 +1509,19 @@ required задаёт обязательность поля, null в anyOf до�
       "title": "Path",
       "type": "string"
     },
+    "source_link_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Link Id"
+    },
     "source_path": {
       "default": "",
       "maxLength": 4096,
