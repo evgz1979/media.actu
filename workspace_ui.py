@@ -10,7 +10,8 @@ from pathlib import PurePosixPath
 from nicegui import app, background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
-from copy_groups_ui import CopyGroupsUI, disconnected
+from copy_groups_ui import CopyGroupsUI
+from copy_panels import copy_heading, first_copy
 from copy_setup_ui import COPY_SETUP_CSS, CopySetupUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
@@ -498,7 +499,10 @@ class BrowserPane:
             self.workspace.pair.update_header(self)
             return
         report = self.workspace.report
-        self.heading.text = ('Источник' if self.index == 0 else 'Совпадения') if report else self.title + ' панель'
+        if report:
+            self.heading.text = 'Источник' if self.index == 0 else 'Совпадения'
+        else:
+            self.workspace.refresh_browse_headings()
         self.volume_select.set_enabled(not bool(report))
         self.volume_select.set_visibility(not (report and self.index == 1))
         self.navigation.set_visibility(True)
@@ -1229,8 +1233,7 @@ class StorageWorkspace:
     async def open_source_pair(self, volume_id, copies):
         self.source_open_generation += 1
         generation = self.source_open_generation
-        available = [copy for copy in copies if not disconnected(copy)]
-        first = min(available or copies, key=lambda copy: copy['number']) if copies else None
+        first = first_copy(copies)
         locations = [(volume_id, first.get('source_path', '') if first else '')]
         if first:
             locations.append((first['volume_id'], first['path']))
@@ -1251,6 +1254,20 @@ class StorageWorkspace:
                                    for pane, (identifier, path) in zip(self.panes, locations)))
             if generation == self.source_open_generation and self.active_index == 0:
                 self.panes[0].focus_tree()
+
+    #: Обновляет обе подписи после перехода внутри каждой из областей или выхода из пары.
+    #: Восстанавливает роли Photos и iCloud по открытым путям без сохранения дополнительного состояния.
+    def refresh_browse_headings(self):
+        if self.pair.active or self.report:
+            return
+        panes = self.panes
+        left, right = panes
+        scopes = None
+        if left.view_mode == right.view_mode == 'tree' and (self.is_photos(left.volume_id) or left.volume_id == ICLOUD_VOLUME_ID):
+            scopes = self.photo_libraries.copy_scopes(left.volume_id, left.path, right.volume_id, right.path)
+        for index, pane in enumerate(panes):
+            if pane.view_mode == 'tree':
+                pane.heading.text = copy_heading(scopes[index], target=index == 1) if scopes else pane.title + ' панель'
 
     #: Передаёт Core команду выделения объекта в системном Photos.
     #: Обрабатывает ошибки: Exception.
@@ -1678,6 +1695,7 @@ class StorageWorkspace:
     #: Пересчитывает выбранные области и доступность действий сверки и копирования.
     #: Использует ', '.join, labels.append, next, pane.scope, scope_label.
     def update_scopes(self):
+        self.refresh_browse_headings()
         self.persist_workspace()
         self.copies.render_sidebar()
         self.copies.render_controls()

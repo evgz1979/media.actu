@@ -3,14 +3,9 @@ from pathlib import PurePosixPath
 
 from nicegui import ui
 
+from copy_panels import disconnected, first_copy
 from media_manager.copies import COPY_KINDS, FOLDER_LABELS, copy_label, inherited_location
 from sidebar_ui import sidebar_branch, sidebar_line
-
-
-#: Проверяет отключение связи по совместимым полям ответа Core.
-#: Использует location.get.
-def disconnected(location):
-    return not location.get('connected', True) or location.get('availability') == 'offline'
 
 
 #: Разделяет наборы и копии на подключённые и архивные секции.
@@ -357,9 +352,8 @@ class CopyGroupsUI:
     async def open_main(self, group):
         ws = self.workspace
         with ws.client:
-            available = [c for c in group['copies'] if not disconnected(c)]
-            if group['copies']:
-                await ws.pair.link(group, min(available or group['copies'], key=lambda location: location['number']))
+            if copy := first_copy(group['copies']):
+                await ws.pair.link(group, copy)
                 return
             if ws.pair.active:
                 await ws.pair.unlink()

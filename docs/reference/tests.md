@@ -3404,6 +3404,30 @@ def test_unregistered_disk_does_not_use_legacy_share_history(self)
 
 [tests/test_workspace_photos.py](../../tests/test_workspace_photos.py)
 
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_common_heading_preserves_folder_copy_and_history_captions"></a>
+
+### `WorkspacePhotosTests.test_common_heading_preserves_folder_copy_and_history_captions`
+
+```python
+def test_common_heading_preserves_folder_copy_and_history_captions(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy"></a>
+
+### `WorkspacePhotosTests.test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy`
+
+```python
+def test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_headings_use_the_bound_source_and_destination_scopes"></a>
+
+### `WorkspacePhotosTests.test_icloud_headings_use_the_bound_source_and_destination_scopes`
+
+```python
+def test_icloud_headings_use_the_bound_source_and_destination_scopes(self)
+```
+
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline"></a>
 
 ### `WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline`

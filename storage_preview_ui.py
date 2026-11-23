@@ -14,7 +14,7 @@ PREVIEW_CSS = '''
 .pane-mode { flex-shrink:0; }
 .commander-pane .pane-heading { flex:1; min-width:0; overflow:hidden; }
 .pane-heading .q-btn__content { flex-wrap:nowrap; white-space:nowrap; justify-content:flex-start; overflow:hidden; }
-.pane-heading .block { overflow:hidden; text-overflow:ellipsis; }
+.pane-heading .block { white-space:normal; overflow-wrap:anywhere; text-align:left; line-height:1.25; }
 .storage-preview { flex:1; min-height:0; width:100%; overflow:auto; padding:12px; gap:12px; align-content:start; }
 .preview-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; width:100%; }
 .preview-tile.q-btn { width:100%; min-width:0; padding:0; border:0; background:transparent; align-self:start; }

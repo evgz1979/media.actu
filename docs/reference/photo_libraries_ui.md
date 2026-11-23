@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [sidebar_ui.py](sidebar_ui.md).
+Импортирует из проекта: [copy_panels.py](copy_panels.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [sidebar_ui.py](sidebar_ui.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_photo_libraries.py](tests.md#module-tests.test_photo_libraries), [tests/test_photos_schedule.py](tests.md#module-tests.test_photos_schedule), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos).
 
@@ -32,6 +32,7 @@
 - [PhotoLibrariesUI.connect](#symbol-PhotoLibrariesUI.connect) — Повторяет сопоставление текущей системной медиатеки с сохранённым профилем.
 - [PhotoLibrariesUI.connection_menu](#symbol-PhotoLibrariesUI.connection_menu) — Заполняет меню управления системной медиатекой и разрешением Photos.
 - [PhotoLibrariesUI.copy_membership](#symbol-PhotoLibrariesUI.copy_membership) — Находит копию медиатеки, содержащую выбранный файловый путь.
+- [PhotoLibrariesUI.copy_scopes](#symbol-PhotoLibrariesUI.copy_scopes) — Восстанавливает роли двух панелей по текущим путям и действующим привязкам.
 - [PhotoLibrariesUI.copy_source_dialog](#symbol-PhotoLibrariesUI.copy_source_dialog) — Показывает выбор Photos или другой копии как источника оригиналов.
 - [PhotoLibrariesUI.library_details](#symbol-PhotoLibrariesUI.library_details) — Показывает прогресс и состояние превью в подробностях медиатеки.
 - [PhotoLibrariesUI.library_menu](#symbol-PhotoLibrariesUI.library_menu) — Заполняет меню выбранной медиатеки и её настроек.
@@ -58,6 +59,7 @@
 - [PhotoLibrariesUI.unbind](#symbol-PhotoLibrariesUI.unbind) — Отключает выбранную привязку копии медиатеки через Core.
 - [PhotoLibrariesUI.update_readouts](#symbol-PhotoLibrariesUI.update_readouts) — Обновляет компактный статус источников и копий без перерисовки строк.
 - [PhotoLibrariesUI.volumes](#symbol-PhotoLibrariesUI.volumes) — Представляет сохранённые медиатеки как виртуальные тома рабочего пространства.
+- [library_name](#symbol-library_name) — Возвращает компактное имя системной или именованной медиатеки.
 - [library_state](#symbol-library_state) — Определяет пользовательскую подпись доступности и паузы медиатеки.
 - [originals_state](#symbol-originals_state) — Преобразует техническое состояние сохранения оригиналов в подпись UI.
 - [originals_text](#symbol-originals_text) — Форматирует прогресс объектов и ресурсов привязанной копии Photos.
@@ -78,7 +80,7 @@
 
 Состояние, присваиваемое конструктором: `busy`, `cloud`, `connection`, `copy_roles_signature`, `expanded`, `libraries`, `refreshing`, `rows`, `signature`, `ws`.
 
-Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build`, `refresh`, `render_signature`, `cloud_volume`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copy`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `bind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
+Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build`, `refresh`, `render_signature`, `cloud_volume`, `copy_scopes`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copy`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `bind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
 
 <a id="symbol-PhotoLibrariesUI.__init__"></a>
 
@@ -376,6 +378,26 @@ def copy_membership(self, volume_id, path)
 - `None`
 
 
+<a id="symbol-PhotoLibrariesUI.copy_scopes"></a>
+
+## `PhotoLibrariesUI.copy_scopes`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.copy_scopes`
+
+Восстанавливает роли двух панелей по текущим путям и действующим привязкам. В правую область Photos добавляет имя предыдущего звена цепочки, если оно известно.
+
+```python
+def copy_scopes(self, source_id, source_path, target_id, target_path)
+```
+
+Прямые выражения вызова: `contains_path`, `copy.get`, `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), `next`, `self.cloud.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+- `(left, right)`
+
+
 <a id="symbol-PhotoLibrariesUI.copy_source_dialog"></a>
 
 ## `PhotoLibrariesUI.copy_source_dialog`
@@ -614,7 +636,7 @@ async def rename(self, library)
 def render(self)
 ```
 
-Прямые выражения вызова: `dict`, `library.get`, [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.cards.clear`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.render_copy](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copy), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line).
+Прямые выражения вызова: `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.cards.clear`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.render_copy](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copy), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -850,6 +872,25 @@ def volumes(self)
 Выражения возврата (ветви, без исполнения):
 
 - `[dict(id=f"photos-{s['id']}", source_id=s['id'], kind='photos', name=s.get('label') or 'Photos', display_name=s.get('label') or 'Photos', mount_path=None, availability='online' if s['active'] else 'offline', mounted=False, identity_status='virtual', library=s) for s in self.libraries]`
+
+
+<a id="symbol-library_name"></a>
+
+## `library_name`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `library_name`
+
+Возвращает компактное имя системной или именованной медиатеки. Используется в боковом списке и заголовке панели.
+
+```python
+def library_name(library)
+```
+
+Прямые выражения вызова: `library.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `'Photos' if title == 'Системная медиатека Photos' else title`
 
 
 <a id="symbol-library_state"></a>

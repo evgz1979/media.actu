@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [paired_tree.py](paired_tree.md).
+Импортирует из проекта: [copy_panels.py](copy_panels.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [paired_tree.py](paired_tree.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_paired_workspace.py](tests.md#module-tests.test_paired_workspace), [tests/test_tree_keyboard.py](tests.md#module-tests.test_tree_keyboard), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
 
@@ -929,7 +929,7 @@ async def unlink(self)
 def update_header(self, pane)
 ```
 
-Прямые выражения вызова: `bool`, `pane.location.set_visibility`, `pane.navigation.set_visibility`, `pane.render_path`, `pane.result_filter.set_visibility`, `pane.toolbar.set_visibility`, `pane.volume_select.set_enabled`, `pane.volume_select.set_visibility`, `row.get`, `self.by_path.get`, [self.report_title](paired_workspace_ui.md#symbol-PairedWorkspace.report_title), `self.ws.capacity_text`, `self.ws.format_date`.
+Прямые выражения вызова: `bool`, `copy_heading`, `pane.location.set_visibility`, `pane.navigation.set_visibility`, `pane.render_path`, `pane.result_filter.set_visibility`, `pane.toolbar.set_visibility`, `pane.volume_select.set_enabled`, `pane.volume_select.set_visibility`, `row.get`, `self.by_path.get`, [self.report_title](paired_workspace_ui.md#symbol-PairedWorkspace.report_title), `self.ws.capacity_text`, `self.ws.format_date`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

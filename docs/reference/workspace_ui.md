@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [comparison_tree_ui.py](comparison_tree_ui.md), [copy_groups_ui.py](copy_groups_ui.md), [copy_setup_ui.py](copy_setup_ui.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md), [network_ui.py](network_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [sidebar_ui.py](sidebar_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [storage_ui.py](storage_ui.md), [workspace_state.py](workspace_state.md).
+Импортирует из проекта: [comparison_tree_ui.py](comparison_tree_ui.md), [copy_groups_ui.py](copy_groups_ui.md), [copy_panels.py](copy_panels.md), [copy_setup_ui.py](copy_setup_ui.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md), [network_ui.py](network_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [sidebar_ui.py](sidebar_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [storage_ui.py](storage_ui.md), [workspace_state.py](workspace_state.md).
 Импортируется модулями: [storage_ui.py](storage_ui.md).
 Тестовые модули с прямым импортом: [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_directory_sizes.py](tests.md#module-tests.test_directory_sizes), [tests/test_folder_tags.py](tests.md#module-tests.test_folder_tags), [tests/test_paired_workspace.py](tests.md#module-tests.test_paired_workspace), [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_refresh_renamed_folder.py](tests.md#module-tests.test_refresh_renamed_folder), [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state), [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews), [tests/test_tree_keyboard.py](tests.md#module-tests.test_tree_keyboard), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos), [tests/test_workspace_refresh.py](tests.md#module-tests.test_workspace_refresh), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
 
@@ -87,6 +87,7 @@
 - [StorageWorkspace.property_menu.action.invoke](#symbol-StorageWorkspace.property_menu.action.invoke) — Асинхронно вызывает команду меню в сохранённом контексте клиента NiceGUI.
 - [StorageWorkspace.property_menu.before_show](#symbol-StorageWorkspace.property_menu.before_show) — Перед открытием меню отмечает его активность и скрывает файловые команды для Photos.
 - [StorageWorkspace.read_directory](#symbol-StorageWorkspace.read_directory) — Выбирает API обычного тома, Photos или iCloud Drive и получает список.
+- [StorageWorkspace.refresh_browse_headings](#symbol-StorageWorkspace.refresh_browse_headings) — Обновляет обе подписи после перехода внутри каждой из областей или выхода из пары.
 - [StorageWorkspace.refresh_history](#symbol-StorageWorkspace.refresh_history) — Обновляет список последних заданий общей сверки.
 - [StorageWorkspace.refresh_matches](#symbol-StorageWorkspace.refresh_matches) — Загружает совпадения выбранного элемента и показывает найденные пути справа.
 - [StorageWorkspace.refresh_volumes](#symbol-StorageWorkspace.refresh_volumes) — Обновляет тома и связанные сведения, сохраняя отображение при ошибках API.
@@ -779,7 +780,7 @@ def update_header(self)
 
 Присваивания полям `self`: `path_signature`.
 
-Прямые выражения вызова: `(self.entry or {}).get`, [archived](workspace_ui.md#symbol-archived), `bool`, `button.set_enabled`, `button.set_visibility`, `f" · {library['media_count']:,} объектов".replace`, `getattr`, `library.get`, `selected.get`, `self.comparison.update_header`, [self.comparison_open](workspace_ui.md#symbol-BrowserPane.comparison_open), `self.folders.get`, `self.hidden.set_visibility`, `self.location.set_visibility`, `self.navigation.set_visibility`, `self.path_bar.clear`, `self.path_bar.set_visibility`, `self.preview.update_header`, `self.refresh_button.set_enabled`, [self.render_path](workspace_ui.md#symbol-BrowserPane.render_path), `self.result_filter.set_enabled`, `self.result_filter.set_visibility`, `self.scan.get`, `self.toolbar.set_visibility`, [self.update_size_header](workspace_ui.md#symbol-BrowserPane.update_size_header), [self.update_volume_select](workspace_ui.md#symbol-BrowserPane.update_volume_select), `self.volume_select.set_enabled`, `self.volume_select.set_visibility`, `self.workspace.capacity_text`, `self.workspace.copy_setup.source`, `self.workspace.format_date`, `self.workspace.pair.update_header`, `ui.label`, `ui.label('Выбери том').classes`.
+Прямые выражения вызова: `(self.entry or {}).get`, [archived](workspace_ui.md#symbol-archived), `bool`, `button.set_enabled`, `button.set_visibility`, `f" · {library['media_count']:,} объектов".replace`, `getattr`, `library.get`, `selected.get`, `self.comparison.update_header`, [self.comparison_open](workspace_ui.md#symbol-BrowserPane.comparison_open), `self.folders.get`, `self.hidden.set_visibility`, `self.location.set_visibility`, `self.navigation.set_visibility`, `self.path_bar.clear`, `self.path_bar.set_visibility`, `self.preview.update_header`, `self.refresh_button.set_enabled`, [self.render_path](workspace_ui.md#symbol-BrowserPane.render_path), `self.result_filter.set_enabled`, `self.result_filter.set_visibility`, `self.scan.get`, `self.toolbar.set_visibility`, [self.update_size_header](workspace_ui.md#symbol-BrowserPane.update_size_header), [self.update_volume_select](workspace_ui.md#symbol-BrowserPane.update_volume_select), `self.volume_select.set_enabled`, `self.volume_select.set_visibility`, `self.workspace.capacity_text`, `self.workspace.copy_setup.source`, `self.workspace.format_date`, `self.workspace.pair.update_header`, `self.workspace.refresh_browse_headings`, `ui.label`, `ui.label('Выбери том').classes`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -892,7 +893,7 @@ async def volume_changed(self, event)
 
 Состояние, присваиваемое конструктором: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `source_open_generation`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
-Именованные методы: `__init__`, `sidebar_expansion`, `build_operations`, `error_text`, `notice`, `is_photos`, `browse_volumes`, `selectable_volumes`, `resolve_volume`, `read_directory`, `open_library`, `open_source_pair`, `open_photo`, `capacity_text`, `set_active`, `workspace_snapshot`, `preview_selection`, `persist_workspace`, `restore_panes`, `restore_workspace`, `open_in_finder`, `directory_size_text`, `size_texts`, `update_size_labels`, `load_directory_sizes`, `poll_directory_sizes`, `property_menu`, `open_volume`, `render_volumes`, `refresh_volumes`, `update_scopes`, `load`, `poll_connected`, `refresh_history`, `history_changed`, `choose_job`, `apply_report`, `start_comparison`, `browse`, `report_marker`, `poll`, `render_progress`, `control`, `refresh_matches`, `show_journal`, `show_properties`, `edit_folder_tags`, `apply_folder_tags`, `edit_metadata`, `rename_disk`, `register_disk`, `connect`.
+Именованные методы: `__init__`, `sidebar_expansion`, `build_operations`, `error_text`, `notice`, `is_photos`, `browse_volumes`, `selectable_volumes`, `resolve_volume`, `read_directory`, `open_library`, `open_source_pair`, `refresh_browse_headings`, `open_photo`, `capacity_text`, `set_active`, `workspace_snapshot`, `preview_selection`, `persist_workspace`, `restore_panes`, `restore_workspace`, `open_in_finder`, `directory_size_text`, `size_texts`, `update_size_labels`, `load_directory_sizes`, `poll_directory_sizes`, `property_menu`, `open_volume`, `render_volumes`, `refresh_volumes`, `update_scopes`, `load`, `poll_connected`, `refresh_history`, `history_changed`, `choose_job`, `apply_report`, `start_comparison`, `browse`, `report_marker`, `poll`, `render_progress`, `control`, `refresh_matches`, `show_journal`, `show_properties`, `edit_folder_tags`, `apply_folder_tags`, `edit_metadata`, `rename_disk`, `register_disk`, `connect`.
 
 <a id="symbol-StorageWorkspace.__init__"></a>
 
@@ -1345,7 +1346,7 @@ async def open_source_pair(self, volume_id, copies)
 
 Присваивания полям `self`: `source_open_generation`.
 
-Прямые выражения вызова: `asyncio.gather`, `disconnected`, `first.get`, `len`, `locations.append`, `min`, `pane.set_mode`, `pane.show_volume`, [self.browse](workspace_ui.md#symbol-StorageWorkspace.browse), `self.pair.unlink`, `self.panes[0].focus_tree`, [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), `zip`.
+Прямые выражения вызова: `asyncio.gather`, `first.get`, `first_copy`, `len`, `locations.append`, `pane.set_mode`, `pane.show_volume`, [self.browse](workspace_ui.md#symbol-StorageWorkspace.browse), `self.pair.unlink`, `self.panes[0].focus_tree`, [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), `zip`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -1559,6 +1560,25 @@ async def read_directory(self, volume_id, path, *, refresh=False, discover=False
 - `await self.request('GET', f'/api/photos/libraries/{volume_id[7:]}/browse', params=dict(path=path, offset=offset, limit=limit), timeout=45)`
 - `await self.request('GET', '/api/icloud/browse', params={'path': path}, timeout=45)`
 - `await self.request('GET', f'/api/storage/volumes/{volume_id}/directory', params=dict(path=path, refresh=refresh, discover=discover), timeout=45)`
+
+
+<a id="symbol-StorageWorkspace.refresh_browse_headings"></a>
+
+## `StorageWorkspace.refresh_browse_headings`
+
+[workspace_ui.py](../../workspace_ui.py) · `StorageWorkspace.refresh_browse_headings`
+
+Обновляет обе подписи после перехода внутри каждой из областей или выхода из пары. Восстанавливает роли Photos и iCloud по открытым путям без сохранения дополнительного состояния.
+
+```python
+def refresh_browse_headings(self)
+```
+
+Прямые выражения вызова: `copy_heading`, `enumerate`, [self.is_photos](workspace_ui.md#symbol-StorageWorkspace.is_photos), `self.photo_libraries.copy_scopes`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
 
 
 <a id="symbol-StorageWorkspace.refresh_history"></a>
@@ -2067,7 +2087,7 @@ async def start_comparison(self)
 def update_scopes(self)
 ```
 
-Прямые выражения вызова: `', '.join`, `bool`, `labels.append`, `next`, `pane.scope`, `scope_label`, `self.copies.render_controls`, `self.copies.render_sidebar`, [self.persist_workspace](workspace_ui.md#symbol-StorageWorkspace.persist_workspace), `self.start_button.disable`, `self.start_button.set_enabled`, [volume_label](workspace_ui.md#symbol-volume_label).
+Прямые выражения вызова: `', '.join`, `bool`, `labels.append`, `next`, `pane.scope`, `scope_label`, `self.copies.render_controls`, `self.copies.render_sidebar`, [self.persist_workspace](workspace_ui.md#symbol-StorageWorkspace.persist_workspace), [self.refresh_browse_headings](workspace_ui.md#symbol-StorageWorkspace.refresh_browse_headings), `self.start_button.disable`, `self.start_button.set_enabled`, [volume_label](workspace_ui.md#symbol-volume_label).
 
 Выражения возврата (ветви, без исполнения):
 

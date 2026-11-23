@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock
 
+from copy_panels import copy_heading
 from photo_libraries_ui import PhotoLibrariesUI
 from workspace_ui import BrowserPane, StorageWorkspace
 
@@ -53,6 +54,40 @@ class WorkspacePhotosTests(unittest.IsolatedAsyncioTestCase):
         await ws.photo_libraries.open_cloud()
         ws.panes[0].show_volume.assert_awaited_once_with('icloud-drive', 'Документы/Медиа', activate=False)
         ws.panes[1].show_volume.assert_awaited_once_with('saved', 'Backups', activate=False)
+
+    def test_common_heading_preserves_folder_copy_and_history_captions(self):
+        self.assertEqual(copy_heading(dict(label='00-main', number=0)), '00-main (источник копирования)')
+        self.assertEqual(copy_heading(dict(label='01-copy', number=1), target=True), '01-copy (копия №1)')
+        self.assertEqual(copy_heading(dict(label='01-copy', number=1), target=True, historical=True), 'Прежняя 01-copy')
+
+    def test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy(self):
+        ws = self.workspace()
+        ws.photo_libraries.libraries = [dict(id=5, label='Системная медиатека Photos', copies=[
+            dict(id='first', number=1, volume_id='nvme', path='Photos', volume_name='NVMe'),
+            dict(id='second', number=2, volume_id='hdd', path='Photos', source_link_id='first'),
+        ])]
+        left, right = ws.panes
+        left.volume_id, left.path, left.title, left.heading = 'photos-5', '2026', 'Левая', SimpleNamespace()
+        right.volume_id, right.path, right.title, right.heading = 'hdd', 'Photos/2026', 'Правая', SimpleNamespace()
+        ws.refresh_browse_headings()
+        self.assertEqual(left.heading.text, 'Photos (источник копирования)')
+        self.assertEqual(right.heading.text, '02-copy (копия №2) · из 01-copy на NVMe')
+        right.path = 'Photos-old/2026'
+        ws.refresh_browse_headings()
+        self.assertEqual((left.heading.text, right.heading.text), ('Левая панель', 'Правая панель'))
+
+    def test_icloud_headings_use_the_bound_source_and_destination_scopes(self):
+        ws = self.workspace()
+        ws.photo_libraries.cloud = dict(copies=[dict(number=1, volume_id='disk', path='Backups', source_path='Docs')])
+        left, right = ws.panes
+        left.volume_id, left.path, left.title, left.heading = 'icloud-drive', 'Docs/Sub', 'Левая', SimpleNamespace()
+        right.volume_id, right.path, right.title, right.heading = 'disk', 'Backups', 'Правая', SimpleNamespace()
+        ws.refresh_browse_headings()
+        self.assertEqual(left.heading.text, 'iCloud Drive (источник копирования)')
+        self.assertEqual(right.heading.text, '01-copy (копия №1)')
+        left.path = 'Docs-old'
+        ws.refresh_browse_headings()
+        self.assertEqual((left.heading.text, right.heading.text), ('Левая панель', 'Правая панель'))
 
     async def test_photos_browse_never_uses_mounted_directory_or_comparison_apis(self):
         ws = StorageWorkspace.__new__(StorageWorkspace)

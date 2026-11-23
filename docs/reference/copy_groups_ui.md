@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/copies.py](media_manager--copies.md), [sidebar_ui.py](sidebar_ui.md).
+Импортирует из проекта: [copy_panels.py](copy_panels.md), [media_manager/copies.py](media_manager--copies.md), [sidebar_ui.py](sidebar_ui.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_copy_connections.py](tests.md#module-tests.test_copy_connections), [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_paired_workspace.py](tests.md#module-tests.test_paired_workspace), [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state).
 
@@ -45,7 +45,6 @@
 - [CopyGroupsUI.renumber](#symbol-CopyGroupsUI.renumber) — Показывает и подтверждает рассчитанные изменения номеров копий.
 - [CopyGroupsUI.set_connection](#symbol-CopyGroupsUI.set_connection) — Подключает или отключает набор либо отдельную копию через API.
 - [CopyGroupsUI.set_folder_settings](#symbol-CopyGroupsUI.set_folder_settings) — Сохраняет настройки набора и обновляет связанные сведения UI.
-- [disconnected](#symbol-disconnected) — Проверяет отключение связи по совместимым полям ответа Core.
 - [sidebar_sections](#symbol-sidebar_sections) — Разделяет наборы и копии на подключённые и архивные секции.
 
 <a id="symbol-CopyGroupsUI"></a>
@@ -226,7 +225,7 @@ def context_actions(self, volume_id, entry)
 def copy_row(self, group, location)
 ```
 
-Прямые выражения вызова: `actions.append`, `actions.extend`, `actions.insert`, `bool`, [disconnected](copy_groups_ui.md#symbol-disconnected), `getattr`, `group.get`, `location.get`, [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), `sidebar_line`, `ui.label`, `ui.label('Офлайн').classes`, `ws.property_menu`.
+Прямые выражения вызова: `actions.append`, `actions.extend`, `actions.insert`, `bool`, `disconnected`, `getattr`, `group.get`, `location.get`, [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), `sidebar_line`, `ui.label`, `ui.label('Офлайн').classes`, `ws.property_menu`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -339,7 +338,7 @@ def main_group(self)
 def main_row(self, group, copies, toggle)
 ```
 
-Прямые выражения вызова: `' · '.join`, `actions.insert`, `bool`, `detail.append`, [disconnected](copy_groups_ui.md#symbol-disconnected), `getattr`, `group.get`, `len`, [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `sidebar_line`, `ui.label`, `ui.label(status).classes`, `ui.label(status).classes('sidebar-readout truncate').tooltip`, `ws.format_date`, `ws.property_menu`, `{'watching': 'Отслеживается', 'offline': 'Ожидает подключения', 'error': 'Отслеживание недоступно'}.get`.
+Прямые выражения вызова: `' · '.join`, `actions.insert`, `bool`, `detail.append`, `disconnected`, `getattr`, `group.get`, `len`, [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `sidebar_line`, `ui.label`, `ui.label(status).classes`, `ui.label(status).classes('sidebar-readout truncate').tooltip`, `ws.format_date`, `ws.property_menu`, `{'watching': 'Отслеживается', 'offline': 'Ожидает подключения', 'error': 'Отслеживание недоступно'}.get`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -392,7 +391,7 @@ async def open_copy(self, group, location)
 async def open_main(self, group)
 ```
 
-Прямые выражения вызова: [disconnected](copy_groups_ui.md#symbol-disconnected), `min`, `ws.browse`, `ws.pair.link`, `ws.pair.unlink`, `ws.panes[0].show_volume`.
+Прямые выражения вызова: `first_copy`, `ws.browse`, `ws.pair.link`, `ws.pair.unlink`, `ws.panes[0].show_volume`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -618,25 +617,6 @@ async def set_folder_settings(self, group, **settings)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-disconnected"></a>
-
-## `disconnected`
-
-[copy_groups_ui.py](../../copy_groups_ui.py) · `disconnected`
-
-Проверяет отключение связи по совместимым полям ответа Core. Использует location.get.
-
-```python
-def disconnected(location)
-```
-
-Прямые выражения вызова: `location.get`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `not location.get('connected', True) or location.get('availability') == 'offline'`
-
-
 <a id="symbol-sidebar_sections"></a>
 
 ## `sidebar_sections`
@@ -649,7 +629,7 @@ def disconnected(location)
 def sidebar_sections(groups)
 ```
 
-Прямые выражения вызова: `active.append`, [disconnected](copy_groups_ui.md#symbol-disconnected), `group.get`, `int`, `len`, `offline.append`.
+Прямые выражения вызова: `active.append`, `disconnected`, `group.get`, `int`, `len`, `offline.append`.
 
 Выражения возврата (ветви, без исполнения):
 

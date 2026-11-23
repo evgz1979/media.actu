@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 
 from nicegui import ui
 
+from copy_panels import copy_heading
 from media_manager.paired_comparison import DECISIONS, STATUS_LABELS, absolute_scope_path
 from paired_tree import PairedTree
 
@@ -284,9 +285,7 @@ class PairedWorkspace:
         pane.navigation.set_visibility(True)
         pane.toolbar.set_visibility(True)
         pane.result_filter.set_visibility(False)
-        description = ('источник копирования' if side == 'left' else f"копия №{scope['number']}")
-        pane.heading.text = ('Прежняя ' + scope['label'] if self.history_only and side == 'right'
-                             else f"{scope['label']} ({description})")
+        pane.heading.text = copy_heading(scope, target=side == 'right', historical=self.history_only)
         boundary = scope['path']
         pane.render_path(scope['volume_id'], pane.path, pane.kind, boundary=boundary)
         if self.report:

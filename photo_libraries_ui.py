@@ -7,8 +7,16 @@ from zoneinfo import ZoneInfo
 
 from nicegui import ui
 
+from copy_panels import contains_path
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from sidebar_ui import sidebar_branch, sidebar_line, sidebar_menu
+
+
+#: Возвращает компактное имя системной или именованной медиатеки.
+#: Используется в боковом списке и заголовке панели.
+def library_name(library):
+    title = library.get('label') or 'Photos'
+    return 'Photos' if title == 'Системная медиатека Photos' else title
 
 
 #: Формирует подпись прогресса превью одной медиатеки.
@@ -196,6 +204,31 @@ class PhotoLibrariesUI:
     def cloud_volume(self):
         return self.cloud.get('volume')
 
+    #: Восстанавливает роли двух панелей по текущим путям и действующим привязкам.
+    #: В правую область Photos добавляет имя предыдущего звена цепочки, если оно известно.
+    def copy_scopes(self, source_id, source_path, target_id, target_path):
+        if source_id == ICLOUD_VOLUME_ID:
+            copies = self.cloud.get('copies', [])
+            label = 'iCloud Drive'
+        else:
+            library = next((item for item in self.libraries if f"photos-{item['id']}" == source_id), None)
+            if not library:
+                return None
+            copies, label = library.get('copies', []), library_name(library)
+        for copy in copies:
+            left = dict(volume_id=source_id, path=copy.get('source_path', ''), label=label)
+            if not (copy.get('connected', True) and contains_path(left, source_id, source_path)
+                    and contains_path(copy, target_id, target_path)):
+                continue
+            number = copy['number']
+            right = dict(copy, label=f'{number:02d}-copy')
+            upstream_id = copy.get('source_link_id')
+            upstream = next((item for item in copies if upstream_id and item['id'] == upstream_id), None)
+            if upstream:
+                right['upstream'] = f"{upstream['number']:02d}-copy на {upstream['volume_name']}"
+            return left, right
+        return None
+
     #: Создаёт строку источника или копии с обновляемым показателем.
     #: Возвращает две ссылки для последующего обновления статуса.
     def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library'):
@@ -282,8 +315,7 @@ class PhotoLibrariesUI:
                 source_id = library['id']
                 copies = library.get('copies', [])
                 title = library.get('label') or 'Photos'
-                name = 'Photos' if title == 'Системная медиатека Photos' else title
-                with self.source(source_id, name, lambda sid=source_id: self.ws.open_library(sid),
+                with self.source(source_id, library_name(library), lambda sid=source_id: self.ws.open_library(sid),
                                  lambda s=library: self.library_menu(s), active=library['active'],
                                  copies=copies, schedule=schedule_text(library), title=title) as status:
                     self.rows[source_id] = dict(status=status, copies={})
