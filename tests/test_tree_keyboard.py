@@ -86,11 +86,41 @@ class TreeKeyboardTests(unittest.IsolatedAsyncioTestCase):
         pane.volume_select = SimpleNamespace(props={}, set_options=Mock())
         pane.update_volume_select('cold')
         options = pane.volume_select.set_options.call_args.args[0]
-        self.assertEqual(set(options), {'disk', 'unknown', 'photos-1'})
+        self.assertEqual(options, {'disk': 'Online · локальный том', 'unknown': 'Unknown · сервер неизвестен',
+                                   'photos-1': 'Photos · Active'})
         self.assertIsNone(pane.volume_select.set_options.call_args.kwargs['value'])
-        self.assertEqual(pane.volume_select.props['display-value'], 'Offline disk')
+        self.assertEqual(pane.volume_select.props['display-value'], 'Offline disk · локальный том')
         pane.update_volume_select('disk')
         self.assertNotIn('display-value', pane.volume_select.props)
+
+    async def test_volume_selector_shows_origin_for_every_filesystem_volume(self):
+        ws = StorageWorkspace.__new__(StorageWorkspace)
+        local = {'id': 'm4', 'name': 'Mac mini M4', 'kind': 'local'}
+        nas = {'id': 'nas:tnas-z.local', 'name': 'TNAS-Z', 'kind': 'network'}
+        other_nas = {'id': 'nas:other-nas.local', 'name': 'Other-NAS', 'kind': 'network'}
+        network = dict(id='network', name='Data', kind='network', group=nas)
+        ws.volumes = [dict(id='system', name='Data', kind='internal', group=local), network,
+                      dict(id='disk', name='nvme2Tb', kind='external', group=local),
+                      dict(id='copy', name='Media-copy01', kind='network', group=nas),
+                      dict(id='usb', name='WD_old_2Tb', kind='network', group=other_nas,
+                           marker_id='marker', share_name='usbshare1')]
+        for volume in ws.volumes:
+            volume.update(availability='online', mounted=True)
+        expected = {'system': 'Data · Mac mini M4', 'network': 'Data · TNAS-Z',
+                    'disk': 'nvme2Tb · Mac mini M4', 'copy': 'Media-copy01 · TNAS-Z',
+                    'usb': 'WD_old_2Tb · usbshare1 · Other-NAS'}
+        pane = BrowserPane.__new__(BrowserPane)
+        pane.workspace = ws
+        pane.volume_select = SimpleNamespace(props={}, set_options=Mock())
+
+        pane.update_volume_select('usb')
+        pane.volume_select.set_options.assert_called_once_with(expected, value='usb')
+        self.assertEqual(pane.volume_select.props['title'], expected['usb'])
+
+        network.update(availability='offline', mounted=False)
+        pane.update_volume_select('network')
+        self.assertEqual(pane.volume_select.props['display-value'], expected.pop('network'))
+        pane.volume_select.set_options.assert_called_with(expected, value=None)
 
 
 NODE = shutil.which('node')

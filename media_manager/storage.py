@@ -329,13 +329,13 @@ class StorageCatalog:
                 raise ValueError('Имя записано на диск, но обновить сведения не удалось. Обнови список томов.')
             return renamed
 
-    #: Определяет группу отображения тома по типу и сведениям о NAS.
-    #: Поля результата: id, name, kind.
+    #: Определяет группу тома по машине Core или последнему обнаруженному серверу.
+    #: Использует сохранённый SMB-адрес, когда сервер ещё не был обнаружен.
     @staticmethod
     def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict:
         if volume['kind'] != 'network':
-            return {'id': 'm4', 'name': 'M4', 'kind': 'local'}
-        host = urlsplit(volume.get('network_url') or '').hostname or origin
+            return {'id': 'm4', 'name': 'Mac mini M4', 'kind': 'local'}
+        host = origin or urlsplit(volume.get('network_url') or '').hostname
         if not host:
             # Old offline entries have no mount origin. Match only by identity,
             # never by a share name which might exist on several NAS devices.

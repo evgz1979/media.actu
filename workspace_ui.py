@@ -159,6 +159,22 @@ def volume_label(volume, with_share=True):
     return name
 
 
+#: Формирует подпись для селектора панели с источником файлового тома.
+#: Использует тип источника и название группы тома из Core.
+def volume_select_label(volume):
+    label = volume_label(volume)
+    kind = volume['kind']
+    if kind == 'photos':
+        return f'Photos · {label}'
+    group = volume.get('group') or {}
+    if kind == 'network':
+        server = group.get('name') if group.get('id') != 'network-unknown' else None
+        return f"{label} · {server or 'сервер неизвестен'}"
+    if kind in ('internal', 'external'):
+        return f"{label} · {group.get('name') or 'локальный том'}"
+    return label
+
+
 #: Определяет, должен ли недоступный том отображаться в архиве.
 #: Использует volume.get.
 def archived(volume):
@@ -445,18 +461,24 @@ class BrowserPane:
             self.comparison.reset()
         self.render()
 
-    #: Обновляет варианты выбора тома и текущее значение селектора панели.
-    #: Использует archived, self.volume_select.props.pop, self.volume_select.set_options, self.workspace.resolve_volume, self.workspace.selectable_volumes.
+    #: Обновляет варианты выбора тома и полную подпись текущего тома для подсказки.
+    #: Сохраняет подпись текущего отключённого тома вне выпадающего списка.
     def update_volume_select(self, volume_id):
         options = {
-            v['id']: ('Photos · ' if v['kind'] == 'photos' else '') + volume_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
+            v['id']: volume_select_label(v) + (' · отключён' if archived(v) else ' · не подтверждён' if v.get('identity_status') == 'unverified' else '')
             for v in self.workspace.selectable_volumes()
         }
         current = self.workspace.resolve_volume(volume_id)
-        if current and volume_id not in options:
-            self.volume_select.props['display-value'] = ('Photos · ' if current['kind'] == 'photos' else '') + volume_label(current)
+        caption = options.get(volume_id)
+        if current and caption is None:
+            caption = volume_select_label(current)
+            self.volume_select.props['display-value'] = caption
         else:
             self.volume_select.props.pop('display-value', None)
+        if caption is None:
+            self.volume_select.props.pop('title', None)
+        else:
+            self.volume_select.props['title'] = caption
         self.volume_select.set_options(options, value=volume_id if volume_id in options else None)
 
     #: Обновляет путь, подписи и доступность элементов управления панели.
@@ -1582,7 +1604,7 @@ class StorageWorkspace:
         def groups(items):
             grouped = {}
             for volume in items:
-                group = volume.get('group') or {'id': volume['kind'], 'name': 'Сетевые тома' if volume['kind'] == 'network' else 'M4', 'kind': 'network' if volume['kind'] == 'network' else 'local'}
+                group = volume.get('group') or {'id': volume['kind'], 'name': 'Сетевые тома' if volume['kind'] == 'network' else 'Локальные тома', 'kind': 'network' if volume['kind'] == 'network' else 'local'}
                 grouped.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append(volume)
             for group in sorted(grouped.values(), key=lambda g: (g['details']['kind'] == 'local', g['details']['name'].casefold())):
                 with ui.row().classes('sidebar-caption w-full items-center no-wrap'):

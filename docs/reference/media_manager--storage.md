@@ -35,7 +35,7 @@
 - [StorageCatalog.remember_network_volume](#symbol-StorageCatalog.remember_network_volume) — Запоминает SMB-ресурс и его псевдонимы без монтирования.
 - [StorageCatalog.rename_removable](#symbol-StorageCatalog.rename_removable) — Переименовывает зарегистрированный носитель через его служебный маркер.
 - [StorageCatalog.set_folder_tags](#symbol-StorageCatalog.set_folder_tags) — Сохраняет проверенный набор меток для выбранной папки.
-- [StorageCatalog.volume_group](#symbol-StorageCatalog.volume_group) — Определяет группу отображения тома по типу и сведениям о NAS.
+- [StorageCatalog.volume_group](#symbol-StorageCatalog.volume_group) — Определяет группу тома по машине Core или последнему обнаруженному серверу.
 - [_inspect_volume](#symbol-_inspect_volume) — Определяет идентичность, тип, ресурс NAS и ёмкость одного тома.
 - [discover_volumes](#symbol-discover_volumes) — Читает существующие монтирования macOS и собирает доступные тома.
 - [now](#symbol-now) — Возвращает текущее время UTC в формате ISO 8601.
@@ -543,7 +543,7 @@ SQLite: чтение `directory_tags`; запись/DDL `directory_tags`. См. 
 
 [media_manager/storage.py](../../media_manager/storage.py) · `StorageCatalog.volume_group`
 
-Определяет группу отображения тома по типу и сведениям о NAS. Поля результата: id, name, kind.
+Определяет группу тома по машине Core или последнему обнаруженному серверу. Использует сохранённый SMB-адрес, когда сервер ещё не был обнаружен.
 
 ```python
 def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict
@@ -555,7 +555,7 @@ def volume_group(volume: dict, origin: str | None, servers: list[dict]) -> dict
 
 Выражения возврата (ветви, без исполнения):
 
-- `{'id': 'm4', 'name': 'M4', 'kind': 'local'}`
+- `{'id': 'm4', 'name': 'Mac mini M4', 'kind': 'local'}`
 - `{'id': 'network-unknown', 'name': 'Сетевые тома', 'kind': 'network'}`
 - `{'id': 'nas:' + server['host'].rstrip('.').casefold(), 'name': server['name'], 'kind': 'network'}`
 - `{'id': 'nas:' + normalized, 'name': name, 'kind': 'network'}`

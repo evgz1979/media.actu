@@ -49,7 +49,7 @@
 - [BrowserPane.update_header](#symbol-BrowserPane.update_header) — Обновляет путь, подписи и доступность элементов управления панели.
 - [BrowserPane.update_navigation_selection](#symbol-BrowserPane.update_navigation_selection) — Обновляет признак выбранной строки среди зарегистрированных DOM-элементов.
 - [BrowserPane.update_size_header](#symbol-BrowserPane.update_size_header) — Обновляет размер текущей области в заголовке панели.
-- [BrowserPane.update_volume_select](#symbol-BrowserPane.update_volume_select) — Обновляет варианты выбора тома и текущее значение селектора панели.
+- [BrowserPane.update_volume_select](#symbol-BrowserPane.update_volume_select) — Обновляет варианты выбора тома и полную подпись текущего тома для подсказки.
 - [BrowserPane.volume](#symbol-BrowserPane.volume) — Возвращает сведения о выбранном томе или виртуальной медиатеке.
 - [BrowserPane.volume_changed](#symbol-BrowserPane.volume_changed) — Обрабатывает актуальное изменение выбранного тома, отбрасывая устаревшие события.
 - [StorageWorkspace](#symbol-StorageWorkspace) — Координирует две панели, тома, медиатеки, сверки и сохранённое состояние вкладки.
@@ -121,6 +121,7 @@
 - [register_workspace_page](#symbol-register_workspace_page) — Регистрирует главную страницу с параметрами совместимости старых ссылок.
 - [register_workspace_page.workspace_page](#symbol-register_workspace_page.workspace_page) — Создаёт рабочее пространство для клиента и загружает его начальное состояние.
 - [volume_label](#symbol-volume_label) — Формирует подпись тома с необязательным именем сетевого ресурса.
+- [volume_select_label](#symbol-volume_select_label) — Формирует подпись для селектора панели с источником файлового тома.
 
 ## Константы и значения по умолчанию
 
@@ -827,13 +828,13 @@ def update_size_header(self)
 
 [workspace_ui.py](../../workspace_ui.py) · `BrowserPane.update_volume_select`
 
-Обновляет варианты выбора тома и текущее значение селектора панели. Использует archived, self.volume_select.props.pop, self.volume_select.set_options, self.workspace.resolve_volume, self.workspace.selectable_volumes.
+Обновляет варианты выбора тома и полную подпись текущего тома для подсказки. Сохраняет подпись текущего отключённого тома вне выпадающего списка.
 
 ```python
 def update_volume_select(self, volume_id)
 ```
 
-Прямые выражения вызова: [archived](workspace_ui.md#symbol-archived), `self.volume_select.props.pop`, `self.volume_select.set_options`, `self.workspace.resolve_volume`, `self.workspace.selectable_volumes`, `v.get`, [volume_label](workspace_ui.md#symbol-volume_label).
+Прямые выражения вызова: [archived](workspace_ui.md#symbol-archived), `options.get`, `self.volume_select.props.pop`, `self.volume_select.set_options`, `self.workspace.resolve_volume`, `self.workspace.selectable_volumes`, `v.get`, [volume_select_label](workspace_ui.md#symbol-volume_select_label).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -2220,3 +2221,25 @@ def volume_label(volume, with_share=True)
 
 - `f'{name} · {share}'`
 - `name`
+
+
+<a id="symbol-volume_select_label"></a>
+
+## `volume_select_label`
+
+[workspace_ui.py](../../workspace_ui.py) · `volume_select_label`
+
+Формирует подпись для селектора панели с источником файлового тома. Использует тип источника и название группы тома из Core.
+
+```python
+def volume_select_label(volume)
+```
+
+Прямые выражения вызова: `group.get`, `volume.get`, [volume_label](workspace_ui.md#symbol-volume_label).
+
+Выражения возврата (ветви, без исполнения):
+
+- `f'Photos · {label}'`
+- `f"{label} · {server or 'сервер неизвестен'}"`
+- `f"{label} · {group.get('name') or 'локальный том'}"`
+- `label`

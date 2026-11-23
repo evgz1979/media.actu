@@ -3220,6 +3220,14 @@ async def test_paired_arrow_keeps_a_collapsed_folder_closed_and_updates_both_sid
 async def test_stale_events_and_dialog_or_preview_focus_do_not_move_the_tree(self)
 ```
 
+<a id="symbol-tests.test_tree_keyboard.TreeKeyboardTests.test_volume_selector_shows_origin_for_every_filesystem_volume"></a>
+
+### `TreeKeyboardTests.test_volume_selector_shows_origin_for_every_filesystem_volume`
+
+```python
+async def test_volume_selector_shows_origin_for_every_filesystem_volume(self)
+```
+
 <a id="module-tests.test_ui_connection"></a>
 
 ## `test_ui_connection.py`

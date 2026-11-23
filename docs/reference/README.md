@@ -48,7 +48,7 @@
 | [storage_ui.py](storage_ui.md) | Общие элементы и регистрация UI | 0 / 2 |
 | [ui.py](ui.md) | Вход в NiceGUI и HTTP-клиент | 0 / 6 |
 | [workspace_state.py](workspace_state.md) | Состояние браузерной вкладки | 0 / 5 |
-| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 104 |
+| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 105 |
 
 - [Нативные определения](native.md)
 - [Тестовые сценарии](tests.md)

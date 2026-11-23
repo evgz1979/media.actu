@@ -57,7 +57,7 @@ PYTHONPATH=tests .venv/bin/python -m unittest -v test_copy_sources
 | [test_storage.py](../tests/test_storage.py) | Снимки, отключение и метаданные томов | 16 |
 | [test_storage_previews.py](../tests/test_storage_previews.py) | Производные JPEG, видео и режим превью | 9 |
 | [test_thumbnails.py](../tests/test_thumbnails.py) | Версии кэша, ориентация и генерация фото | 3 |
-| [test_tree_keyboard.py](../tests/test_tree_keyboard.py) | Выделение, фокус и клавиатурная навигация | 7 |
+| [test_tree_keyboard.py](../tests/test_tree_keyboard.py) | Выделение, подписи томов, фокус и навигация | 8 |
 | [test_ui_connection.py](../tests/test_ui_connection.py) | Повторное использование HTTP-пула | 1 |
 | [test_volume_identity.py](../tests/test_volume_identity.py) | Маркеры, смена носителя и ёмкость | 18 |
 | [test_workspace_photos.py](../tests/test_workspace_photos.py) | Виртуальные медиатеки в общих панелях | 2 |

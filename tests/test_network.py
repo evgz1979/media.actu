@@ -157,8 +157,9 @@ class NetworkCatalogTests(unittest.TestCase):
         ])
         connected = {v['id']: v for v in self.storage.refresh(True)['volumes']}
         self.assertEqual(connected[network_id]['group']['name'], 'TNAS-Z')
-        self.assertEqual(connected['nvme']['group']['id'], 'm4')
-        self.assertEqual(connected['system']['group']['id'], 'm4')
+        local = {'id': 'm4', 'name': 'Mac mini M4', 'kind': 'local'}
+        self.assertEqual(connected['nvme']['group'], local)
+        self.assertEqual(connected['system']['group'], local)
         self.mounted.clear()
         reopened = StorageCatalog(self.storage.database, lambda: [])
         disconnected = {v['id']: v for v in reopened.refresh(True)['volumes']}

@@ -106,9 +106,11 @@ class VolumeIdentityTests(unittest.TestCase):
         self.assertEqual(json.loads(marker_path.read_text()), {**document, 'name': 'WD_old_2Tb'})
         self.assertEqual({p.name for p in self.disk.iterdir()}, {'photo.jpg', 'Album', MARKER_NAME})
         self.assertEqual((self.disk / 'photo.jpg').stat().st_mtime_ns, original.st_mtime_ns)
-        reopened = StorageCatalog(self.storage.database, lambda: [self.discover(share='usbshare2')])
+        reopened = StorageCatalog(self.storage.database, lambda: [self.discover(share='usbshare2', host='Other-NAS.local')])
         remembered = next(v for v in reopened.refresh(True)['volumes'] if v['id'] == registered['id'])
         self.assertEqual(remembered['name'], 'WD_old_2Tb')
+        self.assertEqual(remembered['group']['name'], 'Other-NAS')
+        self.assertEqual(remembered['share_name'], 'usbshare2')
         self.assertEqual(remembered['metadata']['effective']['role'], 'archive')
         self.assertEqual(remembered['metadata']['own']['comment'], 'keep')
         self.assertEqual(reopened.directory(registered['id'], refresh=False)['scanned_at'], snapshot['scanned_at'])
@@ -119,6 +121,7 @@ class VolumeIdentityTests(unittest.TestCase):
         reopened.discover = lambda: []
         offline = next(v for v in reopened.refresh(True)['volumes'] if v['id'] == registered['id'])
         self.assertEqual(offline['name'], 'WD_old_2Tb')
+        self.assertEqual(offline['group'], remembered['group'])
 
     def test_rename_rejects_offline_unregistered_and_duplicate_disks(self):
         pending = self.discover()
