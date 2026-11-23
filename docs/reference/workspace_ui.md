@@ -73,8 +73,9 @@
 - [StorageWorkspace.load_directory_sizes](#symbol-StorageWorkspace.load_directory_sizes) — Получает или ставит в очередь размеры выбранных папок через Core.
 - [StorageWorkspace.notice](#symbol-StorageWorkspace.notice) — Показывает пользователю сообщение об ошибке операции UI.
 - [StorageWorkspace.open_in_finder](#symbol-StorageWorkspace.open_in_finder) — Отправляет Core проверенную команду открытия файлового пути в Finder.
-- [StorageWorkspace.open_library](#symbol-StorageWorkspace.open_library) — Открывает выбранную медиатеку в активной панели.
+- [StorageWorkspace.open_library](#symbol-StorageWorkspace.open_library) — Открывает медиатеку слева и её первую доступную копию справа.
 - [StorageWorkspace.open_photo](#symbol-StorageWorkspace.open_photo) — Передаёт Core команду выделения объекта в системном Photos.
+- [StorageWorkspace.open_source_pair](#symbol-StorageWorkspace.open_source_pair) — Открывает источник слева и первую доступную копию справа в режиме дерева.
 - [StorageWorkspace.open_volume](#symbol-StorageWorkspace.open_volume) — Открывает файловый том в выбранной панели с выходом из конфликтующего режима.
 - [StorageWorkspace.persist_workspace](#symbol-StorageWorkspace.persist_workspace) — Сохраняет нормализованное состояние рабочего пространства в хранилище вкладки.
 - [StorageWorkspace.poll](#symbol-StorageWorkspace.poll) — Опросом обновляет общую и парную сверки, копии, медиатеки и превью.
@@ -888,9 +889,9 @@ async def volume_changed(self, event)
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
+Состояние, присваиваемое конструктором: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `source_open_generation`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
-Именованные методы: `__init__`, `sidebar_expansion`, `build_operations`, `error_text`, `notice`, `is_photos`, `browse_volumes`, `selectable_volumes`, `resolve_volume`, `read_directory`, `open_library`, `open_photo`, `capacity_text`, `set_active`, `workspace_snapshot`, `preview_selection`, `persist_workspace`, `restore_panes`, `restore_workspace`, `open_in_finder`, `directory_size_text`, `size_texts`, `update_size_labels`, `load_directory_sizes`, `poll_directory_sizes`, `property_menu`, `open_volume`, `render_volumes`, `refresh_volumes`, `update_scopes`, `load`, `poll_connected`, `refresh_history`, `history_changed`, `choose_job`, `apply_report`, `start_comparison`, `browse`, `report_marker`, `poll`, `render_progress`, `control`, `refresh_matches`, `show_journal`, `show_properties`, `edit_folder_tags`, `apply_folder_tags`, `edit_metadata`, `rename_disk`, `register_disk`, `connect`.
+Именованные методы: `__init__`, `sidebar_expansion`, `build_operations`, `error_text`, `notice`, `is_photos`, `browse_volumes`, `selectable_volumes`, `resolve_volume`, `read_directory`, `open_library`, `open_source_pair`, `open_photo`, `capacity_text`, `set_active`, `workspace_snapshot`, `preview_selection`, `persist_workspace`, `restore_panes`, `restore_workspace`, `open_in_finder`, `directory_size_text`, `size_texts`, `update_size_labels`, `load_directory_sizes`, `poll_directory_sizes`, `property_menu`, `open_volume`, `render_volumes`, `refresh_volumes`, `update_scopes`, `load`, `poll_connected`, `refresh_history`, `history_changed`, `choose_job`, `apply_report`, `start_comparison`, `browse`, `report_marker`, `poll`, `render_progress`, `control`, `refresh_matches`, `show_journal`, `show_properties`, `edit_folder_tags`, `apply_folder_tags`, `edit_metadata`, `rename_disk`, `register_disk`, `connect`.
 
 <a id="symbol-StorageWorkspace.__init__"></a>
 
@@ -904,7 +905,7 @@ async def volume_changed(self, event)
 def __init__(self, request, format_bytes, format_date, core_url='http://127.0.0.1:18765')
 ```
 
-Присваивания полям `self`: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
+Присваивания полям `self`: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `source_open_generation`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
 Прямые выражения вызова: [BrowserPane](workspace_ui.md#symbol-BrowserPane), `CopyGroupsUI`, `CopySetupUI`, `PairedWorkspace`, `PhotoLibrariesUI`, `normalize_sidebar`, `range`, [self.build_operations](workspace_ui.md#symbol-StorageWorkspace.build_operations), `self.copies.build_sidebar`, `self.pair.build`, `self.photo_libraries.build`, [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), [self.sidebar_expansion](workspace_ui.md#symbol-StorageWorkspace.sidebar_expansion), `self.sidebar_storage.get`, `set`, `ui.add_css`, `ui.add_head_html`, `ui.button`, `ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props`, `ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pane-link').props`, `ui.icon`, `ui.label`, `ui.label('media.actu').classes`, `ui.label('Загрузка томов M4…').classes`, `ui.row`, `ui.row().classes`.
 
@@ -1299,13 +1300,13 @@ async def open_in_finder(self, volume_id, path='')
 
 [workspace_ui.py](../../workspace_ui.py) · `StorageWorkspace.open_library`
 
-Открывает выбранную медиатеку в активной панели. Асинхронно ожидает: self.open_volume.
+Открывает медиатеку слева и её первую доступную копию справа. Асинхронно ожидает: self.open_source_pair.
 
 ```python
 async def open_library(self, source_id)
 ```
 
-Прямые выражения вызова: [self.open_volume](workspace_ui.md#symbol-StorageWorkspace.open_volume).
+Прямые выражения вызова: `library.get`, `next`, [self.open_source_pair](workspace_ui.md#symbol-StorageWorkspace.open_source_pair).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -1327,6 +1328,27 @@ async def open_photo(self, media_id)
 Перехватываемые типы: `Exception`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-StorageWorkspace.open_source_pair"></a>
+
+## `StorageWorkspace.open_source_pair`
+
+[workspace_ui.py](../../workspace_ui.py) · `StorageWorkspace.open_source_pair`
+
+Открывает источник слева и первую доступную копию справа в режиме дерева. Для iCloud слева используется область выбранной копии, а при отсутствии доступных копий используется первая сохранённая.
+
+```python
+async def open_source_pair(self, volume_id, copies)
+```
+
+Присваивания полям `self`: `source_open_generation`.
+
+Прямые выражения вызова: `asyncio.gather`, `disconnected`, `first.get`, `len`, `locations.append`, `min`, `pane.set_mode`, `pane.show_volume`, [self.browse](workspace_ui.md#symbol-StorageWorkspace.browse), `self.pair.unlink`, `self.panes[0].focus_tree`, [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), `zip`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
 
 
 <a id="symbol-StorageWorkspace.open_volume"></a>

@@ -1,6 +1,7 @@
 """Two independent storage trees and operations in one workspace."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from itertools import count
 import json
@@ -9,7 +10,7 @@ from pathlib import PurePosixPath
 from nicegui import app, background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
-from copy_groups_ui import CopyGroupsUI
+from copy_groups_ui import CopyGroupsUI, disconnected
 from copy_setup_ui import COPY_SETUP_CSS, CopySetupUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
@@ -1054,6 +1055,7 @@ class StorageWorkspace:
         self.last_marker = None
         self.editing = False
         self.context_menu_open = False
+        self.source_open_generation = 0
         self.match_generation = 0
         self.current_matches = []
         self.state_ready = False
@@ -1193,14 +1195,40 @@ class StorageWorkspace:
         return await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
                                   params=dict(path=path, refresh=refresh, discover=discover), timeout=45)
 
-    #: Открывает выбранную медиатеку в активной панели.
-    #: Асинхронно ожидает: self.open_volume.
+    #: Открывает медиатеку слева и её первую доступную копию справа.
+    #: Асинхронно ожидает: self.open_source_pair.
     async def open_library(self, source_id):
-        # A library opens in the active tree; preview mode keeps following it.
-        index = self.active_index
-        if self.panes[index].view_mode == 'preview':
-            index = 1 - index
-        await self.open_volume(f'photos-{source_id}', index)
+        library = next((item for item in self.photo_libraries.libraries if item['id'] == source_id), None)
+        if library:
+            await self.open_source_pair(f'photos-{source_id}', library.get('copies', []))
+
+    #: Открывает источник слева и первую доступную копию справа в режиме дерева.
+    #: Для iCloud слева используется область выбранной копии, а при отсутствии доступных копий используется первая сохранённая.
+    async def open_source_pair(self, volume_id, copies):
+        self.source_open_generation += 1
+        generation = self.source_open_generation
+        available = [copy for copy in copies if not disconnected(copy)]
+        first = min(available or copies, key=lambda copy: copy['number']) if copies else None
+        locations = [(volume_id, first.get('source_path', '') if first else '')]
+        if first:
+            locations.append((first['volume_id'], first['path']))
+        with self.client:
+            if self.pair.active:
+                await self.pair.unlink()
+            if self.report:
+                await self.browse()
+            if generation != self.source_open_generation:
+                return
+            for pane in self.panes[:len(locations)]:
+                if pane.view_mode == 'preview':
+                    await pane.set_mode('tree')
+            if generation != self.source_open_generation:
+                return
+            self.set_active(0)
+            await asyncio.gather(*(pane.show_volume(identifier, path, activate=False)
+                                   for pane, (identifier, path) in zip(self.panes, locations)))
+            if generation == self.source_open_generation and self.active_index == 0:
+                self.panes[0].focus_tree()
 
     #: Передаёт Core команду выделения объекта в системном Photos.
     #: Обрабатывает ошибки: Exception.

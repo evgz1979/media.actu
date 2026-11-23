@@ -11,7 +11,7 @@
 
 Импортирует из проекта: [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [sidebar_ui.py](sidebar_ui.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_photo_libraries.py](tests.md#module-tests.test_photo_libraries), [tests/test_photos_schedule.py](tests.md#module-tests.test_photos_schedule).
+Тестовые модули с прямым импортом: [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_photo_libraries.py](tests.md#module-tests.test_photo_libraries), [tests/test_photos_schedule.py](tests.md#module-tests.test_photos_schedule), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos).
 
 ## Оглавление определений
 
@@ -36,7 +36,7 @@
 - [PhotoLibrariesUI.library_details](#symbol-PhotoLibrariesUI.library_details) — Показывает прогресс и состояние превью в подробностях медиатеки.
 - [PhotoLibrariesUI.library_menu](#symbol-PhotoLibrariesUI.library_menu) — Заполняет меню выбранной медиатеки и её настроек.
 - [PhotoLibrariesUI.name_dialog](#symbol-PhotoLibrariesUI.name_dialog) — Показывает ввод названия медиатеки и возвращает подтверждённое значение.
-- [PhotoLibrariesUI.open_cloud](#symbol-PhotoLibrariesUI.open_cloud) — Открывает дерево iCloud Drive в активной панели с режимом дерева.
+- [PhotoLibrariesUI.open_cloud](#symbol-PhotoLibrariesUI.open_cloud) — Открывает iCloud Drive слева и первую доступную копию справа.
 - [PhotoLibrariesUI.originals_action](#symbol-PhotoLibrariesUI.originals_action) — Запускает или приостанавливает сохранение оригиналов выбранной копии.
 - [PhotoLibrariesUI.originals_journal](#symbol-PhotoLibrariesUI.originals_journal) — Показывает события сохранения и пути незавершённых оригиналов.
 - [PhotoLibrariesUI.originals_running](#symbol-PhotoLibrariesUI.originals_running) — Определяет, запущены ли оригиналы копии Photos либо ожидают расписания.
@@ -454,13 +454,13 @@ async def name_dialog(self, title, value)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.open_cloud`
 
-Открывает дерево iCloud Drive в активной панели с режимом дерева. Асинхронно ожидает: self.ws.open_volume.
+Открывает iCloud Drive слева и первую доступную копию справа. Асинхронно ожидает: self.ws.open_source_pair.
 
 ```python
 async def open_cloud(self)
 ```
 
-Прямые выражения вызова: [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.ws.open_volume`, `ui.notify`.
+Прямые выражения вызова: [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.ws.open_source_pair`, `ui.notify`.
 
 Выражения возврата (ветви, без исполнения):
 

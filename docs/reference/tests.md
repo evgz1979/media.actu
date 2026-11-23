@@ -3396,12 +3396,28 @@ def test_unregistered_disk_does_not_use_legacy_share_history(self)
 
 [tests/test_workspace_photos.py](../../tests/test_workspace_photos.py)
 
-<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_library_button_opens_the_active_tree_without_changing_preview_mode"></a>
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline"></a>
 
-### `WorkspacePhotosTests.test_library_button_opens_the_active_tree_without_changing_preview_mode`
+### `WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline`
 
 ```python
-async def test_library_button_opens_the_active_tree_without_changing_preview_mode(self)
+async def test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_opening_photos_selects_the_first_available_copy_and_restores_the_destination_tree"></a>
+
+### `WorkspacePhotosTests.test_opening_photos_selects_the_first_available_copy_and_restores_the_destination_tree`
+
+```python
+async def test_opening_photos_selects_the_first_available_copy_and_restores_the_destination_tree(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_opening_photos_without_copies_uses_only_the_left_tree"></a>
+
+### `WorkspacePhotosTests.test_opening_photos_without_copies_uses_only_the_left_tree`
+
+```python
+async def test_opening_photos_without_copies_uses_only_the_left_tree(self)
 ```
 
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_photos_browse_never_uses_mounted_directory_or_comparison_apis"></a>

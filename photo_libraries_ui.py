@@ -368,16 +368,13 @@ class PhotoLibrariesUI:
             ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
         dialog.open()
 
-    #: Открывает дерево iCloud Drive в активной панели с режимом дерева.
-    #: Асинхронно ожидает: self.ws.open_volume.
+    #: Открывает iCloud Drive слева и первую доступную копию справа.
+    #: Асинхронно ожидает: self.ws.open_source_pair.
     async def open_cloud(self):
         if self.cloud_volume()['availability'] != 'online':
             ui.notify('iCloud Drive недоступен на M4', type='warning')
             return
-        index = self.ws.active_index
-        if self.ws.panes[index].view_mode == 'preview':
-            index = 1 - index
-        await self.ws.open_volume(ICLOUD_VOLUME_ID, index)
+        await self.ws.open_source_pair(ICLOUD_VOLUME_ID, self.cloud['copies'])
 
     #: Показывает команду добавления копии для доступного iCloud Drive.
     #: Использует self.bind_cloud.
