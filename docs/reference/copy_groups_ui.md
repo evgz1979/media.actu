@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/copies.py](media_manager--copies.md).
+Импортирует из проекта: [media_manager/copies.py](media_manager--copies.md), [sidebar_ui.py](sidebar_ui.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_copy_connections.py](tests.md#module-tests.test_copy_connections), [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_paired_workspace.py](tests.md#module-tests.test_paired_workspace), [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state).
 
@@ -18,19 +18,19 @@
 - [CopyGroupsUI](#symbol-CopyGroupsUI) — Показывает наборы папок и выполняет команды учёта через Core API.
 - [CopyGroupsUI.__init__](#symbol-CopyGroupsUI.__init__) — Инициализирует CopyGroupsUI и его рабочее состояние.
 - [CopyGroupsUI.acknowledge_changes](#symbol-CopyGroupsUI.acknowledge_changes) — Подтверждает просмотр конкретной отметки изменения основной папки.
-- [CopyGroupsUI.add_copy](#symbol-CopyGroupsUI.add_copy) — Привязывает выбранную папку назначения как копию существующего набора.
 - [CopyGroupsUI.build_controls](#symbol-CopyGroupsUI.build_controls) — Создаёт контейнер команд назначения основной папки и копии.
 - [CopyGroupsUI.build_sidebar](#symbol-CopyGroupsUI.build_sidebar) — Создаёт боковые секции основных папок и отключённых связей.
 - [CopyGroupsUI.changed](#symbol-CopyGroupsUI.changed) — Обновляет наборы, тома, медиатеки и видимые метки после изменения связей.
 - [CopyGroupsUI.choose_source](#symbol-CopyGroupsUI.choose_source) — Показывает выбор основной или другой копии как источника назначения.
 - [CopyGroupsUI.confirm_remove](#symbol-CopyGroupsUI.confirm_remove) — Показывает подтверждение удаления связей с явными путями папок.
 - [CopyGroupsUI.context_actions](#symbol-CopyGroupsUI.context_actions) — Предоставляет команды учёта для контекстного меню выбранной папки.
+- [CopyGroupsUI.copy_row](#symbol-CopyGroupsUI.copy_row) — Показывает короткий адрес, метку и действия отдельной обычной копии.
 - [CopyGroupsUI.edit_kind](#symbol-CopyGroupsUI.edit_kind) — Показывает смену типа обычной, сменной или облачной копии.
-- [CopyGroupsUI.folder_badges](#symbol-CopyGroupsUI.folder_badges) — Показывает отслеживание, смысловую метку и уведомление об изменении папки.
 - [CopyGroupsUI.folder_menu](#symbol-CopyGroupsUI.folder_menu) — Создаёт команды настройки основной папки и отслеживания изменений.
 - [CopyGroupsUI.location_name](#symbol-CopyGroupsUI.location_name) — Возвращает короткое название зарегистрированной папки.
 - [CopyGroupsUI.location_path](#symbol-CopyGroupsUI.location_path) — Формирует подпись расположения с томом и относительным путём.
 - [CopyGroupsUI.main_group](#symbol-CopyGroupsUI.main_group) — Определяет набор основной папки в текущей выбранной области.
+- [CopyGroupsUI.main_row](#symbol-CopyGroupsUI.main_row) — Формирует компактную строку основной папки и её контекстные действия.
 - [CopyGroupsUI.membership](#symbol-CopyGroupsUI.membership) — Находит наследуемую принадлежность пути зарегистрированной области.
 - [CopyGroupsUI.open_copy](#symbol-CopyGroupsUI.open_copy) — Открывает зарегистрированную пару источника и копии.
 - [CopyGroupsUI.open_main](#symbol-CopyGroupsUI.open_main) — Открывает основную папку в рабочем пространстве.
@@ -39,9 +39,8 @@
 - [CopyGroupsUI.release_number](#symbol-CopyGroupsUI.release_number) — Запрашивает подтверждение освобождения номера отключённой копии.
 - [CopyGroupsUI.remove_copy](#symbol-CopyGroupsUI.remove_copy) — Удаляет подтверждённую связь копии из учёта через API.
 - [CopyGroupsUI.remove_group](#symbol-CopyGroupsUI.remove_group) — Удаляет подтверждённый набор из учёта через API.
-- [CopyGroupsUI.render_controls](#symbol-CopyGroupsUI.render_controls) — Обновляет команды регистрации папок по текущему выбору панелей.
-- [CopyGroupsUI.render_controls.changed](#symbol-CopyGroupsUI.render_controls.changed) — Согласует выбранный тип копии с доступностью команды привязки папки.
-- [CopyGroupsUI.render_group](#symbol-CopyGroupsUI.render_group) — Показывает основную папку и строки выбранных копий набора.
+- [CopyGroupsUI.render_controls](#symbol-CopyGroupsUI.render_controls) — Обновляет быстрые команды учёта в правой колонке операций.
+- [CopyGroupsUI.render_group](#symbol-CopyGroupsUI.render_group) — Показывает заголовок основной папки и раскрываемые строки её копий.
 - [CopyGroupsUI.render_sidebar](#symbol-CopyGroupsUI.render_sidebar) — Перерисовывает подключённые и архивные наборы папок.
 - [CopyGroupsUI.renumber](#symbol-CopyGroupsUI.renumber) — Показывает и подтверждает рассчитанные изменения номеров копий.
 - [CopyGroupsUI.set_connection](#symbol-CopyGroupsUI.set_connection) — Подключает или отключает набор либо отдельную копию через API.
@@ -60,9 +59,9 @@
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `control_signature`, `controls`, `groups`, `kind`, `kind_context`, `workspace`.
+Состояние, присваиваемое конструктором: `control_signature`, `controls`, `expanded`, `groups`, `workspace`.
 
-Именованные методы: `__init__`, `build_sidebar`, `build_controls`, `location_name`, `location_path`, `membership`, `main_group`, `refresh`, `render_sidebar`, `render_group`, `folder_badges`, `folder_menu`, `set_folder_settings`, `acknowledge_changes`, `set_connection`, `render_controls`, `context_actions`, `changed`, `register_main`, `add_copy`, `open_main`, `open_copy`, `choose_source`, `release_number`, `edit_kind`, `confirm_remove`, `renumber`, `remove_group`, `remove_copy`.
+Именованные методы: `__init__`, `build_sidebar`, `build_controls`, `location_name`, `location_path`, `membership`, `main_group`, `refresh`, `render_sidebar`, `render_group`, `main_row`, `copy_row`, `folder_menu`, `set_folder_settings`, `acknowledge_changes`, `set_connection`, `render_controls`, `context_actions`, `changed`, `register_main`, `open_main`, `open_copy`, `choose_source`, `release_number`, `edit_kind`, `confirm_remove`, `renumber`, `remove_group`, `remove_copy`.
 
 <a id="symbol-CopyGroupsUI.__init__"></a>
 
@@ -70,13 +69,15 @@
 
 [copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.__init__`
 
-Инициализирует CopyGroupsUI и его рабочее состояние. Обновляет состояние объекта: control_signature, controls, groups, kind, kind_context, workspace.
+Инициализирует CopyGroupsUI и его рабочее состояние. Обновляет состояние объекта: control_signature, controls, expanded, groups, workspace.
 
 ```python
 def __init__(self, workspace)
 ```
 
-Присваивания полям `self`: `control_signature`, `controls`, `groups`, `kind`, `kind_context`, `workspace`.
+Присваивания полям `self`: `control_signature`, `controls`, `expanded`, `groups`, `workspace`.
+
+Прямые выражения вызова: `set`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -94,25 +95,6 @@ async def acknowledge_changes(self, group)
 ```
 
 Прямые выражения вызова: [self.refresh](copy_groups_ui.md#symbol-CopyGroupsUI.refresh), `ws.notice`, `ws.request`.
-
-Перехватываемые типы: `Exception`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-CopyGroupsUI.add_copy"></a>
-
-## `CopyGroupsUI.add_copy`
-
-[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.add_copy`
-
-Привязывает выбранную папку назначения как копию существующего набора. Обрабатывает ошибки: Exception.
-
-```python
-async def add_copy(self, group, destination, kind)
-```
-
-Прямые выражения вызова: `next`, [self.changed](copy_groups_ui.md#symbol-CopyGroupsUI.changed), `ui.notify`, `ws.notice`, `ws.request`.
 
 Перехватываемые типы: `Exception`.
 
@@ -152,7 +134,7 @@ def build_sidebar(self)
 
 Присваивания полям `self`: `disconnected`, `disconnected_list`, `list`, `section`.
 
-Прямые выражения вызова: `self.workspace.sidebar_expansion`, `self.workspace.sidebar_expansion('copy_archive', 'Отключённые · 0', icon='link_off').props`, `self.workspace.sidebar_expansion('copy_archive', 'Отключённые · 0', icon='link_off').props('dense').classes`, `self.workspace.sidebar_expansion('copy_groups', 'Основные папки · 0', icon='folder_copy').props`, `self.workspace.sidebar_expansion('copy_groups', 'Основные папки · 0', icon='folder_copy').props('dense').classes`, `ui.column`, `ui.column().classes`.
+Прямые выражения вызова: `self.workspace.sidebar_expansion`, `ui.column`, `ui.column().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -224,12 +206,29 @@ async def confirm_remove(self, title, *, locations=(), button_label='Удали�
 def context_actions(self, volume_id, entry)
 ```
 
-Прямые выражения вызова: [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership).
+Прямые выражения вызова: `actions.append`, [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `ws.copy_setup.source`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `[]`
-- `[('Назначить 00-main', lambda: self.register_main(volume_id, entry['path']))]`
+- `actions`
+
+
+<a id="symbol-CopyGroupsUI.copy_row"></a>
+
+## `CopyGroupsUI.copy_row`
+
+[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.copy_row`
+
+Показывает короткий адрес, метку и действия отдельной обычной копии. Сохраняет историю и управление архивными привязками.
+
+```python
+def copy_row(self, group, location)
+```
+
+Прямые выражения вызова: `actions.append`, `actions.extend`, `actions.insert`, `bool`, [disconnected](copy_groups_ui.md#symbol-disconnected), `getattr`, `group.get`, `location.get`, [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), `sidebar_line`, `ui.label`, `ui.label('Офлайн').classes`, `ws.property_menu`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-CopyGroupsUI.edit_kind"></a>
@@ -249,25 +248,6 @@ async def edit_kind(self, location)
 Перехватываемые типы: `Exception`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-CopyGroupsUI.folder_badges"></a>
-
-## `CopyGroupsUI.folder_badges`
-
-[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.folder_badges`
-
-Показывает отслеживание, смысловую метку и уведомление об изменении папки. Использует group.get, self.workspace.format_date, ui.label, ui.label('Есть изменения').classes и ещё 1.
-
-```python
-def folder_badges(self, group)
-```
-
-Прямые выражения вызова: `group.get`, `self.workspace.format_date`, `ui.label`, `ui.label('Есть изменения').classes`, `ui.label('Есть изменения').classes('copy-folder-tag changed').tooltip`, `ui.label(FOLDER_LABELS[group['label']]).classes`, `ui.label(text).classes`, `ui.label(text).classes('copy-folder-tag tracking').tooltip`, `ui.row`, `ui.row().classes`, `{'watching': 'Отслеживается', 'offline': 'Ожидает подключения', 'error': 'Отслеживание недоступно'}.get`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
 
 
 <a id="symbol-CopyGroupsUI.folder_menu"></a>
@@ -345,6 +325,23 @@ def main_group(self)
 
 - `None`
 - `next((g for g in self.groups if g['main']['volume_id'] == left.volume_id and g['main']['path'] == left.path), None)`
+
+
+<a id="symbol-CopyGroupsUI.main_row"></a>
+
+## `CopyGroupsUI.main_row`
+
+[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.main_row`
+
+Формирует компактную строку основной папки и её контекстные действия. Подробности отслеживания и полный путь доступны в подсказке.
+
+```python
+def main_row(self, group, copies, toggle)
+```
+
+Прямые выражения вызова: `' · '.join`, `actions.insert`, `bool`, `detail.append`, [disconnected](copy_groups_ui.md#symbol-disconnected), `getattr`, `group.get`, `len`, [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `sidebar_line`, `ui.label`, `ui.label(status).classes`, `ui.label(status).classes('sidebar-readout truncate').tooltip`, `ws.format_date`, `ws.property_menu`, `{'watching': 'Отслеживается', 'offline': 'Ожидает подключения', 'error': 'Отслеживание недоступно'}.get`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-CopyGroupsUI.membership"></a>
@@ -509,38 +506,19 @@ async def remove_group(self, group)
 
 [copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.render_controls`
 
-Обновляет команды регистрации папок по текущему выбору панелей. Обновляет состояние объекта: control_signature, kind, kind_context.
+Обновляет быстрые команды учёта в правой колонке операций. Действие добавления открывает общий диалог выбора назначения.
 
 ```python
 def render_controls(self)
 ```
 
-Присваивания полям `self`: `control_signature`, `kind`, `kind_context`.
+Присваивания полям `self`: `control_signature`.
 
-Прямые выражения вызова: `(left.volume or {}).get`, `(p.volume or {}).get`, `(right.volume or {}).get`, `PurePosixPath`, `any`, `bool`, `c.get`, `copy_label`, `g.get`, `getattr`, `group.get`, `left.volume.get`, `next`, `right.volume.get`, `self.controls.clear`, `self.controls.set_visibility`, [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.main_group](copy_groups_ui.md#symbol-CopyGroupsUI.main_group), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `tuple`, `ui.button`, `ui.button('К основной папке', on_click=lambda g=parent: self.open_main(g)).props`, `ui.button('Назначить 00-main', on_click=lambda v=left.volume_id, p=left.path: self.register_main(v, p)).props`, `ui.button('Назначить 00-main', on_click=lambda v=left.volume_id, p=left.path: self.register_main(v, p)).props('outline dense no-caps color=green-9').classes`, `ui.button('Подключить набор', on_click=lambda: self.set_connection(group, True)).props`, `ui.button('Связать как ' + copy_label(self.kind, group['next_number']), on_click=lambda g=group, d=destination: self.add_copy(g, d, self.kind)).props`, `ui.button('Связать как ' + copy_label(self.kind, group['next_number']), on_click=lambda g=group, d=destination: self.add_copy(g, d, self.kind)).props('unelevated dense no-caps color=green-9').classes`, `ui.button('Упорядочить номера копий', on_click=lambda g=group: self.renumber(g)).props`, `ui.button('Упорядочить номера копий', on_click=lambda g=group: self.renumber(g)).props('outline dense no-caps color=green-9').classes`, `ui.label`, `ui.label('00-main · ' + self.location_name(group['main'])).classes`, `ui.label('В нумерации копий есть пропуски. Согласуй новые метки перед добавлением копии.').classes`, `ui.label('Выбери основную папку слева.').classes`, `ui.label('Выбери папку назначения справа.').classes`, `ui.label('Набор отключён. Связи и история сохранены.').classes`, `ui.label('Назначение: ' + right.volume['name'] + ' /' + right.path).classes`, `ui.label('Папка уже входит в ' + existing['label'] + '.').classes`, `ui.label('Учёт копий').classes`, `ui.label(PurePosixPath(left.path).name if left.path else left.volume['name']).classes`, `ui.label(member['label'] + ' · метка папки и её вложенных папок').classes`, `ui.select`, `ui.select(COPY_KINDS, value=self.kind, label='Тип копии', on_change=changed).props`, `ui.select(COPY_KINDS, value=self.kind, label='Тип копии', on_change=changed).props('outlined dense').classes`, `ui.separator`.
+Прямые выражения вызова: `(group or {}).get`, `(member or {}).get`, `(p.volume or {}).get`, `PurePosixPath`, `any`, `bool`, `getattr`, `group.get`, `next`, `self.controls.clear`, `self.controls.set_visibility`, [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.main_group](copy_groups_ui.md#symbol-CopyGroupsUI.main_group), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `ui.button`, `ui.button('Добавить копию', icon='add', on_click=lambda: ws.copy_setup.open(volume_id, path, index=0)).props`, `ui.button('Добавить копию', icon='add', on_click=lambda: ws.copy_setup.open(volume_id, path, index=0)).props('outline dense no-caps color=green-9').classes`, `ui.button('К основной папке', on_click=lambda: self.open_main(parent)).props`, `ui.button('Подключить набор', on_click=lambda: self.set_connection(group, True)).props`, `ui.button('Упорядочить номера копий', on_click=lambda: self.renumber(group)).props`, `ui.button('Упорядочить номера копий', on_click=lambda: self.renumber(group)).props('outline dense no-caps color=green-9').classes`, `ui.label`, `ui.label('00-main · ' + self.location_name(group['main'])).classes`, `ui.label('Выбери папку для копирования.').classes`, `ui.label('Учёт копий').classes`, `ui.label(PurePosixPath(path).name).classes`, `ws.copy_setup.source`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
-
-
-<a id="symbol-CopyGroupsUI.render_controls.changed"></a>
-
-## `CopyGroupsUI.render_controls.changed`
-
-[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.render_controls.changed`
-
-Согласует выбранный тип копии с доступностью команды привязки папки. Обновляет состояние объекта: kind.
-
-```python
-def changed(event)
-```
-
-Присваивания полям `self`: `kind`.
-
-Прямые выражения вызова: `copy_label`, `holder.get`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-CopyGroupsUI.render_group"></a>
@@ -549,13 +527,13 @@ def changed(event)
 
 [copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.render_group`
 
-Показывает основную папку и строки выбранных копий набора. Использует actions.append, actions.insert, disconnected, group.get, location.get.
+Показывает заголовок основной папки и раскрываемые строки её копий. Ключ архивной строки хранится отдельно от ключа подключённого набора.
 
 ```python
-def render_group(self, group, copies)
+def render_group(self, group, copies, *, archive=False)
 ```
 
-Прямые выражения вызова: `actions.append`, `actions.insert`, [disconnected](copy_groups_ui.md#symbol-disconnected), `getattr`, `group.get`, `location.get`, [self.folder_badges](copy_groups_ui.md#symbol-CopyGroupsUI.folder_badges), [self.location_name](copy_groups_ui.md#symbol-CopyGroupsUI.location_name), [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `ui.button`, `ui.button(on_click=lambda: self.open_main(group)).props`, `ui.button(on_click=lambda: self.open_main(group)).props('flat no-caps color=dark').classes`, `ui.column`, `ui.column().classes`, `ui.icon`, `ui.icon('link_off', size='13px').classes`, `ui.icon('link_off', size='13px').classes('shrink-0 s-muted').props`, `ui.icon('link_off', size='13px').props`, `ui.label`, `ui.label('00-main').classes`, `ui.label('← ' + location['source_label']).classes`, `ui.label(location['label']).classes`, `ui.label(self.location_name(main)).classes`, `ui.label(self.location_path(location)).classes`, `ui.label(self.location_path(main)).classes`, `ui.link`, `ui.link(target='#').classes`, `ui.link(target='#').classes('copy-link' + (' chosen' if selected else '') + (' disconnected' if disconnected(location) else '')).on`, `ui.row`, `ui.row().classes`, `ws.property_menu`.
+Прямые выражения вызова: [self.copy_row](copy_groups_ui.md#symbol-CopyGroupsUI.copy_row), `sidebar_branch`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -572,7 +550,7 @@ def render_group(self, group, copies)
 def render_sidebar(self)
 ```
 
-Прямые выражения вызова: `bool`, `len`, `self.disconnected.set_visibility`, `self.disconnected_list.clear`, `self.list.clear`, [self.render_group](copy_groups_ui.md#symbol-CopyGroupsUI.render_group), [sidebar_sections](copy_groups_ui.md#symbol-sidebar_sections), `ui.label`, `ui.label('Все связанные папки отключены.').classes`, `ui.label('Назначь папке 00-main, чтобы учитывать её копии.').classes`.
+Прямые выражения вызова: `bool`, `len`, `self.disconnected.set_visibility`, `self.disconnected_list.clear`, `self.list.clear`, [self.render_group](copy_groups_ui.md#symbol-CopyGroupsUI.render_group), [sidebar_sections](copy_groups_ui.md#symbol-sidebar_sections), `ui.label`, `ui.label('Все папки отключены').classes`, `ui.label('Основных папок пока нет').classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

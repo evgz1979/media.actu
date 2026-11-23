@@ -46,16 +46,20 @@ StorageWorkspace.read_directory отправляет GET directory. StorageCatal
 
 ## 4. Основная папка, копия и служебное описание
 
-Команда регистрации вызывает CopyCatalog.create_main или add_copy. В транзакции
-проверяются том, известность папки, пересечения и номер; сохраняются связи и marker-job.
+«+ Копия» открывает общий диалог. Папку назначения можно найти в нём или взять из
+соседнего дерева. Для обычной папки `POST /api/storage/folder-copy-bindings` проверяет
+известность папок, пересечения и номер. В одной транзакции создаются нужный `00-main`,
+связь назначения и задания записи маркеров. «Назначить основной папкой» регистрирует
+основную папку отдельной операцией.
 FolderMarkerService позднее записывает `.media-actu-folder.json`, проверяя ревизию
 задания и принадлежность папки. Отключённый диск оставляет задание ожидающим.
 
 Сама регистрация не доказывает наличие копии содержимого и не копирует медиа.
 Изменение типа/номера меняет служебную метку, а не имя пользовательской папки.
 
-Код: [`CopyCatalog.create_main`](reference/media_manager--copies.md#symbol-CopyCatalog.create_main),
-[`CopyCatalog.add_copy`](reference/media_manager--copies.md#symbol-CopyCatalog.add_copy),
+Код: [`CopySetupUI.open`](reference/copy_setup_ui.md#symbol-CopySetupUI.open),
+[`CopyCatalog.bind_folders`](reference/media_manager--copies.md#symbol-CopyCatalog.bind_folders),
+[`CopyCatalog.create_main`](reference/media_manager--copies.md#symbol-CopyCatalog.create_main),
 [`FolderMarkerService.reconcile`](reference/media_manager--folder_markers.md#symbol-FolderMarkerService.reconcile).
 
 ## 5. Связанная структура и проверка файлов
@@ -188,3 +192,19 @@ DirectorySizeService устраняет покрываемые одной обл
 Код: [`DirectorySizeService.calculate`](reference/media_manager--directory_sizes.md#symbol-DirectorySizeService.calculate),
 [`FolderTrackingService.reconcile`](reference/media_manager--folder_tracking.md#symbol-FolderTrackingService.reconcile),
 [`CopyCatalog.acknowledge_changes`](reference/media_manager--copies.md#symbol-CopyCatalog.acknowledge_changes).
+
+## 13. Копия iCloud Drive
+
+Выбор через «+ Копия» сохраняет корень iCloud Drive или выбранную подпапку,
+папку назначения и идентичность корней. «Скопировать недостающие» запускает
+обход и пополняет очередь путей. Для файла отдельный процесс запрашивает
+загрузку macOS и передаёт данные. После проверки размера, версии и идентичности
+папки Core публикует файл с защитой существующего пути.
+
+Тайм-аут чтения или временная ошибка откладывают путь. Другие элементы продолжают
+обрабатываться. При перезапуске Core активные задания продолжаются с сохранённой
+очереди, а ручная пауза сохраняется. Журнал показывает время следующей попытки.
+
+Код: [`ICloudCopies.bind`](reference/media_manager--icloud_copies.md#symbol-ICloudCopies.bind),
+[`ICloudCopies._process`](reference/media_manager--icloud_copies.md#symbol-ICloudCopies._process),
+[`ICloudReader.stream`](reference/media_manager--icloud_copies.md#symbol-ICloudReader.stream).

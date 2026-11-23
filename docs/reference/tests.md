@@ -324,6 +324,14 @@ async def test_slow_folder_response_cannot_restore_results_from_previous_selecti
 
 [tests/test_copies.py](../../tests/test_copies.py)
 
+<a id="symbol-tests.test_copies.CopyCatalogTests.test_binding_registers_source_and_destination_atomically"></a>
+
+### `CopyCatalogTests.test_binding_registers_source_and_destination_atomically`
+
+```python
+def test_binding_registers_source_and_destination_atomically(self)
+```
+
 <a id="symbol-tests.test_copies.CopyCatalogTests.test_concurrent_registrations_allocate_unique_consecutive_numbers"></a>
 
 ### `CopyCatalogTests.test_concurrent_registrations_allocate_unique_consecutive_numbers`
@@ -2043,6 +2051,14 @@ def test_refresh_updates_tags_after_rebinding_but_not_on_progress_changes(self)
 Идентичность и профили медиатек.
 
 [tests/test_photo_libraries.py](../../tests/test_photo_libraries.py)
+
+<a id="symbol-tests.test_photo_libraries.PhotoLibrariesTests.test_binding_saves_selected_photos_chain_without_an_intermediate_direct_link"></a>
+
+### `PhotoLibrariesTests.test_binding_saves_selected_photos_chain_without_an_intermediate_direct_link`
+
+```python
+def test_binding_saves_selected_photos_chain_without_an_intermediate_direct_link(self)
+```
 
 <a id="symbol-tests.test_photo_libraries.PhotoLibrariesTests.test_cloud_waits_do_not_block_the_next_asset_or_count_as_errors"></a>
 

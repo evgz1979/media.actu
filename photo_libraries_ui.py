@@ -8,22 +8,7 @@ from zoneinfo import ZoneInfo
 from nicegui import ui
 
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
-
-
-LIBRARY_CSS = """
-.library-list { width:100%; padding:3px 5px 5px; gap:3px; }
-.source-items { gap:1px; }
-.source-row { width:100%; gap:3px; min-width:0; min-height:28px; border-radius:4px; padding:0 2px; }
-.source-row.active { background:#eef4eb; }
-.source-row.source-copy { padding-left:22px; min-height:24px; }
-.source-row .q-btn { min-height:22px; padding:1px 3px; }
-.source-row .source-name { flex:1; min-width:0; font-size:11px; }
-.source-name .q-btn__content { width:100%; justify-content:flex-start; flex-wrap:nowrap; }
-.source-name .block { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.source-readout { flex-shrink:0; max-width:40%; color:#58674f; font-size:10px; white-space:nowrap; }
-.source-schedule { padding-left:27px; font-size:10px; color:#64705f; }
-.library-note { font-size:10px; color:#835649; padding:2px 9px; }
-"""
+from sidebar_ui import sidebar_branch, sidebar_line, sidebar_menu
 
 
 #: Формирует подпись прогресса превью одной медиатеки.
@@ -147,10 +132,9 @@ class PhotoLibrariesUI:
     #: Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
     #: Обновляет состояние объекта: cards, note, section.
     def build(self):
-        ui.add_css(LIBRARY_CSS)
-        with self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open').props('dense').classes('copy-section w-full') as self.section:
-            self.cards = ui.column().classes('library-list')
-            self.note = ui.label().classes('library-note w-full truncate')
+        with self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open') as self.section:
+            self.cards = ui.column().classes('sidebar-list w-full')
+            self.note = ui.label().classes('sidebar-note s-error w-full truncate')
             self.note.set_visibility(False)
 
     #: Обновляет Photos и iCloud независимо, сохраняя раскрытие копий и открытое меню.
@@ -212,68 +196,35 @@ class PhotoLibrariesUI:
     def cloud_volume(self):
         return self.cloud.get('volume')
 
-    #: Раскрывает или сворачивает список копий отдельного источника.
-    #: Обновляет состояние объекта: expanded и видимость списка.
-    def toggle_copies(self, key, button, copies):
-        if key in self.expanded:
-            self.expanded.remove(key)
-        else:
-            self.expanded.add(key)
-        opened = key in self.expanded
-        button.props('icon=' + ('expand_more' if opened else 'chevron_right'))
-        button.props['aria-expanded'] = str(opened).lower()
-        button.props['aria-label'] = 'Свернуть копии' if opened else 'Показать копии'
-        copies.set_visibility(opened)
-
-    #: Сохраняет фокус бокового меню при фоновом обновлении.
-    #: Использует menu.on.
-    def track_menu(self, menu):
-        menu.on('before-show', lambda: setattr(self.ws, 'context_menu_open', True))
-        menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
-
-    #: Создаёт строку источника или копии с одним показателем и кнопкой команд.
-    #: Возвращает обновляемую подпись показателя и её подсказку.
-    def source_line(self, name, on_open, on_menu, *, active=False, copy=False, path=None, toggle=None):
-        classes = 'source-row items-center no-wrap' + (' active' if active else '') + (' source-copy' if copy else '')
-        with ui.row().classes(classes) as line:
-            if toggle:
-                toggle()
-            button = ui.button(name, on_click=on_open).props('flat dense no-caps color=dark align=left').classes('source-name')
-            if path:
-                button.tooltip(path)
-            status = ui.label().classes('source-readout truncate')
+    #: Создаёт строку источника или копии с обновляемым показателем.
+    #: Возвращает две ссылки для последующего обновления статуса.
+    def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library'):
+        with sidebar_line(name, on_open, tooltip=path, icon=None if copy else icon, offline=offline,
+                          indented=copy, toggle=toggle) as row:
+            status = ui.label().classes('sidebar-readout truncate')
             with status:
                 detail = ui.tooltip()
-            with ui.button(icon='more_horiz').props('flat dense size=sm color=grey-7 aria-label="Команды"'):
-                with ui.menu().props('anchor="bottom right" self="top right"') as menu:
-                    self.track_menu(menu)
-                    on_menu()
-            line.on('contextmenu', menu.open, js_handler='(event) => { event.preventDefault(); emit(); }')
+            with sidebar_menu(row) as menu:
+                menu.on('before-show', lambda: setattr(self.ws, 'context_menu_open', True))
+                menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
+                on_menu()
         return status, detail
 
-    #: Создаёт заголовок источника и отдельный раскрываемый список его копий.
-    #: Возвращает показатель заголовка и контейнер строк копий.
+    #: Рисует строку медиатеки или облачного источника и раскрываемые копии.
+    #: Использует общий шаблон боковой колонки и отдельную строку расписания.
     @contextmanager
     def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None):
-        with ui.column().classes('w-full source-items'):
-            opened = key in self.expanded
-            button = None
-
-            #: Создаёт кнопку раскрытия копий текущего источника.
-            #: Открытие изменяет видимость строк без повторного запроса Core.
-            def toggle():
-                nonlocal button
-                button = ui.button(icon='expand_more' if opened else 'chevron_right',
-                                   on_click=lambda: self.toggle_copies(key, button, children)).props(
-                    f'flat dense size=sm color=grey-7 aria-expanded={str(opened).lower()}')
-                button.props['aria-label'] = 'Свернуть копии' if opened else 'Показать копии'
-
-            header = self.source_line(name, on_open, on_menu, active=active, path=title, toggle=toggle if copies else None)
+        #: Создаёт строку источника со значком либо переключателем его копий.
+        #: Возвращает ссылки на текущий статус.
+        def header(toggle):
+            status = self.source_line(name, on_open, on_menu, offline=not active, path=title,
+                                      toggle=toggle, icon='cloud' if key == ICLOUD_VOLUME_ID else 'photo_library')
             if schedule:
-                ui.label(schedule).classes('source-schedule')
-            with ui.column().classes('w-full source-items') as children:
-                yield header
-            children.set_visibility(opened)
+                ui.label(schedule).classes('sidebar-note')
+            return status
+
+        with sidebar_branch(self.expanded, key, copies, header) as status:
+            yield status
 
     #: Определяет, запущены ли оригиналы копии Photos либо ожидают расписания.
     #: Использует copy.get, job.get.
@@ -303,7 +254,7 @@ class PhotoLibrariesUI:
         ui.menu_item('Часы ночной синхронизации…', on_click=lambda: self.schedule_dialog(library))
         scan = ui.menu_item('Обновить каталог', on_click=lambda: self.scan(source_id))
         scan.set_enabled(bool(library['active']))
-        ui.menu_item('Привязать папку для копий оригиналов', on_click=lambda: self.bind(library))
+        ui.menu_item('Добавить копию…', on_click=lambda: self.bind(library))
         ui.separator()
         self.connection_menu()
 
@@ -431,7 +382,7 @@ class PhotoLibrariesUI:
     #: Показывает команду добавления копии для доступного iCloud Drive.
     #: Использует self.bind_cloud.
     def cloud_menu(self):
-        bind = ui.menu_item('Привязать папку для копии…', on_click=self.bind_cloud)
+        bind = ui.menu_item('Добавить копию…', on_click=self.bind_cloud)
         bind.set_enabled(self.cloud_volume()['availability'] == 'online')
 
     #: Подписывает состояние передачи iCloud Drive для компактной строки.
@@ -455,32 +406,15 @@ class PhotoLibrariesUI:
         unbind = ui.menu_item('Отвязать копию', on_click=lambda: self.action('DELETE', endpoint))
         unbind.set_enabled(not copy['active'])
 
-    #: Связывает весь iCloud Drive или выбранную слева папку с назначением справа.
-    #: Асинхронно ожидает: self.action и подтверждение диалога.
+    #: Открывает общий диалог для выбранной папки либо всего iCloud Drive.
+    #: Асинхронно ожидает: self.ws.copy_setup.open.
     async def bind_cloud(self):
-        scope = self.ws.panes[1].scope()
-        volume = self.ws.resolve_volume(scope['volume_id']) if scope else None
-        if not volume or not scope['path'] or volume['availability'] != 'online':
-            ui.notify('Открой папку назначения на подключённом томе в правой панели.', type='info')
-            return
-        left = self.ws.panes[0]
-        paths = {'': 'Весь iCloud Drive'}
-        if left.volume_id == ICLOUD_VOLUME_ID and left.view_mode == 'tree' and left.kind == 'directory' and left.path:
-            paths[left.path] = f'iCloud Drive /{left.path}'
-        with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-3'):
-            ui.label('Привязать копию iCloud Drive').classes('text-lg font-semibold')
-            source = ui.select(paths, value=next(reversed(paths)), label='Скопировать из').props('outlined dense').classes('w-full')
-            ui.label('Назначение').classes('s-muted text-xs')
-            ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
-            if len(paths) == 1:
-                ui.label('Чтобы выбрать отдельную папку, открой её в iCloud Drive слева.').classes('s-note')
-            with ui.row().classes('w-full justify-end'):
-                ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
-                ui.button('Привязать', on_click=lambda: dialog.submit(source.value)).props('unelevated no-caps color=green-9')
-        choice = await dialog
-        if choice is not None:
-            self.expanded.add(ICLOUD_VOLUME_ID)
-            await self.action('POST', '/api/icloud/copies', json=dict(scope, source_path=choice))
+        active = self.ws.active_index
+        index = next((i for i in (active, 1 - active) if self.ws.panes[i].volume_id == ICLOUD_VOLUME_ID
+                      and self.ws.panes[i].view_mode == 'tree'), None)
+        pane = self.ws.panes[index] if index is not None else None
+        path = pane.path if pane and pane.kind == 'directory' else ''
+        await self.ws.copy_setup.open(ICLOUD_VOLUME_ID, path, index=index)
 
     #: Показывает состояние копии и постраничный журнал iCloud Drive.
     #: Отображает причину и дату каждой запланированной повторной попытки.
@@ -616,24 +550,10 @@ class PhotoLibrariesUI:
         if name:
             await self.action('PATCH', f"/api/photos/libraries/{library['id']}", json={'label': name})
 
-    #: Привязывает выбранную файловую папку к медиатеке после проверки выбора.
-    #: Асинхронно ожидает: self.action.
+    #: Открывает общий диалог выбора назначения и маршрута оригиналов Photos.
+    #: Асинхронно ожидает: self.ws.copy_setup.open.
     async def bind(self, library):
-        scope = self.ws.panes[1].scope()
-        if not scope or not scope['path']:
-            ui.notify('Сначала открой папку для копии в правой панели.', type='info')
-            return
-        volume = next(v for v in self.ws.volumes if v['id'] == scope['volume_id'])
-        with ui.dialog() as dialog, ui.card().classes('w-[470px] max-w-full p-5 gap-3'):
-            ui.label('Привязать папку для копий оригиналов').classes('text-lg font-semibold')
-            ui.label(library.get('label') or 'Photos').classes('font-semibold')
-            ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
-            ui.label('Оригиналы будут сохраняться сразу в эту папку. Для запуска выбери «Сохранить оригиналы» в меню папки копии. Сохранённые оригиналы определяются по учёту Photos и параметрам файлов.').classes('s-note')
-            with ui.row().classes('w-full justify-end'):
-                ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
-                ui.button('Привязать', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
-        if await dialog:
-            await self.action('POST', f"/api/photos/libraries/{library['id']}/copies", json=scope)
+        await self.ws.copy_setup.open(f"photos-{library['id']}")
 
     #: Отключает выбранную привязку копии медиатеки через Core.
     #: Асинхронно ожидает: self.action.

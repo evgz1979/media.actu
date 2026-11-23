@@ -72,6 +72,20 @@ class CopyCatalogTests(unittest.TestCase):
         self.assertEqual(len(repeated['copies']), 1)
         self.assertEqual(repeated['next_number'], 2)
 
+    def test_binding_registers_source_and_destination_atomically(self):
+        source = {'volume_id': 'main-disk', 'path': 'Photos'}
+        with self.assertRaisesRegex(ValueError, 'пересекается'):
+            self.copies.bind_folders(source, dict(source, kind='copy'))
+        self.assertEqual(self.copies.groups(), [])
+        with self.storage.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM folder_marker_jobs').fetchone()[0], 0)
+        target = {'volume_id': 'target-disk', 'path': 'Other', 'kind': 'copy'}
+        group = self.copies.bind_folders(source, target)
+        self.assertEqual(group['main']['label'], '00-main')
+        self.assertEqual([copy['label'] for copy in group['copies']], ['01-copy'])
+        self.assertEqual(self.copies.bind_folders(source, target)['id'], group['id'])
+        self.assertEqual(self.copies.group(group['id'])['next_number'], 2)
+
     def test_rejects_files_unknown_paths_and_unverified_disks(self):
         for path in ('', 'Photos/Sub/original.txt', 'Unknown', '../outside', '/etc', '\x00'):
             with self.subTest(path=path), self.assertRaises(ValueError):

@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [comparison_tree_ui.py](comparison_tree_ui.md), [copy_groups_ui.py](copy_groups_ui.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md), [network_ui.py](network_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [storage_ui.py](storage_ui.md), [workspace_state.py](workspace_state.md).
+Импортирует из проекта: [comparison_tree_ui.py](comparison_tree_ui.md), [copy_groups_ui.py](copy_groups_ui.md), [copy_setup_ui.py](copy_setup_ui.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md), [network_ui.py](network_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [sidebar_ui.py](sidebar_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [storage_ui.py](storage_ui.md), [workspace_state.py](workspace_state.md).
 Импортируется модулями: [storage_ui.py](storage_ui.md).
 Тестовые модули с прямым импортом: [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_directory_sizes.py](tests.md#module-tests.test_directory_sizes), [tests/test_folder_tags.py](tests.md#module-tests.test_folder_tags), [tests/test_paired_workspace.py](tests.md#module-tests.test_paired_workspace), [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_refresh_renamed_folder.py](tests.md#module-tests.test_refresh_renamed_folder), [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state), [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews), [tests/test_tree_keyboard.py](tests.md#module-tests.test_tree_keyboard), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos), [tests/test_workspace_refresh.py](tests.md#module-tests.test_workspace_refresh), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
 
@@ -18,6 +18,7 @@
 - [BrowserPane](#symbol-BrowserPane) — Управляет деревом, выбором, навигацией и режимом превью одной панели.
 - [BrowserPane.__init__](#symbol-BrowserPane.__init__) — Инициализирует BrowserPane и его рабочее состояние.
 - [BrowserPane.activate_heading](#symbol-BrowserPane.activate_heading) — Делает панель активной и возвращает клавиатурный фокус дереву.
+- [BrowserPane.add_copy](#symbol-BrowserPane.add_copy) — Открывает общий диалог копии для текущей папки или медиатеки.
 - [BrowserPane.change_filter](#symbol-BrowserPane.change_filter) — Меняет фильтр статусов сохранённого дерева и перезагружает результат.
 - [BrowserPane.comparison_open](#symbol-BrowserPane.comparison_open) — Проверяет наличие открытого результата общей или парной сверки.
 - [BrowserPane.display_volume_id](#symbol-BrowserPane.display_volume_id) — Возвращает ID тома, фактически показанного деревом или превью.
@@ -95,7 +96,7 @@
 - [StorageWorkspace.render_progress](#symbol-StorageWorkspace.render_progress) — Обновляет прогресс и доступные команды общей сверки, включая старые отчёты.
 - [StorageWorkspace.render_volumes](#symbol-StorageWorkspace.render_volumes) — Перерисовывает активные и архивные тома с группировкой и индикаторами.
 - [StorageWorkspace.render_volumes.groups](#symbol-StorageWorkspace.render_volumes.groups) — Распределяет переданные тома по отображаемым группам NAS и локальных носителей.
-- [StorageWorkspace.render_volumes.groups.volume_actions](#symbol-StorageWorkspace.render_volumes.groups.volume_actions) — Добавляет доступное переименование подтверждённого сменного носителя в меню тома.
+- [StorageWorkspace.render_volumes.groups.volume_actions](#symbol-StorageWorkspace.render_volumes.groups.volume_actions) — Добавляет переименование подтверждённого сменного носителя.
 - [StorageWorkspace.report_marker](#symbol-StorageWorkspace.report_marker) — Получает признаки изменения отчёта для подавления лишних перерисовок.
 - [StorageWorkspace.resolve_volume](#symbol-StorageWorkspace.resolve_volume) — Находит файловый или виртуальный том по ID рабочего пространства.
 - [StorageWorkspace.restore_panes](#symbol-StorageWorkspace.restore_panes) — Восстанавливает выбранные области и режимы двух независимых панелей.
@@ -170,9 +171,9 @@
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `comparison`, `container`, `entry`, `expanded`, `filter_value`, `folder_entries`, `folder_size`, `folders`, `footer`, `generation`, `heading`, `hidden`, `index`, `job_id`, `kind`, `limits`, `loading_folders`, `location`, `matches`, `mode_switch`, `navigation`, `navigation_entries`, `navigation_revision`, `parent_button`, `path`, `path_bar`, `path_signature`, `preview`, `refresh_button`, `refreshing`, `result_filter`, `root_button`, `root_path`, `rows`, `scan`, `size_cells`, `snapshot_label`, `title`, `toolbar`, `tree`, `tree_scroll`, `view_mode`, `volume_id`, `volume_select`, `workspace`.
+Состояние, присваиваемое конструктором: `comparison`, `container`, `copy_button`, `entry`, `expanded`, `filter_value`, `folder_entries`, `folder_size`, `folders`, `footer`, `generation`, `heading`, `hidden`, `index`, `job_id`, `kind`, `limits`, `loading_folders`, `location`, `matches`, `mode_switch`, `navigation`, `navigation_entries`, `navigation_revision`, `parent_button`, `path`, `path_bar`, `path_signature`, `preview`, `refresh_button`, `refreshing`, `result_filter`, `root_button`, `root_path`, `rows`, `scan`, `size_cells`, `snapshot_label`, `title`, `toolbar`, `tree`, `tree_scroll`, `view_mode`, `volume_id`, `volume_select`, `workspace`.
 
-Именованные методы: `__init__`, `volume`, `display_volume_id`, `scope`, `volume_changed`, `mode_changed`, `set_mode`, `activate_heading`, `focus_tree`, `register_navigation`, `update_navigation_selection`, `keyboard_selected`, `hidden_changed`, `folder_clicked`, `save_browse_state`, `restore_browse_state`, `update_volume_select`, `update_header`, `size_scope`, `comparison_open`, `update_size_header`, `refresh_busy`, `render_path`, `open_path`, `show_volume`, `refresh_open_folder`, `load_folder`, `select`, `go_root`, `go_parent`, `refresh`, `change_filter`, `more`, `render`.
+Именованные методы: `__init__`, `volume`, `display_volume_id`, `scope`, `add_copy`, `volume_changed`, `mode_changed`, `set_mode`, `activate_heading`, `focus_tree`, `register_navigation`, `update_navigation_selection`, `keyboard_selected`, `hidden_changed`, `folder_clicked`, `save_browse_state`, `restore_browse_state`, `update_volume_select`, `update_header`, `size_scope`, `comparison_open`, `update_size_header`, `refresh_busy`, `render_path`, `open_path`, `show_volume`, `refresh_open_folder`, `load_folder`, `select`, `go_root`, `go_parent`, `refresh`, `change_filter`, `more`, `render`.
 
 <a id="symbol-BrowserPane.__init__"></a>
 
@@ -186,9 +187,9 @@
 def __init__(self, workspace, index)
 ```
 
-Присваивания полям `self`: `comparison`, `container`, `entry`, `expanded`, `filter_value`, `folder_entries`, `folder_size`, `folders`, `footer`, `generation`, `heading`, `hidden`, `index`, `job_id`, `kind`, `limits`, `loading_folders`, `location`, `matches`, `mode_switch`, `navigation`, `navigation_entries`, `navigation_revision`, `parent_button`, `path`, `path_bar`, `path_signature`, `preview`, `refresh_button`, `refreshing`, `result_filter`, `root_button`, `root_path`, `rows`, `scan`, `size_cells`, `snapshot_label`, `title`, `toolbar`, `tree`, `tree_scroll`, `view_mode`, `volume_id`, `volume_select`, `workspace`.
+Присваивания полям `self`: `comparison`, `container`, `copy_button`, `entry`, `expanded`, `filter_value`, `folder_entries`, `folder_size`, `folders`, `footer`, `generation`, `heading`, `hidden`, `index`, `job_id`, `kind`, `limits`, `loading_folders`, `location`, `matches`, `mode_switch`, `navigation`, `navigation_entries`, `navigation_revision`, `parent_button`, `path`, `path_bar`, `path_signature`, `preview`, `refresh_button`, `refreshing`, `result_filter`, `root_button`, `root_path`, `rows`, `scan`, `size_cells`, `snapshot_label`, `title`, `toolbar`, `tree`, `tree_scroll`, `view_mode`, `volume_id`, `volume_select`, `workspace`.
 
-Прямые выражения вызова: `ComparisonTree`, `StoragePreview`, `self.container.on`, `self.result_filter.set_visibility`, `self.title.lower`, `self.tree.on`, `set`, `ui.button`, `ui.button(icon='arrow_upward', on_click=self.go_parent).props`, `ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props`, `ui.button(icon='refresh', on_click=self.refresh).props`, `ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props`, `ui.button(icon='vertical_align_top', on_click=self.go_root).props`, `ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props`, `ui.button(self.title + ' панель', on_click=self.activate_heading).props`, `ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes`, `ui.checkbox`, `ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props`, `ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props('dense size=xs').classes`, `ui.column`, `ui.column().classes`, `ui.column().classes('s-tree gap-0').props`, `ui.element`, `ui.element('div').classes`, `ui.element('nav').classes`, `ui.element('nav').classes('pane-path').props`, `ui.label`, `ui.label('Просмотр папок').classes`, `ui.label('Том не выбран').classes`, `ui.label().classes`, `ui.label().classes('pane-folder-size').props`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа', on_change=self.change_filter).props`, `ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа', on_change=self.change_filter).props('outlined dense').classes`, `ui.select({}, on_change=self.volume_changed).props`, `ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props`, `ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props('aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes`, `ui.toggle`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props(f'aria-label="Режим {self.title.lower()} панели"').classes`, `workspace.property_menu`.
+Прямые выражения вызова: `ComparisonTree`, `StoragePreview`, `self.container.on`, `self.copy_button.set_visibility`, `self.result_filter.set_visibility`, `self.title.lower`, `self.tree.on`, `set`, `ui.button`, `ui.button('Копия', icon='add', on_click=self.add_copy).props`, `ui.button('Копия', icon='add', on_click=self.add_copy).props('flat dense no-caps color=green-9 aria-label="Добавить копию"').classes`, `ui.button(icon='arrow_upward', on_click=self.go_parent).props`, `ui.button(icon='arrow_upward', on_click=self.go_parent).props('flat dense round color=dark').props`, `ui.button(icon='refresh', on_click=self.refresh).props`, `ui.button(icon='refresh', on_click=self.refresh).props('flat dense round color=dark').props`, `ui.button(icon='vertical_align_top', on_click=self.go_root).props`, `ui.button(icon='vertical_align_top', on_click=self.go_root).props('flat dense round color=dark').props`, `ui.button(self.title + ' панель', on_click=self.activate_heading).props`, `ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes`, `ui.checkbox`, `ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props`, `ui.checkbox('Скрытые', value=False, on_change=self.hidden_changed).props('dense size=xs').classes`, `ui.column`, `ui.column().classes`, `ui.column().classes('s-tree gap-0').props`, `ui.element`, `ui.element('div').classes`, `ui.element('nav').classes`, `ui.element('nav').classes('pane-path').props`, `ui.label`, `ui.label('Просмотр папок').classes`, `ui.label('Том не выбран').classes`, `ui.label().classes`, `ui.label().classes('pane-folder-size').props`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа', on_change=self.change_filter).props`, `ui.select(options, value='', label='Результаты' if index == 0 else 'Список справа', on_change=self.change_filter).props('outlined dense').classes`, `ui.select({}, on_change=self.volume_changed).props`, `ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props`, `ui.select({}, on_change=self.volume_changed).props('outlined dense options-dense').props('aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes`, `ui.toggle`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props`, `ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props(f'aria-label="Режим {self.title.lower()} панели"').classes`, `workspace.property_menu`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -210,6 +211,23 @@ def activate_heading(self)
 Выражения возврата (ветви, без исполнения):
 
 - `None`
+
+
+<a id="symbol-BrowserPane.add_copy"></a>
+
+## `BrowserPane.add_copy`
+
+[workspace_ui.py](../../workspace_ui.py) · `BrowserPane.add_copy`
+
+Открывает общий диалог копии для текущей папки или медиатеки. Асинхронно ожидает: self.workspace.copy_setup.open.
+
+```python
+async def add_copy(self)
+```
+
+Прямые выражения вызова: [self.comparison_open](workspace_ui.md#symbol-BrowserPane.comparison_open), `self.workspace.copy_setup.open`, `self.workspace.copy_setup.source`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-BrowserPane.change_filter"></a>
@@ -759,7 +777,7 @@ def update_header(self)
 
 Присваивания полям `self`: `path_signature`.
 
-Прямые выражения вызова: `(self.entry or {}).get`, [archived](workspace_ui.md#symbol-archived), `bool`, `button.set_enabled`, `f" · {library['media_count']:,} объектов".replace`, `library.get`, `selected.get`, `self.comparison.update_header`, [self.comparison_open](workspace_ui.md#symbol-BrowserPane.comparison_open), `self.folders.get`, `self.hidden.set_visibility`, `self.location.set_visibility`, `self.navigation.set_visibility`, `self.path_bar.clear`, `self.path_bar.set_visibility`, `self.preview.update_header`, `self.refresh_button.set_enabled`, [self.render_path](workspace_ui.md#symbol-BrowserPane.render_path), `self.result_filter.set_enabled`, `self.result_filter.set_visibility`, `self.scan.get`, `self.toolbar.set_visibility`, [self.update_size_header](workspace_ui.md#symbol-BrowserPane.update_size_header), [self.update_volume_select](workspace_ui.md#symbol-BrowserPane.update_volume_select), `self.volume_select.set_enabled`, `self.volume_select.set_visibility`, `self.workspace.capacity_text`, `self.workspace.format_date`, `self.workspace.pair.update_header`, `ui.label`, `ui.label('Выбери том').classes`.
+Прямые выражения вызова: `(self.entry or {}).get`, [archived](workspace_ui.md#symbol-archived), `bool`, `button.set_enabled`, `button.set_visibility`, `f" · {library['media_count']:,} объектов".replace`, `getattr`, `library.get`, `selected.get`, `self.comparison.update_header`, [self.comparison_open](workspace_ui.md#symbol-BrowserPane.comparison_open), `self.folders.get`, `self.hidden.set_visibility`, `self.location.set_visibility`, `self.navigation.set_visibility`, `self.path_bar.clear`, `self.path_bar.set_visibility`, `self.preview.update_header`, `self.refresh_button.set_enabled`, [self.render_path](workspace_ui.md#symbol-BrowserPane.render_path), `self.result_filter.set_enabled`, `self.result_filter.set_visibility`, `self.scan.get`, `self.toolbar.set_visibility`, [self.update_size_header](workspace_ui.md#symbol-BrowserPane.update_size_header), [self.update_volume_select](workspace_ui.md#symbol-BrowserPane.update_volume_select), `self.volume_select.set_enabled`, `self.volume_select.set_visibility`, `self.workspace.capacity_text`, `self.workspace.copy_setup.source`, `self.workspace.format_date`, `self.workspace.pair.update_header`, `ui.label`, `ui.label('Выбери том').classes`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -870,7 +888,7 @@ async def volume_changed(self, event)
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
+Состояние, присваиваемое конструктором: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
 Именованные методы: `__init__`, `sidebar_expansion`, `build_operations`, `error_text`, `notice`, `is_photos`, `browse_volumes`, `selectable_volumes`, `resolve_volume`, `read_directory`, `open_library`, `open_photo`, `capacity_text`, `set_active`, `workspace_snapshot`, `preview_selection`, `persist_workspace`, `restore_panes`, `restore_workspace`, `open_in_finder`, `directory_size_text`, `size_texts`, `update_size_labels`, `load_directory_sizes`, `poll_directory_sizes`, `property_menu`, `open_volume`, `render_volumes`, `refresh_volumes`, `update_scopes`, `load`, `poll_connected`, `refresh_history`, `history_changed`, `choose_job`, `apply_report`, `start_comparison`, `browse`, `report_marker`, `poll`, `render_progress`, `control`, `refresh_matches`, `show_journal`, `show_properties`, `edit_folder_tags`, `apply_folder_tags`, `edit_metadata`, `rename_disk`, `register_disk`, `connect`.
 
@@ -886,9 +904,9 @@ async def volume_changed(self, event)
 def __init__(self, request, format_bytes, format_date, core_url='http://127.0.0.1:18765')
 ```
 
-Присваивания полям `self`: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
+Присваивания полям `self`: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
-Прямые выражения вызова: [BrowserPane](workspace_ui.md#symbol-BrowserPane), `CopyGroupsUI`, `PairedWorkspace`, `PhotoLibrariesUI`, `normalize_sidebar`, `range`, [self.build_operations](workspace_ui.md#symbol-StorageWorkspace.build_operations), `self.copies.build_sidebar`, `self.pair.build`, `self.photo_libraries.build`, [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), [self.sidebar_expansion](workspace_ui.md#symbol-StorageWorkspace.sidebar_expansion), `self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off').props`, `self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off').props('dense').classes`, `self.sidebar_expansion('volumes', 'Тома', icon='storage').props`, `self.sidebar_expansion('volumes', 'Тома', icon='storage').props('dense').classes`, `self.sidebar_storage.get`, `set`, `ui.add_css`, `ui.add_head_html`, `ui.button`, `ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props`, `ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pane-link').props`, `ui.icon`, `ui.label`, `ui.label('media.actu').classes`, `ui.label('Загрузка томов M4…').classes`, `ui.label('Том откроется в выделенном дереве.').classes`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: [BrowserPane](workspace_ui.md#symbol-BrowserPane), `CopyGroupsUI`, `CopySetupUI`, `PairedWorkspace`, `PhotoLibrariesUI`, `normalize_sidebar`, `range`, [self.build_operations](workspace_ui.md#symbol-StorageWorkspace.build_operations), `self.copies.build_sidebar`, `self.pair.build`, `self.photo_libraries.build`, [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), [self.sidebar_expansion](workspace_ui.md#symbol-StorageWorkspace.sidebar_expansion), `self.sidebar_storage.get`, `set`, `ui.add_css`, `ui.add_head_html`, `ui.button`, `ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props`, `ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pane-link').props`, `ui.icon`, `ui.label`, `ui.label('media.actu').classes`, `ui.label('Загрузка томов M4…').classes`, `ui.row`, `ui.row().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -1438,10 +1456,10 @@ async def preview_selection(self, source)
 Создаёт контекстное меню свойств с восстановлением фокуса и состоянием редактирования. Использует action, extra_content, menu.classes, menu.on, ui.context_menu.
 
 ```python
-def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False)
+def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False, row=None)
 ```
 
-Прямые выражения вызова: `action`, `extra_content`, `menu.classes`, `menu.on`, `ui.context_menu`, `ui.menu_item`.
+Прямые выражения вызова: `action`, `extra_content`, `menu.classes`, `menu.on`, `sidebar_menu`, `ui.context_menu`, `ui.menu_item`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -1715,7 +1733,7 @@ def render_volumes(self)
 def groups(items)
 ```
 
-Прямые выражения вызова: `bool`, `grouped.setdefault`, `grouped.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append`, `grouped.values`, `len`, [self.capacity_text](workspace_ui.md#symbol-StorageWorkspace.capacity_text), [self.property_menu](workspace_ui.md#symbol-StorageWorkspace.property_menu), `sorted`, `str`, `ui.button`, `ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props`, `ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes`, `ui.column`, `ui.column().classes`, `ui.icon`, `ui.icon('circle', size='7px').classes`, `ui.label`, `ui.label('Сменный').classes`, `ui.label(group['details']['name']).classes`, `ui.label(self.capacity_text(volume)).classes`, `ui.label(str(len(group['volumes']))).classes`, `ui.label(volume['share_name']).classes`, `ui.label(volume_label(volume, False)).classes`, `ui.row`, `ui.row().classes`, `volume.get`, [volume_label](workspace_ui.md#symbol-volume_label).
+Прямые выражения вызова: `' · '.join`, [archived](workspace_ui.md#symbol-archived), `filter`, `grouped.setdefault`, `grouped.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append`, `grouped.values`, [self.capacity_text](workspace_ui.md#symbol-StorageWorkspace.capacity_text), [self.property_menu](workspace_ui.md#symbol-StorageWorkspace.property_menu), `sidebar_line`, `sorted`, `ui.icon`, `ui.label`, `ui.label(group['details']['name']).classes`, `ui.label(status).classes`, `ui.label(status).classes('sidebar-readout truncate').tooltip`, `ui.row`, `ui.row().classes`, `volume.get`, [volume_label](workspace_ui.md#symbol-volume_label).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -1726,7 +1744,7 @@ def groups(items)
 
 [workspace_ui.py](../../workspace_ui.py) · `StorageWorkspace.render_volumes.groups.volume_actions`
 
-Добавляет доступное переименование подтверждённого сменного носителя в меню тома. Использует action, rename.set_enabled, ui.menu_item, v.get.
+Добавляет переименование подтверждённого сменного носителя. Использует доступность и состояние идентичности тома.
 
 ```python
 def volume_actions(action, v=volume)
@@ -1950,11 +1968,11 @@ async def show_properties(self, volume_id, entry=None)
 def sidebar_expansion(self, key, text, *, icon)
 ```
 
-Прямые выражения вызова: `ui.expansion`.
+Прямые выражения вызова: `ui.expansion`, `ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed).props`, `ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed).props('dense').classes`.
 
 Выражения возврата (ветви, без исполнения):
 
-- `ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed)`
+- `ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed).props('dense').classes('w-full sidebar-archive' if key in ('volume_archive', 'copy_archive') else 'w-full sidebar-section')`
 
 
 <a id="symbol-StorageWorkspace.sidebar_expansion.changed"></a>

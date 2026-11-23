@@ -23,7 +23,7 @@
 - [PhotoLibraries._require_active](#symbol-PhotoLibraries._require_active) — Требует активную медиатеку в состоянии ready для обращения к PhotoKit.
 - [PhotoLibraries._unavailable](#symbol-PhotoLibraries._unavailable) — Помечает медиатеки неактивными и сохраняет причину недоступности.
 - [PhotoLibraries.authorize](#symbol-PhotoLibraries.authorize) — Запрашивает системное разрешение Photos и повторяет сопоставление профиля.
-- [PhotoLibraries.bind_copy](#symbol-PhotoLibraries.bind_copy) — Привязывает доступную проверенную папку к медиатеке с отдельным номером.
+- [PhotoLibraries.bind_copy](#symbol-PhotoLibraries.bind_copy) — Привязывает папку и источник её оригиналов в одной транзакции.
 - [PhotoLibraries.copy_source](#symbol-PhotoLibraries.copy_source) — Возвращает ID копии-источника либо None для прямого источника Photos.
 - [PhotoLibraries.create_thumbnail](#symbol-PhotoLibraries.create_thumbnail) — Создаёт превью объекта только из подтверждённой активной медиатеки.
 - [PhotoLibraries.list](#symbol-PhotoLibraries.list) — Собирает профили, виртуальные тома, прогресс превью, копии и расписание.
@@ -203,20 +203,22 @@ def authorize(self)
 
 [media_manager/photo_libraries.py](../../media_manager/photo_libraries.py) · `PhotoLibraries.bind_copy`
 
-Привязывает доступную проверенную папку к медиатеке с отдельным номером. Изменяет SQLite-таблицы: photos_copy_links.
+Привязывает папку и источник её оригиналов в одной транзакции. Прежние вызовы без маршрута могут повторно подключить существующую связь.
 
 ```python
-def bind_copy(self, source_id, volume_id, path)
+def bind_copy(self, source_id, volume_id, path, *, source_link_id=...)
 ```
 
-SQLite: чтение `photos_copy_links`; запись/DDL `photos_copy_links`. См. [схему данных](../data-model.md).
+SQLite: чтение `photos_copy_links`, `photos_copy_sources`; запись/DDL `photos_copy_links`, `photos_copy_sources`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `ValueError`, `db.execute`, `db.execute('SELECT * FROM photos_copy_links WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM photos_copy_links WHERE source_id=?', (source_id,)).fetchone`, `dict`, `item['path'].startswith`, `next`, [now](media_manager--photo_libraries.md#symbol-now), `open_readonly`, `path.startswith`, `relative_path`, [self._db](media_manager--photo_libraries.md#symbol-PhotoLibraries._db), [self.profile](media_manager--photo_libraries.md#symbol-PhotoLibraries.profile), `self.storage.refresh`, `uuid.uuid4`.
+Прямые выражения вызова: `ValueError`, `db.execute`, `db.execute('SELECT * FROM photos_copy_links WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, `db.execute('SELECT 1 FROM photos_copy_links WHERE id=? AND source_id=? AND connected=1', (upstream, source_id)).fetchone`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM photos_copy_links WHERE source_id=?', (source_id,)).fetchone`, `db.execute('SELECT source_link_id FROM photos_copy_sources WHERE link_id=?', (existing['id'],)).fetchone`, `dict`, `item['path'].startswith`, `next`, [now](media_manager--photo_libraries.md#symbol-now), `open_readonly`, `path.startswith`, `relative_path`, [self._db](media_manager--photo_libraries.md#symbol-PhotoLibraries._db), [self.profile](media_manager--photo_libraries.md#symbol-PhotoLibraries.profile), `self.storage.refresh`, `uuid.uuid4`.
 
 Явные `raise`:
 
 - `ValueError('Выбери отдельную папку копии, не корень диска')`
 - `ValueError('Том копии должен быть подключён')`
+- `ValueError('У этой папки уже есть привязка. Измени маршрут в меню копии.')`
+- `ValueError('Выбери привязанную копию этой медиатеки в качестве источника.')`
 - `ValueError('Эта папка пересекается с другой копией медиатеки. Выбери отдельную папку.')`
 
 Выражения возврата (ветви, без исполнения):

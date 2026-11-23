@@ -10,12 +10,14 @@ from nicegui import app, background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
+from copy_setup_ui import COPY_SETUP_CSS, CopySetupUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from media_manager.storage import FLAGS, FOLDER_TAGS, PURPOSES, relative_path
 from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
 from paired_workspace_ui import PairedWorkspace
+from sidebar_ui import SIDEBAR_CSS, sidebar_line, sidebar_menu
 from storage_ui import CSS, FOLDER_CLICK_JS, folder_icon
 from storage_preview_ui import PREVIEW_CSS, StoragePreview
 from photo_libraries_ui import PhotoLibrariesUI
@@ -126,38 +128,11 @@ WORKSPACE_CSS = """
 .workspace-scopes { color:#667363; font-size:12px; overflow-wrap:anywhere; }
 .workspace-filter { min-width:170px; font-size:11px; }
 .workspace-property-grid { display:grid; grid-template-columns:1fr auto; gap:5px 16px; width:100%; font-size:13px; }
-.commander-sidebar .s-volumes { max-height:calc(100vh - 310px); }
-.commander-sidebar .s-volume-row { padding-left:6px; padding-right:6px; }
-.commander-sidebar .s-volume-capacity { font-size:10px; }
 .workspace-operations { max-height:calc(100vh - 108px); overflow-y:auto; }
-.copy-section { border-bottom:1px solid var(--s-line); }
-.copy-section > .q-expansion-item__container > .q-item { min-height:48px; padding:10px 14px; font-size:11px; color:#687466; font-weight:650; }
-.copy-section .q-item__section--avatar { min-width:24px; padding-right:7px; }
-.copy-section .q-item__section--avatar .q-icon { font-size:17px; }
-.commander-sidebar .q-expansion-item__container > .q-item > .q-item__section--main { white-space:nowrap; }
-.copy-group-list { max-height:calc(100vh - 300px); overflow:auto; padding:4px; }
-.copy-bookmark-group { padding:3px 0 7px; border-bottom:1px solid var(--s-line); }
-.copy-bookmark { padding:6px; border:1px solid transparent; border-radius:6px; }
-.copy-bookmark .q-btn__content { width:100%; align-items:flex-start; flex-direction:column; gap:2px; }
-.copy-bookmark.chosen { background:#edf3e7; border-color:#b7c8b0; }
-.copy-bookmark-name { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; font-size:12px; }
-.copy-place { width:100%; text-align:left; font-size:10px; color:var(--s-muted); overflow-wrap:anywhere; line-height:1.4; font-weight:400; }
-.copy-link { display:flex; flex-wrap:nowrap; align-items:center; gap:6px; margin-left:12px; padding:2px 4px; width:calc(100% - 12px); min-height:24px; color:#637b91; text-decoration:none; }
-.copy-link.chosen { color:#365f43; font-weight:600; }
-.copy-link .copy-label { padding:0; background:transparent; color:inherit; }
-.copy-link-name { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:11px; line-height:20px; }
-.copy-link:hover .copy-link-name { text-decoration:underline; }
-.copy-link:focus-visible { outline:1px solid #9cb8d5; outline-offset:-1px; }
 .copy-label { flex-shrink:0; font-size:10px; line-height:16px; padding:0 4px; border-radius:3px; background:#edf1f7; color:#536a89; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; }
 .copy-label.main { color:#3f6744; background:#eaf2e6; }
-.copy-folder-tags { gap:3px; flex-wrap:wrap; padding-top:2px; }
 .copy-folder-tag { font-size:10px; line-height:16px; padding:0 5px; border-radius:3px; background:#edf1f7; color:#536a89; }
-.copy-folder-tag.tracking { background:#eaf2e6; color:#3f6744; }
-.copy-folder-tag.temporary { background:#fff2d9; color:#8b631f; }
-.copy-folder-tag.inbox, .copy-folder-tag.changed { background:#e6eefb; color:#3b6097; }
-.copy-folder-tag.archive { background:#eeeeef; color:#656773; }
 .copy-folder-menu .q-item { min-height:32px; padding:5px 12px; }
-.copy-bookmark.disconnected, .copy-link.disconnected { color:#858b87; }
 .s-tree-role.copy-label { max-width:none; }
 .s-tree-role.library-role { max-width:none; background:#e8eef8; color:#536a89; }
 .s-tree-role.folder-tag { max-width:none; background:#fff1d9; color:#826538; }
@@ -247,6 +222,9 @@ class BrowserPane:
                         'aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes('pane-volume')
                     self.path_bar = ui.element('nav').classes('pane-path').props(
                         'aria-label="Путь левой панели"' if index == 0 else 'aria-label="Путь правой панели"')
+                    self.copy_button = ui.button('Копия', icon='add', on_click=self.add_copy).props(
+                        'flat dense no-caps color=green-9 aria-label="Добавить копию"').classes('pane-add-copy')
+                    self.copy_button.set_visibility(False)
                 self.folder_size = ui.label().classes('pane-folder-size').props('aria-live=polite')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap') as self.toolbar:
                 self.snapshot_label = ui.label('Просмотр папок').classes('s-muted text-xs')
@@ -291,6 +269,14 @@ class BrowserPane:
             return None
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return {'volume_id': self.volume_id, 'path': path}
+
+    #: Открывает общий диалог копии для текущей папки или медиатеки.
+    #: Асинхронно ожидает: self.workspace.copy_setup.open.
+    async def add_copy(self):
+        if self.view_mode == 'tree' and not self.comparison_open() and self.workspace.copy_setup.source(
+            self.volume_id, self.path, self.kind
+        ):
+            await self.workspace.copy_setup.open(self.volume_id, self.path, index=self.index)
 
     #: Обрабатывает актуальное изменение выбранного тома, отбрасывая устаревшие события.
     #: Асинхронно ожидает: self.preview.show, self.workspace.open_volume.
@@ -476,6 +462,9 @@ class BrowserPane:
     #: Обновляет состояние объекта: path_signature.
     def update_header(self):
         self.update_volume_select(self.display_volume_id)
+        if button := getattr(self, 'copy_button', None):
+            button.set_visibility(self.view_mode == 'tree' and not self.comparison_open() and bool(
+                self.workspace.copy_setup.source(self.volume_id, self.path, self.kind)))
         if self.view_mode == 'preview':
             self.preview.update_header()
             return
@@ -1083,8 +1072,9 @@ class StorageWorkspace:
         self.pair = PairedWorkspace(self)
         self.copies = CopyGroupsUI(self)
         self.photo_libraries = PhotoLibrariesUI(self)
+        self.copy_setup = CopySetupUI(self)
         ui.add_head_html('<meta name="color-scheme" content="light">')
-        ui.add_css(CSS + WORKSPACE_CSS + PREVIEW_CSS)
+        ui.add_css(CSS + WORKSPACE_CSS + PREVIEW_CSS + SIDEBAR_CSS + COPY_SETUP_CSS)
         with ui.row().classes('commander-intro w-full items-center justify-between'):
             with ui.column().classes('gap-1'):
                 ui.label('media.actu').classes('s-title')
@@ -1094,11 +1084,10 @@ class StorageWorkspace:
                 self.refresh_button = ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props('outline no-caps color=dark')
         with ui.element('div').classes('commander-layout') as self.layout:
             with ui.column().classes('s-panel commander-sidebar w-full gap-0'):
-                with self.sidebar_expansion('volumes', 'Тома', icon='storage').props('dense').classes('copy-section w-full') as self.volumes_section:
-                    self.volume_list = ui.column().classes('s-volumes w-full p-2 gap-0')
-                    with self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off').props('dense').classes('s-volume-archive w-full') as self.archive:
-                        self.archive_list = ui.column().classes('s-archive-volumes w-full p-2 gap-0')
-                    ui.label('Том откроется в выделенном дереве.').classes('s-muted text-xs px-3 py-2')
+                with self.sidebar_expansion('volumes', 'Тома', icon='storage') as self.volumes_section:
+                    self.volume_list = ui.column().classes('sidebar-list w-full')
+                    with self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off') as self.archive:
+                        self.archive_list = ui.column().classes('sidebar-list w-full')
                 self.photo_libraries.build()
                 self.copies.build_sidebar()
             with ui.element('div').classes('commander-trees') as self.trees:
@@ -1123,7 +1112,8 @@ class StorageWorkspace:
             self.sidebar_state[key] = event.value
             self.sidebar_storage[SIDEBAR_STORAGE_KEY] = state
 
-        return ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed)
+        return ui.expansion(text, icon=icon, value=self.sidebar_state[key], on_value_change=changed).props('dense').classes(
+            'w-full sidebar-archive' if key in ('volume_archive', 'copy_archive') else 'w-full sidebar-section')
 
     #: Создаёт управление общей сверкой и диалог её прежнего интерфейса.
     #: Обновляет состояние объекта: browse_button, counts, history, journal_button, legacy_dialog, pause_button, phase_label, progress, progress_row, refresh_lists и ещё 5.
@@ -1224,7 +1214,7 @@ class StorageWorkspace:
     #: Использует self.format_bytes, volume.get.
     def capacity_text(self, volume):
         capacity = volume.get('capacity')
-        if not capacity:
+        if not capacity or not capacity['total_bytes']:
             return 'Объём и занятое место пока неизвестны'
         text = f"Занято {self.format_bytes(capacity['used_bytes'])} из {self.format_bytes(capacity['total_bytes'])}"
         text += f" · {capacity['used_bytes'] / capacity['total_bytes'] * 100:.0f}%"
@@ -1493,7 +1483,7 @@ class StorageWorkspace:
 
     #: Создаёт контекстное меню свойств с восстановлением фокуса и состоянием редактирования.
     #: Использует action, extra_content, menu.classes, menu.on, ui.context_menu.
-    def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False):
+    def property_menu(self, label, callback, *, volume_id, path='', extra=(), extra_content=None, folder=False, row=None):
         client = ui.context.client
 
         #: Оборачивает команду контекстного меню в обработчик закрытия и восстановления фокуса.
@@ -1506,7 +1496,7 @@ class StorageWorkspace:
                     await callback()
             return invoke
 
-        with ui.context_menu() as menu:
+        with (sidebar_menu(row) if row else ui.context_menu()) as menu:
             if extra_content:
                 menu.classes('copy-folder-menu')
             #: Перед открытием меню отмечает его активность и скрывает файловые команды для Photos.
@@ -1567,36 +1557,38 @@ class StorageWorkspace:
                 group = volume.get('group') or {'id': volume['kind'], 'name': 'Сетевые тома' if volume['kind'] == 'network' else 'M4', 'kind': 'network' if volume['kind'] == 'network' else 'local'}
                 grouped.setdefault(group['id'], {'details': group, 'volumes': []})['volumes'].append(volume)
             for group in sorted(grouped.values(), key=lambda g: (g['details']['kind'] == 'local', g['details']['name'].casefold())):
-                with ui.row().classes('s-volume-group w-full items-center no-wrap'):
-                    ui.icon('dns' if group['details']['kind'] == 'network' else 'computer', size='15px')
-                    ui.label(group['details']['name']).classes('grow truncate')
-                    ui.label(str(len(group['volumes']))).classes('s-muted font-normal')
+                with ui.row().classes('sidebar-caption w-full items-center no-wrap'):
+                    ui.icon('dns' if group['details']['kind'] == 'network' else 'computer', size='13px')
+                    ui.label(group['details']['name']).classes('truncate')
                 for volume in group['volumes']:
-                    #: Добавляет доступное переименование подтверждённого сменного носителя в меню тома.
-                    #: Использует action, rename.set_enabled, ui.menu_item, v.get.
+                    #: Добавляет переименование подтверждённого сменного носителя.
+                    #: Использует доступность и состояние идентичности тома.
                     def volume_actions(action, v=volume):
                         if v.get('marker_id'):
                             rename = ui.menu_item('Переименовать диск', on_click=action(lambda: self.rename_disk(v['id'])))
                             rename.set_enabled(v.get('mounted') and v['availability'] == 'online'
                                                and v.get('identity_status') == 'verified')
 
-                    channel = bool(volume.get('marker_id') and volume.get('share_name'))
-                    classes = 's-volume-row' + (' with-channel' if channel else '') + (' chosen' if volume['id'] == selected else '')
-                    with ui.button(on_click=lambda v=volume: self.open_volume(v['id'])).props('flat no-caps color=dark').classes(classes):
+                    offline = archived(volume)
+                    availability = volume['availability']
+                    icon = 'link_off' if offline else 'circle'
+                    color = 'text-amber-8' if availability == 'unknown' and not offline else 'text-green-8' if not offline else 'text-grey-6'
+                    capacity = volume.get('capacity')
+                    status = ('Офлайн' if offline else 'Неясно' if availability == 'unknown' else
+                              f"{capacity['used_bytes'] / capacity['total_bytes']:.0%}"
+                              if capacity and capacity['total_bytes'] else '')
+                    detail = ' · '.join(filter(None, (volume_label(volume), 'Сменный' if volume.get('removable') else '',
+                                                    self.capacity_text(volume))))
+                    with sidebar_line(volume_label(volume, False), lambda v=volume: self.open_volume(v['id']),
+                                      icon=icon, icon_color=color, offline=offline, chosen=volume['id'] == selected,
+                                      tooltip=detail) as row:
+                        if status:
+                            ui.label(status).classes('sidebar-readout truncate').tooltip(detail)
                         self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']),
-                                           volume_id=volume['id'], extra_content=volume_actions, folder=True)
-                        ui.icon('circle', size='7px').classes('shrink-0 ' + {'online': 'text-green-700', 'offline': 'text-grey-5', 'unknown': 'text-amber-700'}[volume['availability']])
-                        with ui.column().classes('gap-0 flex-1 min-w-0'):
-                            with ui.row().classes('w-full items-center no-wrap gap-1'):
-                                ui.label(volume_label(volume, False)).classes('s-volume-name')
-                                if volume.get('removable'):
-                                    ui.label('Сменный').classes('s-volume-role s-volume-removable')
-                            if channel:
-                                ui.label(volume['share_name']).classes('s-volume-channel')
-                            ui.label(self.capacity_text(volume)).classes('s-volume-capacity')
+                                           volume_id=volume['id'], extra_content=volume_actions, folder=True, row=row)
         with self.volume_list:
             if not active:
-                ui.label('Нет активных томов.' if self.volumes else 'Пока нет сохранённых томов.').classes('s-muted text-sm p-3')
+                ui.label('Нет активных томов.' if self.volumes else 'Пока нет сохранённых томов.').classes('sidebar-empty')
             groups(active)
         with self.archive_list:
             groups(offline)

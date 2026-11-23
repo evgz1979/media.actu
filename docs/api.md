@@ -27,7 +27,7 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 | `POST` | `/api/photos/libraries/connect` | [connect_photo_library](reference/app.md#symbol-connect_photo_library) — Повторяет сопоставление системной медиатеки и пробуждает превью. |
 | `PATCH` | `/api/photos/libraries/{source_id}` | [rename_photo_library](reference/app.md#symbol-rename_photo_library) — Меняет название медиатеки и возвращает обновлённый список. |
 | `GET` | `/api/photos/libraries/{source_id}/browse` | [browse_photo_library](reference/app.md#symbol-browse_photo_library) — Возвращает виртуальную папку Photos и повышает приоритет её превью. |
-| `POST` | `/api/photos/libraries/{source_id}/copies` | [bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy) — Привязывает выбранную папку как копию медиатеки. |
+| `POST` | `/api/photos/libraries/{source_id}/copies` | [bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy) — Привязывает папку как копию медиатеки вместе с выбранным маршрутом. |
 | `DELETE` | `/api/photos/libraries/{source_id}/copies/{link_id}` | [unbind_photo_library_copy](reference/app.md#symbol-unbind_photo_library_copy) — Отключает привязку копии медиатеки и возвращает обновлённый список. |
 | `POST` | `/api/photos/libraries/{source_id}/copies/{link_id}/make-first` | [photo_copy_first](reference/app.md#symbol-photo_copy_first) — Ставит выбранную копию Photos первой по номеру без изменения маршрутов. |
 | `GET` | `/api/photos/libraries/{source_id}/copies/{link_id}/originals` | [photo_originals_status](reference/app.md#symbol-photo_originals_status) — Возвращает состояние оригиналов после проверки принадлежности копии медиатеке. |
@@ -75,6 +75,7 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 | `GET` | `/api/storage/copy-operations/{operation_id}/items` | [missing_copy_items](reference/app.md#symbol-missing_copy_items) — Возвращает страницу элементов сохранённого плана копирования. |
 | `POST` | `/api/storage/copy-operations/{operation_id}/start` | [start_missing_copy](reference/app.md#symbol-start_missing_copy) — Запускает подтверждённую операцию создания отсутствующих копий. |
 | `POST` | `/api/storage/copy-operations/{operation_id}/stop` | [stop_missing_copy](reference/app.md#symbol-stop_missing_copy) — Запрашивает остановку операции копирования. |
+| `POST` | `/api/storage/folder-copy-bindings` | [storage_folder_copy_binding](reference/app.md#symbol-storage_folder_copy_binding) — Сохраняет связь папок и при необходимости в той же транзакции назначает 00-main. |
 | `GET` | `/api/storage/folder-markers` | [storage_folder_markers](reference/app.md#symbol-storage_folder_markers) — Возвращает состояние очереди служебных описаний папок. |
 | `GET` | `/api/storage/nas` | [remembered_nas](reference/app.md#symbol-remembered_nas) — Возвращает список сохранённых серверов NAS. |
 | `POST` | `/api/storage/nas/discover` | [discover_nas](reference/app.md#symbol-discover_nas) — Запускает обнаружение NAS через Bonjour на машине Core. |
@@ -241,13 +242,13 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 
 ### `POST /api/photos/libraries/{source_id}/copies`
 
-[bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy). Привязывает выбранную папку как копию медиатеки.
+[bind_photo_library_copy](reference/app.md#symbol-bind_photo_library_copy). Привязывает папку как копию медиатеки вместе с выбранным маршрутом.
 
 | Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
 | --- | --- | --- | --- |
 | `source_id` | `path` | True | `{"title": "Source Id", "type": "integer"}` |
 
-Тело JSON: `{"$ref": "#/components/schemas/LibraryCopyRequest"}`; обязательное: True.
+Тело JSON: `{"$ref": "#/components/schemas/PhotosCopyBindingRequest"}`; обязательное: True.
 
 Декларированные ответы: `201` Successful Response, `422` Validation Error.
 
@@ -744,6 +745,14 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 | `operation_id` | `path` | True | `{"title": "Operation Id", "type": "string"}` |
 
 Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/storage/folder-copy-bindings`
+
+[storage_folder_copy_binding](reference/app.md#symbol-storage_folder_copy_binding). Сохраняет связь папок и при необходимости в той же транзакции назначает 00-main.
+
+Тело JSON: `{"$ref": "#/components/schemas/FolderCopyBindingRequest"}`; обязательное: True.
+
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
 
 ### `GET /api/storage/folder-markers`
 
@@ -1398,6 +1407,28 @@ required задаёт обязательность поля, null в anyOf до�
 }
 ```
 
+### `FolderCopyBindingRequest`
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "destination": {
+      "$ref": "#/components/schemas/CopyLocationRequest"
+    },
+    "source": {
+      "$ref": "#/components/schemas/ComparisonScope"
+    }
+  },
+  "required": [
+    "source",
+    "destination"
+  ],
+  "title": "FolderCopyBindingRequest",
+  "type": "object"
+}
+```
+
 ### `FolderRequest`
 
 ```json
@@ -1496,34 +1527,6 @@ required задаёт обязательность поля, null в anyOf до�
     "path"
   ],
   "title": "ICloudCopyRequest",
-  "type": "object"
-}
-```
-
-### `LibraryCopyRequest`
-
-```json
-{
-  "additionalProperties": false,
-  "properties": {
-    "path": {
-      "maxLength": 4096,
-      "minLength": 1,
-      "title": "Path",
-      "type": "string"
-    },
-    "volume_id": {
-      "maxLength": 128,
-      "minLength": 1,
-      "title": "Volume Id",
-      "type": "string"
-    }
-  },
-  "required": [
-    "volume_id",
-    "path"
-  ],
-  "title": "LibraryCopyRequest",
   "type": "object"
 }
 ```
@@ -1654,6 +1657,47 @@ required задаёт обязательность поля, null в anyOf до�
     "action"
   ],
   "title": "PairedDecisionRequest",
+  "type": "object"
+}
+```
+
+### `PhotosCopyBindingRequest`
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "source_link_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Link Id"
+    },
+    "volume_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Volume Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "volume_id",
+    "path"
+  ],
+  "title": "PhotosCopyBindingRequest",
   "type": "object"
 }
 ```

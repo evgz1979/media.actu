@@ -467,6 +467,14 @@ class CopyLocationRequest(ComparisonScope):
     kind: Literal['copy', 'cold', 'cloud'] = 'copy'
 
 
+#: Описывает выбранные в одном диалоге источник и назначение обычной копии.
+#: Поля: source, destination.
+class FolderCopyBindingRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    source: ComparisonScope
+    destination: CopyLocationRequest
+
+
 #: Определяет Pydantic-контракт типа копии.
 #: Поля: kind.
 class CopyKindRequest(BaseModel):
@@ -582,6 +590,13 @@ async def storage_folder_markers() -> dict:
 @app.post('/api/storage/copy-groups')
 async def storage_main_folder(request: ComparisonScope) -> dict:
     return await copy_catalog_action(copies.create_main, request.volume_id, request.path)
+
+
+#: Сохраняет связь папок и при необходимости в той же транзакции назначает 00-main.
+#: Асинхронно ожидает: copy_catalog_action.
+@app.post('/api/storage/folder-copy-bindings', status_code=201)
+async def storage_folder_copy_binding(request: FolderCopyBindingRequest) -> dict:
+    return await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump())
 
 
 #: Обновляет настройки набора и пробуждает отслеживание изменений.
@@ -1041,6 +1056,12 @@ class LibraryCopyRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
+#: Задаёт папку копии Photos и явно выбранное предыдущее звено маршрута.
+#: В отсутствие поля источник существующей связи сохраняется.
+class PhotosCopyBindingRequest(LibraryCopyRequest):
+    source_link_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 #: Задаёт облачную область и существующую папку назначения.
 #: Поля: source_path, volume_id, path.
 class ICloudCopyRequest(LibraryCopyRequest):
@@ -1179,11 +1200,11 @@ async def resume_photo_library(source_id: int) -> dict:
     return await list_photo_libraries()
 
 
-#: Привязывает выбранную папку как копию медиатеки.
+#: Привязывает папку как копию медиатеки вместе с выбранным маршрутом.
 #: Асинхронно ожидает: library_call.
 @app.post('/api/photos/libraries/{source_id}/copies', status_code=201)
-async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -> dict:
-    return await library_call(photo_libraries.bind_copy, source_id, request.volume_id, request.path)
+async def bind_photo_library_copy(source_id: int, request: PhotosCopyBindingRequest) -> dict:
+    return await library_call(photo_libraries.bind_copy, source_id, **request.model_dump(exclude_unset=True))
 
 
 #: Отключает привязку копии медиатеки и возвращает обновлённый список.

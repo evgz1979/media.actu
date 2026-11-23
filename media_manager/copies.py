@@ -278,16 +278,42 @@ class CopyCatalog:
                 raise ValueError('Выбери конкретную основную папку внутри тома.')
             with self.storage.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
-                existing = db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
-                if existing and existing['number'] == 0:
-                    group_id = existing['group_id']
-                else:
-                    self._check_overlap(db, volume_id, path)
-                    group_id, timestamp = uuid4().hex, datetime.now(timezone.utc).isoformat()
-                    db.execute('INSERT INTO copy_groups VALUES (?,1,?)', (group_id, timestamp))
-                    db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
-                               (uuid4().hex, group_id, volume_id, path, 'main', 0, timestamp))
+                group_id = self._ensure_main(db, volume_id, path)
                 self._queue_folder_markers(db,group_id)
+        return self.group(group_id)
+
+    #: Возвращает действующую основную область либо добавляет её в текущей транзакции.
+    #: Изменяет SQLite-таблицы: copy_groups, copy_locations.
+    def _ensure_main(self, db, volume_id, path):
+        existing = db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
+        if existing and existing['number'] == 0:
+            return existing['group_id']
+        self._check_overlap(db, volume_id, path)
+        group_id, timestamp = uuid4().hex, datetime.now(timezone.utc).isoformat()
+        db.execute('INSERT INTO copy_groups VALUES (?,1,?)', (group_id, timestamp))
+        db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
+                   (uuid4().hex, group_id, volume_id, path, 'main', 0, timestamp))
+        return group_id
+
+    #: Создаёт основную папку при необходимости и связывает назначение одной транзакцией.
+    #: Маркеры обеих областей ставятся в очередь после успешной проверки связи.
+    def bind_folders(self, source, destination):
+        source_id, target_id = source['volume_id'], destination['volume_id']
+        kind = destination['kind']
+        if kind not in COPY_KINDS:
+            raise ValueError('Неизвестный тип копии')
+        with self.storage._lock:
+            source_path = self._folder(source_id, source['path'])
+            target_path = self._folder(target_id, destination['path'])
+            if not source_path or not target_path:
+                raise ValueError('Выбери основную папку и папку назначения внутри томов.')
+            with self.storage.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                group_id = self._ensure_main(db, source_id, source_path)
+                if db.execute('SELECT 1 FROM disconnected_copy_groups WHERE group_id=?', (group_id,)).fetchone():
+                    raise ValueError('Сначала подключи набор копий этой папки.')
+                self._add_copy(db, group_id, target_id, target_path, kind)
+                self._queue_folder_markers(db, group_id)
         return self.group(group_id)
 
     #: Обновляет отслеживание изменений и смысловую метку основной папки.
@@ -416,27 +442,31 @@ class CopyCatalog:
                 raise ValueError('Выбери папку назначения внутри тома.')
             with self.storage.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
-                group = db.execute('SELECT * FROM copy_groups WHERE id=?', (group_id,)).fetchone()
-                if group is None:
-                    raise KeyError('Основная папка не найдена')
-                existing = db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
-                if existing and existing['group_id'] == group_id and existing['number'] > 0:
-                    if existing['kind'] != kind:
-                        raise ValueError('Эта папка уже связана. Тип можно изменить в меню её ссылки.')
-                else:
-                    locations = db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number',
-                                           (group_id,)).fetchall()
-                    released = [row['number'] for row in db.execute('SELECT number FROM released_copy_locations WHERE group_id=?', (group_id,))]
-                    number = next_copy_number(locations, released)
-                    if number is None:
-                        raise ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')
-                    self._check_overlap(db, volume_id, path)
-                    timestamp = datetime.now(timezone.utc).isoformat()
-                    db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
-                               (uuid4().hex, group_id, volume_id, path, kind, number, timestamp))
-                    db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (number + 1, group_id))
+                self._add_copy(db, group_id, volume_id, path, kind)
                 self._queue_folder_markers(db,group_id)
         return self.group(group_id)
+
+    #: Регистрирует папку назначения и её номер в текущей транзакции.
+    #: Изменяет SQLite-таблицы: copy_groups, copy_locations.
+    def _add_copy(self, db, group_id, volume_id, path, kind):
+        if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
+            raise KeyError('Основная папка не найдена')
+        existing = db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
+        if existing and existing['group_id'] == group_id and existing['number'] > 0:
+            if existing['kind'] != kind:
+                raise ValueError('Эта папка уже связана. Тип можно изменить в меню её ссылки.')
+            return
+        locations = db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number',
+                               (group_id,)).fetchall()
+        released = [row['number'] for row in db.execute('SELECT number FROM released_copy_locations WHERE group_id=?', (group_id,))]
+        number = next_copy_number(locations, released)
+        if number is None:
+            raise ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')
+        self._check_overlap(db, volume_id, path)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
+                   (uuid4().hex, group_id, volume_id, path, kind, number, timestamp))
+        db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (number + 1, group_id))
 
     #: Меняет тип существующей копии с обновлением служебного описания.
     #: Изменяет SQLite-таблицы: copy_locations.

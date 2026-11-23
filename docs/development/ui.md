@@ -18,7 +18,9 @@ base_url=CORE_URL, до 30 соединений, 10 keep-alive, срок keep-al
 
 `StorageWorkspace` владеет списком томов, активной панелью, отчётами, размерами,
 состоянием редактирования и компонентами `CopyGroupsUI`, `PhotoLibrariesUI`,
-`PairedWorkspace`. `BrowserPane` владеет выбором одного тома, корнем, папками,
+`CopySetupUI`, `PairedWorkspace`. `CopySetupUI` ведёт общий выбор назначения
+для всех источников. Компоненты `sidebar_line`, `sidebar_menu` и `sidebar_branch`
+задают общий вид списков. `BrowserPane` владеет выбором одного тома, корнем, папками,
 раскрытием, режимом tree/preview и `StoragePreview`. У правой панели есть
 `ComparisonTree` для найденных путей общей сверки.
 
@@ -39,9 +41,10 @@ generation всё ещё совпадает. Быстрый переход к д
 открытие другого отчёта инвалидирует ожидаемые ответы соответствующего владельца.
 Это защита состояния UI, а не отмена файловой операции Core.
 
-`read_directory` выбирает обычный `/api/storage/volumes/.../directory` или
-`/api/photos/libraries/.../browse`. Photos получает offset/limit; обычная папка
-возвращает свой непосредственный список. Для отчётов используются отдельные API
+`read_directory` выбирает `/api/storage/volumes/.../directory`,
+`/api/photos/libraries/.../browse` или `/api/icloud/browse`. Photos получает
+offset/limit. Обычная папка и iCloud Drive возвращают непосредственный список.
+Для отчётов используются отдельные API
 tree/target-tree, которые читают сохранённый индекс.
 
 ## Выбор, путь и превью
@@ -54,7 +57,7 @@ tree восстанавливаются путь, раскрытие и прок
 
 Кликабельный путь строится относительно допустимой границы. Для пары это выбранный
 корень стороны, для Photos — виртуальная иерархия, для обычного тома — его корень.
-`scope()` исключает Photos и неподтверждённые носители из обычных файловых операций.
+`scope()` исключает виртуальные источники и неподтверждённые носители из обычных файловых операций.
 
 [`StoragePreview.image_url`](../reference/storage_preview_ui.md#symbol-StoragePreview.image_url) выбирает готовое media-thumbnail
 для Photos и storage-preview для обычного файла. Photos-плитки могут ожидать JPEG;

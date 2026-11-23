@@ -28,6 +28,7 @@
 - [CopySourceRequest](#symbol-CopySourceRequest) — Определяет Pydantic-контракт выбора источника копирования.
 - [DirectorySizesRequest](#symbol-DirectorySizesRequest) — Определяет Pydantic-контракт подсчёта размеров папок.
 - [FolderChoiceRequest](#symbol-FolderChoiceRequest) — Определяет Pydantic-контракт выбора папок macOS.
+- [FolderCopyBindingRequest](#symbol-FolderCopyBindingRequest) — Описывает выбранные в одном диалоге источник и назначение обычной копии.
 - [FolderRequest](#symbol-FolderRequest) — Определяет Pydantic-контракт открытия папки источника.
 - [FolderTagsRequest](#symbol-FolderTagsRequest) — Определяет Pydantic-контракт меток папки.
 - [ICloudCopyRequest](#symbol-ICloudCopyRequest) — Задаёт облачную область и существующую папку назначения.
@@ -36,6 +37,7 @@
 - [NetworkShareRequest](#symbol-NetworkShareRequest) — Определяет Pydantic-контракт запоминания SMB-ресурса.
 - [PairedComparisonRequest](#symbol-PairedComparisonRequest) — Определяет Pydantic-контракт сверки связанной пары.
 - [PairedDecisionRequest](#symbol-PairedDecisionRequest) — Определяет Pydantic-контракт планового решения для лишнего элемента.
+- [PhotosCopyBindingRequest](#symbol-PhotosCopyBindingRequest) — Задаёт папку копии Photos и явно выбранное предыдущее звено маршрута.
 - [PhotosSyncScheduleRequest](#symbol-PhotosSyncScheduleRequest) — Определяет Pydantic-контракт временного окна Photos.
 - [SourceMetadataRequest](#symbol-SourceMetadataRequest) — Определяет Pydantic-контракт изменения метаданных источника.
 - [SourceRequest](#symbol-SourceRequest) — Определяет Pydantic-контракт регистрации обычного источника.
@@ -44,7 +46,7 @@
 - [VolumeNameRequest](#symbol-VolumeNameRequest) — Определяет Pydantic-контракт названия сменного носителя.
 - [authorize_system_photos](#symbol-authorize_system_photos) — Запрашивает разрешение Photos и возвращает состояние доступа.
 - [bind_icloud_copy](#symbol-bind_icloud_copy) — Привязывает выбранную папку тома к области iCloud Drive.
-- [bind_photo_library_copy](#symbol-bind_photo_library_copy) — Привязывает выбранную папку как копию медиатеки.
+- [bind_photo_library_copy](#symbol-bind_photo_library_copy) — Привязывает папку как копию медиатеки вместе с выбранным маршрутом.
 - [browse_icloud](#symbol-browse_icloud) — Показывает файлы и папки внутри iCloud Drive по метаданным.
 - [browse_photo_library](#symbol-browse_photo_library) — Возвращает виртуальную папку Photos и повышает приоритет её превью.
 - [catalog_summary](#symbol-catalog_summary) — Возвращает суммарные показатели сохранённого медиаиндекса.
@@ -131,6 +133,7 @@
 - [storage_copy_source](#symbol-storage_copy_source) — Обрабатывает изменение источника копирования обычной папки.
 - [storage_directory](#symbol-storage_directory) — Возвращает список выбранной папки тома с признаками снимка и ошибок.
 - [storage_directory_sizes](#symbol-storage_directory_sizes) — Возвращает размеры папок и при разрешении ставит их в очередь подсчёта.
+- [storage_folder_copy_binding](#symbol-storage_folder_copy_binding) — Сохраняет связь папок и при необходимости в той же транзакции назначает 00-main.
 - [storage_folder_markers](#symbol-storage_folder_markers) — Возвращает состояние очереди служебных описаний папок.
 - [storage_folder_tags](#symbol-storage_folder_tags) — Сохраняет смысловые метки выбранной папки.
 - [storage_main_folder](#symbol-storage_main_folder) — Регистрирует выбранную папку как основную область набора.
@@ -379,6 +382,23 @@
 
 Именованные методы: собственных методов нет.
 
+<a id="symbol-FolderCopyBindingRequest"></a>
+
+## `FolderCopyBindingRequest`
+
+[app.py](../../app.py) · `FolderCopyBindingRequest`
+
+Описывает выбранные в одном диалоге источник и назначение обычной копии. Поля: source, destination.
+
+Базовые классы: `BaseModel`.
+
+| Поле | Аннотация | Значение / ограничение |
+| --- | --- | --- |
+| `source` | `ComparisonScope` | `обязательное поле` |
+| `destination` | `CopyLocationRequest` | `обязательное поле` |
+
+Именованные методы: собственных методов нет.
+
 <a id="symbol-FolderRequest"></a>
 
 ## `FolderRequest`
@@ -510,6 +530,22 @@
 | --- | --- | --- |
 | `path` | `str` | `Field(max_length=4096)` |
 | `action` | `Literal['keep', 'add_main', 'move', 'remove'] &#124; None` | `обязательное поле` |
+
+Именованные методы: собственных методов нет.
+
+<a id="symbol-PhotosCopyBindingRequest"></a>
+
+## `PhotosCopyBindingRequest`
+
+[app.py](../../app.py) · `PhotosCopyBindingRequest`
+
+Задаёт папку копии Photos и явно выбранное предыдущее звено маршрута. В отсутствие поля источник существующей связи сохраняется.
+
+Базовые классы: `LibraryCopyRequest`.
+
+| Поле | Аннотация | Значение / ограничение |
+| --- | --- | --- |
+| `source_link_id` | `str &#124; None` | `Field(default=None, min_length=1, max_length=128)` |
 
 Именованные методы: собственных методов нет.
 
@@ -677,19 +713,19 @@ async def bind_icloud_copy(request: ICloudCopyRequest) -> dict
 
 [app.py](../../app.py) · `bind_photo_library_copy`
 
-Привязывает выбранную папку как копию медиатеки. Асинхронно ожидает: library_call.
+Привязывает папку как копию медиатеки вместе с выбранным маршрутом. Асинхронно ожидает: library_call.
 
 ```python
-async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -> dict
+async def bind_photo_library_copy(source_id: int, request: PhotosCopyBindingRequest) -> dict
 ```
 
 Декораторы: `app.post('/api/photos/libraries/{source_id}/copies', status_code=201)`.
 
-Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+Прямые выражения вызова: [library_call](app.md#symbol-library_call), `request.model_dump`.
 
 Выражения возврата (ветви, без исполнения):
 
-- `await library_call(photo_libraries.bind_copy, source_id, request.volume_id, request.path)`
+- `await library_call(photo_libraries.bind_copy, source_id, **request.model_dump(exclude_unset=True))`
 
 
 <a id="symbol-browse_icloud"></a>
@@ -2643,6 +2679,27 @@ async def storage_directory_sizes(volume_id: str, request: DirectorySizesRequest
 Выражения возврата (ветви, без исполнения):
 
 - `await asyncio.to_thread(directory_sizes.request, volume_id, request.paths, start=request.start, refresh=request.refresh)`
+
+
+<a id="symbol-storage_folder_copy_binding"></a>
+
+## `storage_folder_copy_binding`
+
+[app.py](../../app.py) · `storage_folder_copy_binding`
+
+Сохраняет связь папок и при необходимости в той же транзакции назначает 00-main. Асинхронно ожидает: copy_catalog_action.
+
+```python
+async def storage_folder_copy_binding(request: FolderCopyBindingRequest) -> dict
+```
+
+Декораторы: `app.post('/api/storage/folder-copy-bindings', status_code=201)`.
+
+Прямые выражения вызова: [copy_catalog_action](app.md#symbol-copy_catalog_action), `request.destination.model_dump`, `request.source.model_dump`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump())`
 
 
 <a id="symbol-storage_folder_markers"></a>

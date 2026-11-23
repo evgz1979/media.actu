@@ -8,14 +8,15 @@
 
 | Модуль | Назначение | Классы / функции |
 | --- | --- | --- |
-| [app.py](app.md) | Core API и жизненный цикл | 27 / 103 |
+| [app.py](app.md) | Core API и жизненный цикл | 29 / 104 |
 | [comparison_tree_ui.py](comparison_tree_ui.md) | UI найденных путей | 1 / 13 |
 | [comparison_ui.py](comparison_ui.md) | Совместимость адреса /compare | 0 / 2 |
-| [copy_groups_ui.py](copy_groups_ui.md) | UI наборов копий | 1 / 32 |
+| [copy_groups_ui.py](copy_groups_ui.md) | UI наборов копий | 1 / 31 |
+| [copy_setup_ui.py](copy_setup_ui.md) | Выбор назначения копии | 1 / 13 |
 | [media_manager/__init__.py](media_manager--__init__.md) | Пакет Core | 0 / 0 |
 | [media_manager/catalog.py](media_manager--catalog.md) | Медиаиндекс и очередь превью | 1 / 34 |
 | [media_manager/comparison.py](media_manager--comparison.md) | Поиск совпадений по именам | 2 / 25 |
-| [media_manager/copies.py](media_manager--copies.md) | Учёт основных папок и копий | 1 / 26 |
+| [media_manager/copies.py](media_manager--copies.md) | Учёт основных папок и копий | 1 / 29 |
 | [media_manager/copy_files.py](media_manager--copy_files.md) | Копирование отсутствующего | 3 / 25 |
 | [media_manager/directory_sizes.py](media_manager--directory_sizes.md) | Размеры папок | 1 / 6 |
 | [media_manager/folder_markers.py](media_manager--folder_markers.md) | Служебные описания папок | 1 / 15 |
@@ -40,13 +41,14 @@
 | [network_ui.py](network_ui.md) | Диалог NAS | 0 / 8 |
 | [paired_tree.py](paired_tree.md) | Python-обёртка Vue-дерева | 1 / 2 |
 | [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 45 |
-| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 50 |
+| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 48 |
 | [scripts/build_documentation.py](scripts--build_documentation.md) | Генератор смысловых справочников | 3 / 44 |
+| [sidebar_ui.py](sidebar_ui.md) | Строки и меню боковой колонки | 0 / 6 |
 | [storage_preview_ui.py](storage_preview_ui.md) | UI превью и плиток | 1 / 13 |
 | [storage_ui.py](storage_ui.md) | Общие элементы и регистрация UI | 0 / 2 |
 | [ui.py](ui.md) | Вход в NiceGUI и HTTP-клиент | 0 / 6 |
 | [workspace_state.py](workspace_state.md) | Состояние браузерной вкладки | 0 / 5 |
-| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 102 |
+| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 103 |
 
 - [Нативные определения](native.md)
 - [Тестовые сценарии](tests.md)

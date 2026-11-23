@@ -331,9 +331,9 @@ class PhotoLibraries:
             for number, identifier in enumerate(links, 1):
                 db.execute('UPDATE photos_copy_links SET number=? WHERE id=?', (number, identifier))
 
-    #: Привязывает доступную проверенную папку к медиатеке с отдельным номером.
-    #: Изменяет SQLite-таблицы: photos_copy_links.
-    def bind_copy(self, source_id, volume_id, path):
+    #: Привязывает папку и источник её оригиналов в одной транзакции.
+    #: Прежние вызовы без маршрута могут повторно подключить существующую связь.
+    def bind_copy(self, source_id, volume_id, path, *, source_link_id=...):
         self.profile(source_id)
         path = relative_path(path)
         if not path:
@@ -345,16 +345,27 @@ class PhotoLibraries:
         with open_readonly(volume, path, directory=True):
             pass
         with self.catalog._write_lock, self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
             existing = db.execute('SELECT * FROM photos_copy_links WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
             if existing and existing['source_id'] == source_id:
+                upstream = db.execute('SELECT source_link_id FROM photos_copy_sources WHERE link_id=?', (existing['id'],)).fetchone()
+                current_source = upstream[0] if upstream else None
+                if source_link_id is not ... and source_link_id != current_source:
+                    raise ValueError('У этой папки уже есть привязка. Измени маршрут в меню копии.')
                 db.execute('UPDATE photos_copy_links SET connected=1 WHERE id=?', (existing['id'],))
                 return dict(existing, connected=1)
+            upstream = None if source_link_id is ... else source_link_id
+            if upstream and not db.execute('SELECT 1 FROM photos_copy_links WHERE id=? AND source_id=? AND connected=1',
+                                           (upstream, source_id)).fetchone():
+                raise ValueError('Выбери привязанную копию этой медиатеки в качестве источника.')
             for item in db.execute('SELECT * FROM photos_copy_links WHERE volume_id=?', (volume_id,)):
                 if item['path'] == path or path.startswith(item['path'] + '/') or item['path'].startswith(path + '/'):
                     raise ValueError('Эта папка пересекается с другой копией медиатеки. Выбери отдельную папку.')
             number = db.execute('SELECT COALESCE(MAX(number),0)+1 FROM photos_copy_links WHERE source_id=?', (source_id,)).fetchone()[0]
             link = dict(id=uuid.uuid4().hex, source_id=source_id, volume_id=volume_id, path=path, number=number, created_at=now(), connected=1)
             db.execute('INSERT INTO photos_copy_links VALUES (:id,:source_id,:volume_id,:path,:number,:created_at,:connected)', link)
+            if upstream:
+                db.execute('INSERT INTO photos_copy_sources VALUES (?,?)', (link['id'], upstream))
         return link
 
     #: Отключает привязку копии медиатеки, сохраняя запись и квитанции ресурсов.

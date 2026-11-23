@@ -10,19 +10,22 @@
 ## Связи модуля
 
 Импортирует из проекта: [media_manager/folder_markers.py](media_manager--folder_markers.md).
-Импортируется модулями: [app.py](app.md), [copy_groups_ui.py](copy_groups_ui.md), [media_manager/storage.py](media_manager--storage.md).
+Импортируется модулями: [app.py](app.md), [copy_groups_ui.py](copy_groups_ui.md), [copy_setup_ui.py](copy_setup_ui.md), [media_manager/storage.py](media_manager--storage.md).
 Тестовые модули с прямым импортом: [tests/test_copies.py](tests.md#module-tests.test_copies), [tests/test_copy_connections.py](tests.md#module-tests.test_copy_connections), [tests/test_copy_files.py](tests.md#module-tests.test_copy_files), [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_folder_markers.py](tests.md#module-tests.test_folder_markers), [tests/test_folder_tracking.py](tests.md#module-tests.test_folder_tracking), [tests/test_paired_comparison.py](tests.md#module-tests.test_paired_comparison), [tests/test_volume_identity.py](tests.md#module-tests.test_volume_identity).
 
 ## Оглавление определений
 
 - [CopyCatalog](#symbol-CopyCatalog) — Управляет связями основных папок и копий в каталоге хранилищ.
 - [CopyCatalog.__init__](#symbol-CopyCatalog.__init__) — Инициализирует CopyCatalog и его рабочее состояние.
+- [CopyCatalog._add_copy](#symbol-CopyCatalog._add_copy) — Регистрирует папку назначения и её номер в текущей транзакции.
 - [CopyCatalog._check_overlap](#symbol-CopyCatalog._check_overlap) — Запрещает пересечение зарегистрированных областей на одном томе.
+- [CopyCatalog._ensure_main](#symbol-CopyCatalog._ensure_main) — Возвращает действующую основную область либо добавляет её в текущей транзакции.
 - [CopyCatalog._folder](#symbol-CopyCatalog._folder) — Проверяет том и известность папки перед регистрацией связи.
 - [CopyCatalog._queue_folder_markers](#symbol-CopyCatalog._queue_folder_markers) — Ставит актуальные описания папок набора в транзакционную очередь маркеров.
 - [CopyCatalog._queue_removed_marker](#symbol-CopyCatalog._queue_removed_marker) — Ставит отметку удаления связи в описание прежней папки.
 - [CopyCatalog.acknowledge_changes](#symbol-CopyCatalog.acknowledge_changes) — Снимает уведомление об изменениях только для ожидаемой версии отметки.
 - [CopyCatalog.add_copy](#symbol-CopyCatalog.add_copy) — Регистрирует непересекающуюся папку копии со следующим допустимым номером.
+- [CopyCatalog.bind_folders](#symbol-CopyCatalog.bind_folders) — Создаёт основную папку при необходимости и связывает назначение одной транзакцией.
 - [CopyCatalog.change_kind](#symbol-CopyCatalog.change_kind) — Меняет тип существующей копии с обновлением служебного описания.
 - [CopyCatalog.create_main](#symbol-CopyCatalog.create_main) — Создаёт набор с основной папкой 00-main и очередью её маркера.
 - [CopyCatalog.group](#symbol-CopyCatalog.group) — Возвращает набор папок по ID либо поднимает KeyError.
@@ -77,7 +80,7 @@
 
 Состояние, присваиваемое конструктором: `storage`.
 
-Именованные методы: `__init__`, `_queue_folder_markers`, `queue_folder_markers`, `_queue_removed_marker`, `_folder`, `_check_overlap`, `groups`, `set_copy_source`, `group`, `create_main`, `update_group`, `mark_changed`, `set_group_connected`, `set_copy_connected`, `release_copy_number`, `acknowledge_changes`, `add_copy`, `change_kind`, `remove_copy`, `renumber_copies`, `remove_group`.
+Именованные методы: `__init__`, `_queue_folder_markers`, `queue_folder_markers`, `_queue_removed_marker`, `_folder`, `_check_overlap`, `groups`, `set_copy_source`, `group`, `create_main`, `_ensure_main`, `bind_folders`, `update_group`, `mark_changed`, `set_group_connected`, `set_copy_connected`, `release_copy_number`, `acknowledge_changes`, `add_copy`, `_add_copy`, `change_kind`, `remove_copy`, `renumber_copies`, `remove_group`.
 
 <a id="symbol-CopyCatalog.__init__"></a>
 
@@ -94,6 +97,33 @@ def __init__(self, storage)
 Присваивания полям `self`: `storage`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopyCatalog._add_copy"></a>
+
+## `CopyCatalog._add_copy`
+
+[media_manager/copies.py](../../media_manager/copies.py) · `CopyCatalog._add_copy`
+
+Регистрирует папку назначения и её номер в текущей транзакции. Изменяет SQLite-таблицы: copy_groups, copy_locations.
+
+```python
+def _add_copy(self, db, group_id, volume_id, path, kind)
+```
+
+SQLite: чтение `copy_groups`, `copy_locations`, `released_copy_locations`; запись/DDL `copy_groups`, `copy_locations`. См. [схему данных](../data-model.md).
+
+Прямые выражения вызова: `KeyError`, `ValueError`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `db.execute`, `db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number', (group_id,)).fetchall`, `db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, `db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone`, [next_copy_number](media_manager--copies.md#symbol-next_copy_number), [self._check_overlap](media_manager--copies.md#symbol-CopyCatalog._check_overlap), `uuid4`.
+
+Явные `raise`:
+
+- `KeyError('Основная папка не найдена')`
+- `ValueError('Эта папка уже связана. Тип можно изменить в меню её ссылки.')`
+- `ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')`
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
 
 
 <a id="symbol-CopyCatalog._check_overlap"></a>
@@ -119,6 +149,28 @@ SQLite: чтение `copy_locations`; запись/DDL не найдена. С�
 - `ValueError('Папка пересекается с областью ' + copy_label(location['kind'], location['number']) + '. Метка должна однозначно распространяться на все вложенные папки.')`
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopyCatalog._ensure_main"></a>
+
+## `CopyCatalog._ensure_main`
+
+[media_manager/copies.py](../../media_manager/copies.py) · `CopyCatalog._ensure_main`
+
+Возвращает действующую основную область либо добавляет её в текущей транзакции. Изменяет SQLite-таблицы: copy_groups, copy_locations.
+
+```python
+def _ensure_main(self, db, volume_id, path)
+```
+
+SQLite: чтение `copy_locations`; запись/DDL `copy_groups`, `copy_locations`. См. [схему данных](../data-model.md).
+
+Прямые выражения вызова: `datetime.now`, `datetime.now(timezone.utc).isoformat`, `db.execute`, `db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, [self._check_overlap](media_manager--copies.md#symbol-CopyCatalog._check_overlap), `uuid4`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `existing['group_id']`
+- `group_id`
 
 
 <a id="symbol-CopyCatalog._folder"></a>
@@ -226,17 +278,39 @@ SQLite: чтение `copy_groups`; запись/DDL `copy_group_settings`. См
 def add_copy(self, group_id, volume_id, path, kind='copy')
 ```
 
-SQLite: чтение `copy_groups`, `copy_locations`, `released_copy_locations`; запись/DDL `copy_groups`, `copy_locations`. См. [схему данных](../data-model.md).
-
-Прямые выражения вызова: `KeyError`, `ValueError`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `db.execute`, `db.execute('SELECT * FROM copy_groups WHERE id=?', (group_id,)).fetchone`, `db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number', (group_id,)).fetchall`, `db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, [next_copy_number](media_manager--copies.md#symbol-next_copy_number), [self._check_overlap](media_manager--copies.md#symbol-CopyCatalog._check_overlap), [self._folder](media_manager--copies.md#symbol-CopyCatalog._folder), [self._queue_folder_markers](media_manager--copies.md#symbol-CopyCatalog._queue_folder_markers), [self.group](media_manager--copies.md#symbol-CopyCatalog.group), `self.storage.connect`, `uuid4`.
+Прямые выражения вызова: `ValueError`, `db.execute`, [self._add_copy](media_manager--copies.md#symbol-CopyCatalog._add_copy), [self._folder](media_manager--copies.md#symbol-CopyCatalog._folder), [self._queue_folder_markers](media_manager--copies.md#symbol-CopyCatalog._queue_folder_markers), [self.group](media_manager--copies.md#symbol-CopyCatalog.group), `self.storage.connect`.
 
 Явные `raise`:
 
 - `ValueError('Неизвестный тип копии')`
 - `ValueError('Выбери папку назначения внутри тома.')`
-- `KeyError('Основная папка не найдена')`
-- `ValueError('Эта папка уже связана. Тип можно изменить в меню её ссылки.')`
-- `ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')`
+
+Выражения возврата (ветви, без исполнения):
+
+- `self.group(group_id)`
+
+
+<a id="symbol-CopyCatalog.bind_folders"></a>
+
+## `CopyCatalog.bind_folders`
+
+[media_manager/copies.py](../../media_manager/copies.py) · `CopyCatalog.bind_folders`
+
+Создаёт основную папку при необходимости и связывает назначение одной транзакцией. Маркеры обеих областей ставятся в очередь после успешной проверки связи.
+
+```python
+def bind_folders(self, source, destination)
+```
+
+SQLite: чтение `disconnected_copy_groups`; запись/DDL не найдена. См. [схему данных](../data-model.md).
+
+Прямые выражения вызова: `ValueError`, `db.execute`, `db.execute('SELECT 1 FROM disconnected_copy_groups WHERE group_id=?', (group_id,)).fetchone`, [self._add_copy](media_manager--copies.md#symbol-CopyCatalog._add_copy), [self._ensure_main](media_manager--copies.md#symbol-CopyCatalog._ensure_main), [self._folder](media_manager--copies.md#symbol-CopyCatalog._folder), [self._queue_folder_markers](media_manager--copies.md#symbol-CopyCatalog._queue_folder_markers), [self.group](media_manager--copies.md#symbol-CopyCatalog.group), `self.storage.connect`.
+
+Явные `raise`:
+
+- `ValueError('Неизвестный тип копии')`
+- `ValueError('Выбери основную папку и папку назначения внутри томов.')`
+- `ValueError('Сначала подключи набор копий этой папки.')`
 
 Выражения возврата (ветви, без исполнения):
 
@@ -282,9 +356,7 @@ SQLite: чтение `copy_locations`; запись/DDL `copy_locations`. См. 
 def create_main(self, volume_id, path)
 ```
 
-SQLite: чтение `copy_locations`; запись/DDL `copy_groups`, `copy_locations`. См. [схему данных](../data-model.md).
-
-Прямые выражения вызова: `ValueError`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `db.execute`, `db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone`, [self._check_overlap](media_manager--copies.md#symbol-CopyCatalog._check_overlap), [self._folder](media_manager--copies.md#symbol-CopyCatalog._folder), [self._queue_folder_markers](media_manager--copies.md#symbol-CopyCatalog._queue_folder_markers), [self.group](media_manager--copies.md#symbol-CopyCatalog.group), `self.storage.connect`, `uuid4`.
+Прямые выражения вызова: `ValueError`, `db.execute`, [self._ensure_main](media_manager--copies.md#symbol-CopyCatalog._ensure_main), [self._folder](media_manager--copies.md#symbol-CopyCatalog._folder), [self._queue_folder_markers](media_manager--copies.md#symbol-CopyCatalog._queue_folder_markers), [self.group](media_manager--copies.md#symbol-CopyCatalog.group), `self.storage.connect`.
 
 Явные `raise`:
 

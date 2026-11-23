@@ -102,6 +102,22 @@ class PhotoLibrariesTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertTrue(self.catalog.photos_queue_paused())
 
+    def test_binding_saves_selected_photos_chain_without_an_intermediate_direct_link(self):
+        first = self.libraries.bind_copy(self.source_id, 'disk', 'CopyA')
+        with self.assertRaisesRegex(ValueError, 'этой медиатеки'):
+            self.libraries.bind_copy(self.source_id, 'disk', 'CopyB', source_link_id='missing')
+        [library] = self.libraries.list()['libraries']
+        self.assertEqual([copy['id'] for copy in library['copies']], [first['id']])
+
+        second = self.libraries.bind_copy(self.source_id, 'disk', 'CopyB', source_link_id=first['id'])
+        self.assertEqual(self.libraries.root_copy(second['id']), first['id'])
+        self.assertEqual(self.libraries.bind_copy(self.source_id, 'disk', 'CopyB', source_link_id=first['id'])['id'], second['id'])
+        with self.assertRaisesRegex(ValueError, 'уже есть привязка'):
+            self.libraries.bind_copy(self.source_id, 'disk', 'CopyB', source_link_id=None)
+        self.libraries.unbind_copy(self.source_id, second['id'])
+        self.libraries.bind_copy(self.source_id, 'disk', 'CopyB')
+        self.assertEqual(self.libraries.copy_source(second['id']), first['id'])
+
     def test_small_photokit_preview_stays_visible_while_waiting_for_a_larger_local_image(self):
         self.libraries.refresh_connection()
         media = self.catalog.list_files(self.source_id, '2026/2026-08')[0]

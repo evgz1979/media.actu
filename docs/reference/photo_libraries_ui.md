@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/icloud_copies.py](media_manager--icloud_copies.md).
+Импортирует из проекта: [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [sidebar_ui.py](sidebar_ui.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_photo_copy_roles.py](tests.md#module-tests.test_photo_copy_roles), [tests/test_photo_libraries.py](tests.md#module-tests.test_photo_libraries), [tests/test_photos_schedule.py](tests.md#module-tests.test_photos_schedule).
 
@@ -20,8 +20,8 @@
 - [PhotoLibrariesUI.action](#symbol-PhotoLibrariesUI.action) — Исполняет команду источника с единым обновлением UI и обработкой ошибки.
 - [PhotoLibrariesUI.add](#symbol-PhotoLibrariesUI.add) — Добавляет текущую системную медиатеку под выбранным названием.
 - [PhotoLibrariesUI.authorize](#symbol-PhotoLibrariesUI.authorize) — Запрашивает разрешение на доступ к Photos через Core.
-- [PhotoLibrariesUI.bind](#symbol-PhotoLibrariesUI.bind) — Привязывает выбранную файловую папку к медиатеке после проверки выбора.
-- [PhotoLibrariesUI.bind_cloud](#symbol-PhotoLibrariesUI.bind_cloud) — Связывает весь iCloud Drive или выбранную слева папку с назначением справа.
+- [PhotoLibrariesUI.bind](#symbol-PhotoLibrariesUI.bind) — Открывает общий диалог выбора назначения и маршрута оригиналов Photos.
+- [PhotoLibrariesUI.bind_cloud](#symbol-PhotoLibrariesUI.bind_cloud) — Открывает общий диалог для выбранной папки либо всего iCloud Drive.
 - [PhotoLibrariesUI.build](#symbol-PhotoLibrariesUI.build) — Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
 - [PhotoLibrariesUI.cloud_copy_menu](#symbol-PhotoLibrariesUI.cloud_copy_menu) — Показывает команды передачи, журнала и отвязки копии iCloud.
 - [PhotoLibrariesUI.cloud_copy_status](#symbol-PhotoLibrariesUI.cloud_copy_status) — Подписывает состояние передачи iCloud Drive для компактной строки.
@@ -50,13 +50,11 @@
 - [PhotoLibrariesUI.scan](#symbol-PhotoLibrariesUI.scan) — Запрашивает ручное обновление индекса выбранной медиатеки.
 - [PhotoLibrariesUI.schedule_dialog](#symbol-PhotoLibrariesUI.schedule_dialog) — Показывает настройку часов разрешённого окна по Москве.
 - [PhotoLibrariesUI.set_readout](#symbol-PhotoLibrariesUI.set_readout) — Применяет краткую подпись и подробную подсказку к существующей строке.
-- [PhotoLibrariesUI.source](#symbol-PhotoLibrariesUI.source) — Создаёт заголовок источника и отдельный раскрываемый список его копий.
-- [PhotoLibrariesUI.source.toggle](#symbol-PhotoLibrariesUI.source.toggle) — Создаёт кнопку раскрытия копий текущего источника.
-- [PhotoLibrariesUI.source_line](#symbol-PhotoLibrariesUI.source_line) — Создаёт строку источника или копии с одним показателем и кнопкой команд.
+- [PhotoLibrariesUI.source](#symbol-PhotoLibrariesUI.source) — Рисует строку медиатеки или облачного источника и раскрываемые копии.
+- [PhotoLibrariesUI.source.header](#symbol-PhotoLibrariesUI.source.header) — Создаёт строку источника со значком либо переключателем его копий.
+- [PhotoLibrariesUI.source_line](#symbol-PhotoLibrariesUI.source_line) — Создаёт строку источника или копии с обновляемым показателем.
 - [PhotoLibrariesUI.toggle](#symbol-PhotoLibrariesUI.toggle) — Переключает ручную паузу выбранной медиатеки.
-- [PhotoLibrariesUI.toggle_copies](#symbol-PhotoLibrariesUI.toggle_copies) — Раскрывает или сворачивает список копий отдельного источника.
 - [PhotoLibrariesUI.toggle_schedule](#symbol-PhotoLibrariesUI.toggle_schedule) — Включает или выключает ограничение синхронизации ночным окном.
-- [PhotoLibrariesUI.track_menu](#symbol-PhotoLibrariesUI.track_menu) — Сохраняет фокус бокового меню при фоновом обновлении.
 - [PhotoLibrariesUI.unbind](#symbol-PhotoLibrariesUI.unbind) — Отключает выбранную привязку копии медиатеки через Core.
 - [PhotoLibrariesUI.update_readouts](#symbol-PhotoLibrariesUI.update_readouts) — Обновляет компактный статус источников и копий без перерисовки строк.
 - [PhotoLibrariesUI.volumes](#symbol-PhotoLibrariesUI.volumes) — Представляет сохранённые медиатеки как виртуальные тома рабочего пространства.
@@ -66,15 +64,6 @@
 - [progress_text](#symbol-progress_text) — Формирует подпись прогресса превью одной медиатеки.
 - [retry_time](#symbol-retry_time) — Показывает точное время следующей попытки в московском часовом поясе.
 - [schedule_text](#symbol-schedule_text) — Формирует подпись настройки ночного окна медиатеки.
-
-## Константы и значения по умолчанию
-
-<a id="constant-LIBRARY_CSS"></a>
-
-### `LIBRARY_CSS`
-
-`Объёмное значение см. в исходном модуле`
-
 
 <a id="symbol-PhotoLibrariesUI"></a>
 
@@ -89,7 +78,7 @@
 
 Состояние, присваиваемое конструктором: `busy`, `cloud`, `connection`, `copy_roles_signature`, `expanded`, `libraries`, `refreshing`, `rows`, `signature`, `ws`.
 
-Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build`, `refresh`, `render_signature`, `cloud_volume`, `toggle_copies`, `track_menu`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copy`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `bind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
+Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build`, `refresh`, `render_signature`, `cloud_volume`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copy`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `bind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
 
 <a id="symbol-PhotoLibrariesUI.__init__"></a>
 
@@ -173,17 +162,15 @@ async def authorize(self)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.bind`
 
-Привязывает выбранную файловую папку к медиатеке после проверки выбора. Асинхронно ожидает: self.action.
+Открывает общий диалог выбора назначения и маршрута оригиналов Photos. Асинхронно ожидает: self.ws.copy_setup.open.
 
 ```python
 async def bind(self, library)
 ```
 
-Прямые выражения вызова: `library.get`, `next`, [self.action](photo_libraries_ui.md#symbol-PhotoLibrariesUI.action), `self.ws.panes[1].scope`, `ui.button`, `ui.button('Отмена', on_click=lambda: dialog.submit(False)).props`, `ui.button('Привязать', on_click=lambda: dialog.submit(True)).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.label`, `ui.label('Оригиналы будут сохраняться сразу в эту папку. Для запуска выбери «Сохранить оригиналы» в меню папки копии. Сохранённые оригиналы определяются по учёту Photos и параметрам файлов.').classes`, `ui.label('Привязать папку для копий оригиналов').classes`, `ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes`, `ui.label(library.get('label') or 'Photos').classes`, `ui.notify`, `ui.row`, `ui.row().classes`, `volume.get`.
+Прямые выражения вызова: `self.ws.copy_setup.open`.
 
-Выражения возврата (ветви, без исполнения):
-
-- `None`
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-PhotoLibrariesUI.bind_cloud"></a>
@@ -192,17 +179,15 @@ async def bind(self, library)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.bind_cloud`
 
-Связывает весь iCloud Drive или выбранную слева папку с назначением справа. Асинхронно ожидает: self.action и подтверждение диалога.
+Открывает общий диалог для выбранной папки либо всего iCloud Drive. Асинхронно ожидает: self.ws.copy_setup.open.
 
 ```python
 async def bind_cloud(self)
 ```
 
-Прямые выражения вызова: `dict`, `len`, `next`, `reversed`, [self.action](photo_libraries_ui.md#symbol-PhotoLibrariesUI.action), `self.expanded.add`, `self.ws.panes[1].scope`, `self.ws.resolve_volume`, `ui.button`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.button('Привязать', on_click=lambda: dialog.submit(source.value)).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.label`, `ui.label('Назначение').classes`, `ui.label('Привязать копию iCloud Drive').classes`, `ui.label('Чтобы выбрать отдельную папку, открой её в iCloud Drive слева.').classes`, `ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes`, `ui.notify`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(paths, value=next(reversed(paths)), label='Скопировать из').props`, `ui.select(paths, value=next(reversed(paths)), label='Скопировать из').props('outlined dense').classes`, `volume.get`.
+Прямые выражения вызова: `next`, `self.ws.copy_setup.open`.
 
-Выражения возврата (ветви, без исполнения):
-
-- `None`
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-PhotoLibrariesUI.build"></a>
@@ -219,7 +204,7 @@ def build(self)
 
 Присваивания полям `self`: `cards`, `note`, `section`.
 
-Прямые выражения вызова: `self.note.set_visibility`, `self.ws.sidebar_expansion`, `self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open').props`, `self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open').props('dense').classes`, `ui.add_css`, `ui.column`, `ui.column().classes`, `ui.label`, `ui.label().classes`.
+Прямые выражения вызова: `self.note.set_visibility`, `self.ws.sidebar_expansion`, `ui.column`, `ui.column().classes`, `ui.label`, `ui.label().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -729,7 +714,7 @@ def set_readout(elements, text, details)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.source`
 
-Создаёт заголовок источника и отдельный раскрываемый список его копий. Возвращает показатель заголовка и контейнер строк копий.
+Рисует строку медиатеки или облачного источника и раскрываемые копии. Использует общий шаблон боковой колонки и отдельную строку расписания.
 
 ```python
 def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None)
@@ -737,26 +722,28 @@ def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', ti
 
 Декораторы: `contextmanager`.
 
-Прямые выражения вызова: `children.set_visibility`, [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line), `ui.column`, `ui.column().classes`, `ui.label`, `ui.label(schedule).classes`.
+Прямые выражения вызова: `sidebar_branch`.
 
 Передаёт управление через `yield`; освобождение ресурса описано в теле контекстного менеджера.
 
 
-<a id="symbol-PhotoLibrariesUI.source.toggle"></a>
+<a id="symbol-PhotoLibrariesUI.source.header"></a>
 
-## `PhotoLibrariesUI.source.toggle`
+## `PhotoLibrariesUI.source.header`
 
-[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.source.toggle`
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.source.header`
 
-Создаёт кнопку раскрытия копий текущего источника. Открытие изменяет видимость строк без повторного запроса Core.
+Создаёт строку источника со значком либо переключателем его копий. Возвращает ссылки на текущий статус.
 
 ```python
-def toggle()
+def header(toggle)
 ```
 
-Прямые выражения вызова: `str`, `str(opened).lower`, `ui.button`, `ui.button(icon='expand_more' if opened else 'chevron_right', on_click=lambda: self.toggle_copies(key, button, children)).props`.
+Прямые выражения вызова: [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line), `ui.label`, `ui.label(schedule).classes`.
 
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+Выражения возврата (ветви, без исполнения):
+
+- `status`
 
 
 <a id="symbol-PhotoLibrariesUI.source_line"></a>
@@ -765,13 +752,13 @@ def toggle()
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.source_line`
 
-Создаёт строку источника или копии с одним показателем и кнопкой команд. Возвращает обновляемую подпись показателя и её подсказку.
+Создаёт строку источника или копии с обновляемым показателем. Возвращает две ссылки для последующего обновления статуса.
 
 ```python
-def source_line(self, name, on_open, on_menu, *, active=False, copy=False, path=None, toggle=None)
+def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library')
 ```
 
-Прямые выражения вызова: `button.tooltip`, `line.on`, `on_menu`, [self.track_menu](photo_libraries_ui.md#symbol-PhotoLibrariesUI.track_menu), [toggle](photo_libraries_ui.md#symbol-PhotoLibrariesUI.toggle), `ui.button`, `ui.button(icon='more_horiz').props`, `ui.button(name, on_click=on_open).props`, `ui.button(name, on_click=on_open).props('flat dense no-caps color=dark align=left').classes`, `ui.label`, `ui.label().classes`, `ui.menu`, `ui.menu().props`, `ui.row`, `ui.row().classes`, `ui.tooltip`.
+Прямые выражения вызова: `menu.on`, `on_menu`, `sidebar_line`, `sidebar_menu`, `ui.label`, `ui.label().classes`, `ui.tooltip`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -795,23 +782,6 @@ async def toggle(self, library)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-PhotoLibrariesUI.toggle_copies"></a>
-
-## `PhotoLibrariesUI.toggle_copies`
-
-[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.toggle_copies`
-
-Раскрывает или сворачивает список копий отдельного источника. Обновляет состояние объекта: expanded и видимость списка.
-
-```python
-def toggle_copies(self, key, button, copies)
-```
-
-Прямые выражения вызова: `button.props`, `copies.set_visibility`, `self.expanded.add`, `self.expanded.remove`, `str`, `str(opened).lower`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
 <a id="symbol-PhotoLibrariesUI.toggle_schedule"></a>
 
 ## `PhotoLibrariesUI.toggle_schedule`
@@ -825,23 +795,6 @@ async def toggle_schedule(self, library)
 ```
 
 Прямые выражения вызова: `library.get`, [self.action](photo_libraries_ui.md#symbol-PhotoLibrariesUI.action), `settings.get`.
-
-Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-PhotoLibrariesUI.track_menu"></a>
-
-## `PhotoLibrariesUI.track_menu`
-
-[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.track_menu`
-
-Сохраняет фокус бокового меню при фоновом обновлении. Использует menu.on.
-
-```python
-def track_menu(self, menu)
-```
-
-Прямые выражения вызова: `menu.on`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
