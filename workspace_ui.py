@@ -11,10 +11,10 @@ from nicegui import app, background_tasks, ui
 
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
-from copy_panels import copy_heading, first_copy
 from copy_setup_ui import COPY_SETUP_CSS, CopySetupUI
 from media_manager.comparison import LABELS, NAME_STATUSES
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
+from media_manager.paired_comparison import absolute_scope_path
 from media_manager.storage import FLAGS, FOLDER_TAGS, PURPOSES, relative_path
 from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
@@ -77,7 +77,7 @@ WORKSPACE_CSS = """
 .pane-link { position:absolute; z-index:3; top:14px; left:50%; transform:translateX(-50%); width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:1px solid #9bb491; border-radius:50%; background:#edf3e7; color:#427644; }
 .commander-trees.linked .commander-pane { border-color:#b0c4a7; }
 .commander-trees.linked .commander-pane.active-pane { border-color:#75986c; }
-.commander-pane { border:2px solid var(--s-line); height:calc(100vh - 108px); min-height:440px; }
+.commander-pane { border:2px solid var(--s-line); height:calc(100vh - 108px); min-height:440px; container-type:inline-size; }
 .commander-pane.active-pane { border-color:#8ba984; }
 @layer overrides {
  .commander-layout .q-btn.disabled { color:#a5aaa1 !important; opacity:1 !important; }
@@ -93,6 +93,10 @@ WORKSPACE_CSS = """
 .commander-trees.names-comparison .commander-pane:first-child .s-entry-cell:not(.s-entry-size),
 .commander-trees.names-comparison .commander-pane:first-child .s-tree-heading > div:not(:first-child):not(:nth-child(3)) { display:none; }
 .commander-pane .pane-heading { font-size:13px; font-weight:650; color:#71816b; min-height:24px; padding:0 5px; }
+@container (max-width:390px) {
+  .pane-top { flex-wrap:wrap !important; }
+  .commander-pane .pane-top .pane-heading { flex:0 0 100%; }
+}
 .pane-location { display:flex; align-items:center; gap:10px; width:100%; min-width:0; }
 .pane-volume { flex:0 0 clamp(148px,28%,180px); width:clamp(148px,28%,180px); min-width:0; font-size:12px; }
 .pane-volume .q-field__control, .pane-volume .q-field__marginal { height:34px; min-height:34px; }
@@ -228,7 +232,7 @@ class BrowserPane:
             with ui.column().classes('s-panel-head w-full gap-2'):
                 workspace.property_menu('Свойства диска', lambda: workspace.show_properties(self.display_volume_id),
                                         volume_id=lambda: self.display_volume_id, folder=True)
-                with ui.row().classes('w-full items-center justify-between gap-1 no-wrap'):
+                with ui.row().classes('pane-top w-full items-center justify-between gap-1 no-wrap'):
                     self.heading = ui.button(self.title + ' панель', on_click=self.activate_heading).props('flat dense no-caps color=green-9').classes('pane-heading')
                     self.mode_switch = ui.toggle({'tree': 'Дерево', 'preview': 'Превью'}, value='tree', on_change=self.mode_changed).props('dense no-caps unelevated toggle-color=blue-8').props(f'aria-label="Режим {self.title.lower()} панели"').classes('pane-mode')
                     with ui.row().classes('gap-0 no-wrap') as self.navigation:
@@ -502,7 +506,7 @@ class BrowserPane:
         if report:
             self.heading.text = 'Источник' if self.index == 0 else 'Совпадения'
         else:
-            self.workspace.refresh_browse_headings()
+            self.heading.text = self.title + ' панель'
         self.volume_select.set_enabled(not bool(report))
         self.volume_select.set_visibility(not (report and self.index == 1))
         self.navigation.set_visibility(True)
@@ -800,9 +804,8 @@ class BrowserPane:
         if self.workspace.pair.active:
             relative = self.workspace.pair.relative(self.index, self.path)
             if relative:
-                parent = str(PurePosixPath(relative).parent)
                 scope = self.workspace.pair.scopes['left' if self.index == 0 else 'right']
-                path = scope['path'] + ('/' + parent if parent != '.' else '')
+                path = absolute_scope_path(scope, str(PurePosixPath(relative).parent))
                 await self.workspace.pair.navigate_path(self.index, path)
             return
         if self.path == self.root_path:
@@ -1081,7 +1084,6 @@ class StorageWorkspace:
         self.last_marker = None
         self.editing = False
         self.context_menu_open = False
-        self.source_open_generation = 0
         self.match_generation = 0
         self.current_matches = []
         self.state_ready = False
@@ -1221,53 +1223,13 @@ class StorageWorkspace:
         return await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
                                   params=dict(path=path, refresh=refresh, discover=discover), timeout=45)
 
-    #: Открывает медиатеку слева и её первую доступную копию справа.
-    #: Асинхронно ожидает: self.open_source_pair.
-    async def open_library(self, source_id):
-        library = next((item for item in self.photo_libraries.libraries if item['id'] == source_id), None)
-        if library:
-            await self.open_source_pair(f'photos-{source_id}', library.get('copies', []))
-
-    #: Открывает источник слева и первую доступную копию справа в режиме дерева.
-    #: Для iCloud слева используется область выбранной копии, а при отсутствии доступных копий используется первая сохранённая.
-    async def open_source_pair(self, volume_id, copies):
-        self.source_open_generation += 1
-        generation = self.source_open_generation
-        first = first_copy(copies)
-        locations = [(volume_id, first.get('source_path', '') if first else '')]
-        if first:
-            locations.append((first['volume_id'], first['path']))
+    #: Открывает источник копирования без назначений или заданную область для нового выбора.
+    #: Возвращает левую панель в режим дерева и завершает прежний связанный просмотр.
+    async def open_copy_source(self, volume_id, path=''):
         with self.client:
-            if self.pair.active:
-                await self.pair.unlink()
-            if self.report:
-                await self.browse()
-            if generation != self.source_open_generation:
-                return
-            for pane in self.panes[:len(locations)]:
-                if pane.view_mode == 'preview':
-                    await pane.set_mode('tree')
-            if generation != self.source_open_generation:
-                return
-            self.set_active(0)
-            await asyncio.gather(*(pane.show_volume(identifier, path, activate=False)
-                                   for pane, (identifier, path) in zip(self.panes, locations)))
-            if generation == self.source_open_generation and self.active_index == 0:
-                self.panes[0].focus_tree()
-
-    #: Обновляет обе подписи после перехода внутри каждой из областей или выхода из пары.
-    #: Восстанавливает роли Photos и iCloud по открытым путям без сохранения дополнительного состояния.
-    def refresh_browse_headings(self):
-        if self.pair.active or self.report:
-            return
-        panes = self.panes
-        left, right = panes
-        scopes = None
-        if left.view_mode == right.view_mode == 'tree' and (self.is_photos(left.volume_id) or left.volume_id == ICLOUD_VOLUME_ID):
-            scopes = self.photo_libraries.copy_scopes(left.volume_id, left.path, right.volume_id, right.path)
-        for index, pane in enumerate(panes):
-            if pane.view_mode == 'tree':
-                pane.heading.text = copy_heading(scopes[index], target=index == 1) if scopes else pane.title + ' панель'
+            if self.panes[0].view_mode == 'preview':
+                await self.panes[0].set_mode('tree')
+            await self.open_volume(volume_id, 0, path=path)
 
     #: Передаёт Core команду выделения объекта в системном Photos.
     #: Обрабатывает ошибки: Exception.
@@ -1312,6 +1274,8 @@ class StorageWorkspace:
                                  differences_only=pair.differences_only, root_files_open=pair.root_files_open,
                                  expanded=[r['path'] for r in pair.rows if r['kind'] == 'directory' and r['path'] not in pair.closed][:2000] if pair.rows else None,
                                  pending=pair.pending_start)
+            if pair.group and (virtual_id := pair.group.get('virtual_id')):
+                state['pair']['virtual_id'] = virtual_id
             if pair.saved:
                 state['browse'] = [pane_snapshot(p) for p in pair.saved]
         elif self.report:
@@ -1368,7 +1332,14 @@ class StorageWorkspace:
     async def restore_workspace(self, state):
         if not await self.restore_panes(state.get('browse', state['panes'])):
             return False
-        if pair_state := state.get('pair'):
+        pair_state = state.get('pair') or {}
+        if virtual_id := pair_state.get('virtual_id'):
+            group, location = self.photo_libraries.copy_group(virtual_id, pair_state['copy_id'])
+            if location:
+                await self.pair.link(group, location)
+                if self.pair.active and pair_state['root']:
+                    await self.pair.navigate_path(0, absolute_scope_path(self.pair.scopes['left'], pair_state['root']))
+        elif pair_state:
             report = None
             job_id = pair_state.get('job_id')
             if pending := pair_state.get('pending'):
@@ -1400,7 +1371,7 @@ class StorageWorkspace:
                 await self.pair.apply(report)
                 self.pair.restore_view(pair_state)
             else:
-                await self.pair.navigate_path(0, self.pair.scopes['left']['path'] + ('/' + pair_state['root'] if pair_state['root'] else ''))
+                await self.pair.navigate_path(0, absolute_scope_path(self.pair.scopes['left'], pair_state['root']))
         elif state.get('job_id'):
             await self.choose_job(state['job_id'])
             if self.report:
@@ -1695,7 +1666,6 @@ class StorageWorkspace:
     #: Пересчитывает выбранные области и доступность действий сверки и копирования.
     #: Использует ', '.join, labels.append, next, pane.scope, scope_label.
     def update_scopes(self):
-        self.refresh_browse_headings()
         self.persist_workspace()
         self.copies.render_sidebar()
         self.copies.render_controls()
@@ -1748,6 +1718,7 @@ class StorageWorkspace:
                 restore_failed = True
                 # Abandon only this failed UI reconstruction, never the Core job.
                 self.pair.active, self.pair.report = False, None
+                self.pair.group = None
                 self.pair.views.clear()
                 self.report, self.job_id = None, None
         active = [v for v in self.volumes if not archived(v) and v.get('identity_status') != 'unverified']

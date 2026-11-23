@@ -5,7 +5,8 @@ from pathlib import PurePosixPath
 
 from nicegui import ui
 
-from copy_panels import copy_heading
+from copy_panels import copy_heading, copy_route, copy_upstream, disconnected
+from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from media_manager.paired_comparison import DECISIONS, STATUS_LABELS, absolute_scope_path
 from paired_tree import PairedTree
 
@@ -25,6 +26,21 @@ PAIR_CSS = '''
 .pair-connection { border:1px solid #b1c7ad; border-radius:50%; padding:4px; color:#397645; background:#edf5e9; }
 .pair-rail-state { font-size:9px; text-align:center; line-height:13px; color:#64725f; overflow-wrap:anywhere; }
 .pair-running-path { max-width:100%; }
+.commander-trees.pair-routed { grid-template-rows:auto minmax(0,1fr); row-gap:0; height:max(470px,calc(100vh - 108px)); }
+.commander-trees.pair-routed > .commander-pane, .commander-trees.pair-routed > .pair-rail { grid-row:2; }
+.commander-trees.pair-routed > .commander-pane { height:auto; min-height:0; }
+.commander-trees.pair-routed .s-panel-head { padding-top:13px; }
+.pair-route { grid-column:1 / -1; grid-row:1; justify-self:center; min-width:0; max-width:100%; position:relative; z-index:2; margin-bottom:-5px; }
+.pair-route-body { justify-content:center; max-width:100%; padding:2px 5px; gap:2px; background:#f1f5ef; border:1px solid #c0d0bd; border-radius:12px; color:#4f624c; }
+.pair-route-node { padding:3px 6px; font-size:11px; line-height:15px; max-width:100%; overflow-wrap:anywhere; border-radius:7px; }
+.pair-route-node.q-btn { min-height:23px; text-align:center; }
+.pair-route-node.current { background:#d9ebd5; color:#24582c; font-weight:650; }
+.pair-route-node.destination { background:#3e7042; color:#fff; }
+.pair-route-node.offline { color:#677065; }
+.pair-route-node.destination.offline { background:#637561; color:#fff; }
+.pair-route-arrow { color:#7e907b; }
+.pair-route-arrow.current { color:#33703a; }
+.pair-route-more.q-btn { min-height:23px; padding:0 3px; }
 .s-tree.pair-host { overflow:hidden; }
 .pair-tree { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
 .pair-root-files { display:flex; align-items:center; gap:4px; width:100%; min-height:28px; border:0; border-bottom:1px solid #dfe7db; background:#f3f6ef; color:#626f59; font-size:11px; text-align:left; cursor:pointer; }
@@ -68,6 +84,7 @@ class PairedWorkspace:
         self.history_only = False
         self.scopes = None
         self.copy_id = None
+        self.group = None
         self.report = None
         self.rows = []
         self.by_path = {}
@@ -108,8 +125,49 @@ class PairedWorkspace:
     def build(self):
         ui.add_css(PAIR_CSS)
         self.rail = ui.column().classes('pair-rail')
+        self.route_view = ui.element('div').classes('pair-route').props('role="group" aria-label="Маршрут копирования"')
         self.render_rail()
         ui.timer(1.5, self.poll)
+
+    #: Подписывает узел маршрута ролью и томом или выбранной папкой iCloud.
+    #: Используется для плашек и выбора другой копии.
+    @staticmethod
+    def route_label(node):
+        if node.get('number'):
+            return node['label'] + (f" · {node['volume_name']}" if node.get('volume_name') else '')
+        return node['label'] + (f" /{node['path']}" if node.get('volume_id') == ICLOUD_VOLUME_ID and node['path'] else '')
+
+    #: Показывает маршрут над стыком панелей и выделяет открытый переход.
+    #: Плашки копий переключают пару, остальные назначения видны в меню.
+    def render_route(self):
+        self.route_view.clear()
+        if not self.active or not self.group or self.history_only:
+            return
+        group = self.group
+        route = copy_route(group['main'], group['copies'], self.scopes['right'], parent_key=group.get('parent_key', 'source_location_id'))
+        route_ids = {node.get('id') for node in route}
+        alternatives = [copy for copy in group['copies'] if copy['id'] not in route_ids]
+        with self.route_view, ui.row().classes('pair-route-body items-center'):
+            for index, node in enumerate(route):
+                target = index > 0 and node.get('id') == self.copy_id
+                current = target or node is self.scopes['left'] or (index + 1 < len(route) and route[index + 1].get('id') == self.copy_id)
+                if index:
+                    ui.icon('east', size='14px').classes('pair-route-arrow' + (' current' if target else ''))
+                state = (' current' if current else '') + (' offline' if disconnected(node) else '')
+                label = self.route_label(node)
+                if node.get('number') and not target:
+                    button = ui.button(label, on_click=lambda c=node: self.link(self.group, c)).props(
+                        'flat dense no-caps').classes('pair-route-node' + state)
+                    button.tooltip(f"{node.get('volume_name', '')} /{node['path']}" + (' · офлайн' if disconnected(node) else ''))
+                elif target:
+                    ui.label(label).classes('pair-route-node destination' + state).props('aria-current=true')
+                else:
+                    ui.label(label).classes('pair-route-node' + state)
+            if alternatives:
+                with ui.button(icon='more_horiz').props('flat dense aria-label="Другие копии"').classes('pair-route-more'):
+                    with ui.menu():
+                        for copy in alternatives:
+                            ui.menu_item(self.route_label(copy), on_click=lambda c=copy: self.link(self.group, c))
 
     #: Обновляет команды, прогресс и состояние центральной панели пары.
     #: Обновляет состояние объекта: rail_signature.
@@ -119,9 +177,12 @@ class PairedWorkspace:
         preview = next((p for p in self.ws.panes if p.view_mode == 'preview'), None)
         preview_index = preview.index if preview else None
         linked = self.active or bool(self.ws.report) or preview is not None
+        routed = bool(self.active and self.group and not self.history_only)
         self.ws.trees.classes(add='pair-linked' if linked else '', remove='' if linked else 'pair-linked')
+        self.ws.trees.classes(add='pair-routed' if routed else '', remove='' if routed else 'pair-routed')
         self.ws.trees.classes(add='preview-linked' if preview is not None else '', remove='' if preview is not None else 'preview-linked')
         self.rail.set_visibility(linked)
+        self.route_view.set_visibility(routed)
         if not linked:
             return
         signature = (self.active, (self.report or {}).get('state'), (self.report or {}).get('mode'),
@@ -129,10 +190,12 @@ class PairedWorkspace:
                      (self.report or {}).get('total_files'), (self.report or {}).get('indexed_directories'),
                      (self.report or {}).get('method'), bool(self.rows), self.differences_only,
                      tuple((self.copy_operation or {}).get(k) for k in ('id', 'state', 'copied_bytes', 'checked_items', 'message')),
-                     self.copy_dialog_open, self.history_only, preview_index)
+                     self.copy_dialog_open, self.history_only, preview_index, self.copy_id,
+                     self.group.get('signature') if self.group else None)
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
+        self.render_route()
         self.rail.clear()
         with self.rail:
             if preview is not None:
@@ -156,6 +219,10 @@ class PairedWorkspace:
                     ui.button('Копия', icon='assignment', on_click=self.copy_details).props('flat no-caps color=green-9')
                 ui.button('История', icon='history', on_click=self.history).props('flat no-caps color=dark')
                 ui.button('Закрыть', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Закрыть прежнюю привязку"')
+                return
+            if self.group and self.group.get('virtual_id'):
+                self.ws.photo_libraries.pair_controls(self.group['virtual_id'], self.scopes['right'])
+                ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes('pair-disconnect')
                 return
             running = self.copy_running or (self.report and self.report['state'] in ('running', 'pausing'))
             folders = ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props('outline no-caps color=green-9 aria-label="Сверить папки"')
@@ -211,8 +278,8 @@ class PairedWorkspace:
     #: Обновляет состояние объекта: active, by_path, copy_id, copy_operation, differences_only, generation, history_only, loaded_job, pending_start, pending_view и ещё 10.
     async def link(self, group, location, *, load_folders=True):
         with self.ws.client:
-            source = next((c for c in [group['main'], *group['copies']]
-                           if c['id'] == (location.get('source_location_id') or group['main']['id'])), None)
+            group = {**group, 'copies': group.get('copies', [])}
+            source = copy_upstream(group['main'], group['copies'], location, parent_key=group.get('parent_key', 'source_location_id'))
             if source is None or not source.get('connected', True):
                 self.ws.notice(ValueError('Источник копирования недоступен или отключён'))
                 return
@@ -226,8 +293,10 @@ class PairedWorkspace:
                 self.saved = [p.save_browse_state() for p in self.ws.panes]
                 self.saved_active = self.ws.active_index
             self.generation += 1
+            generation = self.generation
             self.pending_start = self.pending_view = None
             self.active = True
+            self.group = group
             self.history_only = bool(location.get('number_released'))
             self.scopes = {'left': source, 'right': location}
             self.copy_id = location['id']
@@ -243,10 +312,16 @@ class PairedWorkspace:
             self.rail_signature = None
             self.render_rail()
             if load_folders:
+                for pane in self.ws.panes:
+                    if pane.view_mode == 'preview':
+                        await pane.set_mode('tree')
                 await asyncio.gather(*(p.show_volume(s['volume_id'], s['path'], activate=False)
                                        for p, s in zip(self.ws.panes, self.scopes.values())))
-            self.ws.set_active(0)
-            self.ws.update_scopes()
+            if self.generation == generation:
+                self.ws.set_active(0)
+                self.ws.update_scopes()
+                if load_folders:
+                    self.ws.panes[0].focus_tree()
 
     #: Размыкает панели и восстанавливает независимый просмотр после остановки работы.
     #: Обновляет состояние объекта: active, by_path, copy_operation, generation, history_only, pending_start, pending_view, rail_signature, report, rows, saved.
@@ -261,6 +336,7 @@ class PairedWorkspace:
             self.generation += 1
             self.pending_start = self.pending_view = None
             self.active, self.report = False, None
+            self.group = None
             self.history_only = False
             self.copy_operation = None
             self.rows, self.by_path = [], {}
@@ -305,6 +381,8 @@ class PairedWorkspace:
     #: Использует path.startswith.
     def relative(self, index, path):
         scope = self.scopes['left' if index == 0 else 'right']
+        if not scope['path']:
+            return path
         if path == scope['path']:
             return ''
         prefix = scope['path'] + '/'
@@ -323,8 +401,8 @@ class PairedWorkspace:
         else:
             with self.ws.client:
                 self.root = self.selected = relative
-                await asyncio.gather(*(p.show_volume(s['volume_id'], absolute_scope_path(s, relative), activate=False)
-                                       for p, s in zip(self.ws.panes, self.scopes.values())))
+                await asyncio.gather(*(pane.show_volume(scope['volume_id'], absolute_scope_path(scope, relative), activate=False)
+                                       for pane, scope in zip(self.ws.panes, self.scopes.values())))
 
     #: Отбирает строки с учётом корня, раскрытия, скрытых файлов и различий.
     #: Использует PurePosixPath, any, include.add, part.startswith, path.startswith.

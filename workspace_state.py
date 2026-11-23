@@ -82,6 +82,8 @@ def normalize_state(value):
                                   differences_only=bool(pair.get('differences_only')), hidden=bool(pair.get('hidden')),
                                   root_files_open=bool(pair.get('root_files_open')),
                                   expanded=[path(p) for p in expanded[:2000]] if expanded is not None else None)
+            if 'virtual_id' in pair:
+                result['pair']['virtual_id'] = identifier(pair['virtual_id'])
             if isinstance(pending := pair.get('pending'), dict):
                 result['pair']['pending'] = dict(since=str(pending['since'])[:40], mode=pending['mode'], method=pending['method'])
         return result

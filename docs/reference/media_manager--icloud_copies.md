@@ -10,7 +10,7 @@
 ## Связи модуля
 
 Импортирует из проекта: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/copy_files.py](media_manager--copy_files.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md).
-Импортируется модулями: [app.py](app.md), [copy_setup_ui.py](copy_setup_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [workspace_ui.py](workspace_ui.md).
+Импортируется модулями: [app.py](app.md), [copy_setup_ui.py](copy_setup_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [storage_preview_ui.py](storage_preview_ui.md), [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_icloud_copies.py](tests.md#module-tests.test_icloud_copies).
 
 ## Оглавление определений

@@ -1,6 +1,6 @@
-# Выбор назначения копии: `copy_setup_ui.py`
+# Выбор источника и назначения копии: `copy_setup_ui.py`
 
-Общий диалог связывает обычную папку, Photos или iCloud Drive с папкой на диске. Показывает цепочку Photos и принимает папку из соседней панели.
+Общий диалог выбирает папку, медиатеку или область iCloud Drive и связывает её с папкой на диске. Один навигатор используется для обоих путей.
 
 Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
 
@@ -9,20 +9,30 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/copies.py](media_manager--copies.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md).
+Импортирует из проекта: [copy_panels.py](copy_panels.md), [media_manager/copies.py](media_manager--copies.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: прямых импортов нет.
 
 ## Оглавление определений
 
+- [CopyFolderPicker](#symbol-CopyFolderPicker) — Показывает текущий путь и дочерние папки для выбора источника или назначения.
+- [CopyFolderPicker.__init__](#symbol-CopyFolderPicker.__init__) — Создаёт общие элементы навигации, списка папок и сообщения об ошибке.
+- [CopyFolderPicker.navigate](#symbol-CopyFolderPicker.navigate) — Загружает список вложенных папок без чтения файлов и отмечает проверенный адрес.
+- [CopyFolderPicker.parent](#symbol-CopyFolderPicker.parent) — Открывает родительскую папку на текущем томе.
+- [CopyFolderPicker.set_locked](#symbol-CopyFolderPicker.set_locked) — Блокирует навигацию и отменяет применение запоздалого ответа при закрытии.
 - [CopySetupUI](#symbol-CopySetupUI) — Управляет общим диалогом «Из → Куда» и обновляет созданные связи.
 - [CopySetupUI.__init__](#symbol-CopySetupUI.__init__) — Сохраняет рабочее пространство и состояние диалога.
+- [CopySetupUI.choose_cloud_folder](#symbol-CopySetupUI.choose_cloud_folder) — Позволяет выбрать вложенную папку iCloud Drive по её точному адресу.
+- [CopySetupUI.choose_cloud_folder.changed](#symbol-CopySetupUI.choose_cloud_folder.changed) — Разрешает выбор после подтверждённого чтения конкретной вложенной папки.
 - [CopySetupUI.destination](#symbol-CopySetupUI.destination) — Показывает источник, маршрут и выбор папки назначения в одном диалоге.
+- [CopySetupUI.destination.browse_source](#symbol-CopySetupUI.destination.browse_source) — Открывает выбор папки и применяет только подтверждённый адрес.
+- [CopySetupUI.destination.can_save](#symbol-CopySetupUI.destination.can_save) — Проверяет оба адреса и состояние диалога перед сохранением связи.
+- [CopySetupUI.destination.change_source](#symbol-CopySetupUI.destination.change_source) — Подписывает выбранную область и обновляет доступность сохранения.
 - [CopySetupUI.destination.change_volume](#symbol-CopySetupUI.destination.change_volume) — Обрабатывает выбор тома только для актуального значения поля.
-- [CopySetupUI.destination.navigate](#symbol-CopySetupUI.destination.navigate) — Загружает дочерние папки по выбранному адресу и игнорирует запоздалый ответ.
 - [CopySetupUI.destination.submit](#symbol-CopySetupUI.destination.submit) — Отправляет подтверждённую связь и оставляет поля доступными для исправления ошибки.
+- [CopySetupUI.destination.update_destination](#symbol-CopySetupUI.destination.update_destination) — Согласует выбранный том, предложенный тип копии и доступность сохранения.
 - [CopySetupUI.destination.update_origin](#symbol-CopySetupUI.destination.update_origin) — Показывает фактический путь передачи и выбранную область iCloud.
-- [CopySetupUI.open](#symbol-CopySetupUI.open) — Открывает диалог и показывает созданную строку копии после принятой связи.
+- [CopySetupUI.open](#symbol-CopySetupUI.open) — Открывает диалог, обновляет боковой список и показывает созданную пару.
 - [CopySetupUI.save](#symbol-CopySetupUI.save) — Сохраняет настроенную связь через API соответствующего источника.
 - [CopySetupUI.source](#symbol-CopySetupUI.source) — Определяет допустимый источник из дерева, бокового списка или панели операций.
 - [CopySetupUI.suggested](#symbol-CopySetupUI.suggested) — Выбирает доступную папку из панели напротив источника как быстрый вариант назначения.
@@ -39,6 +49,103 @@
 `Объёмное значение см. в исходном модуле`
 
 
+<a id="symbol-CopyFolderPicker"></a>
+
+## `CopyFolderPicker`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopyFolderPicker`
+
+Показывает текущий путь и дочерние папки для выбора источника или назначения. Передаёт изменения адреса и доступности диалогу, который принимает выбор.
+
+Базовые классы: `object`.
+
+
+Состояние, присваиваемое конструктором: `address`, `back`, `changed`, `folders`, `generation`, `locked`, `path`, `problem`, `ready`, `volume_id`, `volumes`, `ws`.
+
+Именованные методы: `__init__`, `set_locked`, `parent`, `navigate`.
+
+<a id="symbol-CopyFolderPicker.__init__"></a>
+
+## `CopyFolderPicker.__init__`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopyFolderPicker.__init__`
+
+Создаёт общие элементы навигации, списка папок и сообщения об ошибке. Принимает разрешённые тома и обработчик изменения выбора.
+
+```python
+def __init__(self, workspace, volumes, changed, *, up_label)
+```
+
+Присваивания полям `self`: `address`, `back`, `changed`, `folders`, `generation`, `locked`, `path`, `problem`, `ready`, `volume_id`, `volumes`, `ws`.
+
+Прямые выражения вызова: `self.back.disable`, `self.problem.set_visibility`, `ui.button`, `ui.button(icon='arrow_upward', on_click=self.parent).props`, `ui.column`, `ui.column().classes`, `ui.label`, `ui.label().classes`, `ui.row`, `ui.row().classes`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopyFolderPicker.navigate"></a>
+
+## `CopyFolderPicker.navigate`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopyFolderPicker.navigate`
+
+Загружает список вложенных папок без чтения файлов и отмечает проверенный адрес. Игнорирует ответ, если пользователь перешёл дальше или закрыл диалог.
+
+```python
+async def navigate(self, volume_id, path='')
+```
+
+Присваивания полям `self`: `generation`, `path`, `ready`, `volume_id`.
+
+Прямые выражения вызова: `ValueError`, `bool`, `data.get`, [scope_title](copy_setup_ui.md#symbol-scope_title), `self.back.set_enabled`, `self.changed`, `self.folders.clear`, `self.problem.set_visibility`, `self.ws.error_text`, `self.ws.read_directory`, `ui.button`, `ui.button('Повторить', icon='refresh', on_click=lambda: self.navigate(volume_id, path)).props`, `ui.button('Повторить', icon='refresh', on_click=lambda: self.navigate(volume_id, path)).props('flat dense no-caps color=dark').classes`, `ui.button(item['name'], icon='folder', on_click=lambda p=item['path']: self.navigate(volume_id, p)).props`, `ui.button(item['name'], icon='folder', on_click=lambda p=item['path']: self.navigate(volume_id, p)).props('flat dense no-caps color=dark').classes`, `ui.label`, `ui.label('Вложенных папок нет').classes`, `ui.spinner`, `ui.spinner(size='18px').classes`.
+
+Явные `raise`:
+
+- `ValueError(data.get('error') or 'Папка сейчас недоступна.')`
+
+Перехватываемые типы: `Exception`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
+<a id="symbol-CopyFolderPicker.parent"></a>
+
+## `CopyFolderPicker.parent`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopyFolderPicker.parent`
+
+Открывает родительскую папку на текущем томе. Оставляет корень верхней границей выбора.
+
+```python
+async def parent(self)
+```
+
+Прямые выражения вызова: `PurePosixPath`, `relative_path`, [self.navigate](copy_setup_ui.md#symbol-CopyFolderPicker.navigate), `str`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopyFolderPicker.set_locked"></a>
+
+## `CopyFolderPicker.set_locked`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopyFolderPicker.set_locked`
+
+Блокирует навигацию и отменяет применение запоздалого ответа при закрытии. Обновляет доступность перехода в родительскую папку.
+
+```python
+def set_locked(self, locked)
+```
+
+Присваивания полям `self`: `generation`, `locked`.
+
+Прямые выражения вызова: `bool`, `self.back.set_enabled`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
 <a id="symbol-CopySetupUI"></a>
 
 ## `CopySetupUI`
@@ -52,7 +159,7 @@
 
 Состояние, присваиваемое конструктором: `opened`, `ws`.
 
-Именованные методы: `__init__`, `source`, `suggested`, `open`, `save`, `destination`.
+Именованные методы: `__init__`, `source`, `suggested`, `open`, `save`, `choose_cloud_folder`, `destination`.
 
 <a id="symbol-CopySetupUI.__init__"></a>
 
@@ -71,6 +178,42 @@ def __init__(self, workspace)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
+<a id="symbol-CopySetupUI.choose_cloud_folder"></a>
+
+## `CopySetupUI.choose_cloud_folder`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.choose_cloud_folder`
+
+Позволяет выбрать вложенную папку iCloud Drive по её точному адресу. Возвращает подтверждённый путь или None после отмены.
+
+```python
+async def choose_cloud_folder(self, volume, path)
+```
+
+Прямые выражения вызова: [CopyFolderPicker](copy_setup_ui.md#symbol-CopyFolderPicker), `choose.disable`, `dialog.delete`, `picker.set_locked`, `ui.button`, `ui.button('Выбрать эту папку', on_click=lambda: dialog.submit(picker.path) if picker.ready and picker.path else None).props`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.dialog().props`, `ui.label`, `ui.label('Выбрать папку iCloud Drive').classes`, `ui.row`, `ui.row().classes`, `ui.timer`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `await dialog`
+
+
+<a id="symbol-CopySetupUI.choose_cloud_folder.changed"></a>
+
+## `CopySetupUI.choose_cloud_folder.changed`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.choose_cloud_folder.changed`
+
+Разрешает выбор после подтверждённого чтения конкретной вложенной папки. Корень выбирается отдельной командой в основном диалоге.
+
+```python
+def changed()
+```
+
+Прямые выражения вызова: `bool`, `choose.set_enabled`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
 <a id="symbol-CopySetupUI.destination"></a>
 
 ## `CopySetupUI.destination`
@@ -83,11 +226,68 @@ def __init__(self, workspace)
 async def destination(self, source, volumes, suggestion, preferred_kind)
 ```
 
-Прямые выражения вызова: `all_cloud.on_value_change`, `back.disable`, `confirm.disable`, `copy.get`, `dict`, `iter`, `next`, `problem.set_visibility`, [scope_title](copy_setup_ui.md#symbol-scope_title), `selector.on_value_change`, `self.ws.resolve_volume`, `shortcut.tooltip`, `sorted`, `source.get`, `ui.button`, `ui.button('Из соседней панели', on_click=lambda: navigate(**suggestion)).props`, `ui.button('Из соседней панели', on_click=lambda: navigate(**suggestion)).props('flat dense no-caps color=green-9').classes`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.button('Сохранить связь', on_click=submit).props`, `ui.button(icon='arrow_upward', on_click=lambda: navigate(state['volume_id'], relative_path(str(PurePosixPath(state['path']).parent)))).props`, `ui.card`, `ui.card().classes`, `ui.checkbox`, `ui.checkbox('Весь iCloud Drive', value=False).props`, `ui.column`, `ui.column().classes`, `ui.dialog`, `ui.dialog().props`, `ui.label`, `ui.label('Добавить копию').classes`, `ui.label('Из').classes`, `ui.label('Куда').classes`, `ui.label().classes`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props('dense outlined options-dense').classes`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props('dense outlined options-dense').classes`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props('dense outlined options-dense').classes`, `ui.timer`, `update_origin`, `upstream.on_value_change`, `volumes.items`.
+Прямые выражения вызова: [CopyFolderPicker](copy_setup_ui.md#symbol-CopyFolderPicker), `confirm.disable`, `copy.get`, `dialog.delete`, `dict`, `iter`, `next`, `picker.set_locked`, `problem.set_visibility`, [scope_title](copy_setup_ui.md#symbol-scope_title), `selector.on_value_change`, `self.ws.resolve_volume`, `shortcut.tooltip`, `sorted`, `source.get`, `ui.button`, `ui.button('Весь iCloud Drive', on_click=lambda: change_source('')).props`, `ui.button('Выбрать папку…', icon='folder_open', on_click=browse_source).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props`, `ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props('flat dense no-caps color=green-9').classes`, `ui.button('Отмена', on_click=lambda: dialog.submit(None)).props`, `ui.button('Сохранить связь', on_click=submit).props`, `ui.card`, `ui.card().classes`, `ui.dialog`, `ui.dialog().props`, `ui.label`, `ui.label('Добавить копию').classes`, `ui.label('Из').classes`, `ui.label('Куда').classes`, `ui.label().classes`, `ui.row`, `ui.row().classes`, `ui.select`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props`, `ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props('dense outlined options-dense').classes`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props`, `ui.select(upstream_choices, value=(direct or all_copies[0])['id'], label='Копировать из').props('dense outlined options-dense').classes`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props`, `ui.select({i: scope_title(v, '') for i, v in volumes.items()}, label='Том назначения').props('dense outlined options-dense').classes`, `ui.timer`, `update_origin`, `upstream.on_value_change`, `volumes.items`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `await dialog`
+
+
+<a id="symbol-CopySetupUI.destination.browse_source"></a>
+
+## `CopySetupUI.destination.browse_source`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.browse_source`
+
+Открывает выбор папки и применяет только подтверждённый адрес. После отмены сохраняет прежнюю область.
+
+```python
+async def browse_source()
+```
+
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), [change_source](copy_setup_ui.md#symbol-CopySetupUI.destination.change_source), `confirm.disable`, `confirm.set_enabled`, [self.choose_cloud_folder](copy_setup_ui.md#symbol-CopySetupUI.choose_cloud_folder).
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
+<a id="symbol-CopySetupUI.destination.can_save"></a>
+
+## `CopySetupUI.destination.can_save`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.can_save`
+
+Проверяет оба адреса и состояние диалога перед сохранением связи. Для iCloud отличает отсутствие выбора от явно выбранного корня.
+
+```python
+def can_save()
+```
+
+Прямые выражения вызова: `bool`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `source_path is not None and picker.ready and bool(picker.path) and ((picker.volume_id, picker.path) != (source['volume_id'], source_path)) and (not (state['saving'] or state['selecting_source']))`
+
+
+<a id="symbol-CopySetupUI.destination.change_source"></a>
+
+## `CopySetupUI.destination.change_source`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.change_source`
+
+Подписывает выбранную область и обновляет доступность сохранения. Пустой путь iCloud показывает как весь облачный диск.
+
+```python
+def change_source(path)
+```
+
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), `confirm.set_enabled`, `problem.set_visibility`, [update_origin](copy_setup_ui.md#symbol-CopySetupUI.destination.update_origin).
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
 
 
 <a id="symbol-CopySetupUI.destination.change_volume"></a>
@@ -96,40 +296,15 @@ async def destination(self, source, volumes, suggestion, preferred_kind)
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.change_volume`
 
-Обрабатывает выбор тома только для актуального значения поля. Асинхронно ожидает: navigate.
+Обрабатывает выбор тома только для актуального значения поля. Асинхронно ожидает: picker.navigate.
 
 ```python
 async def change_volume(event)
 ```
 
-Прямые выражения вызова: [navigate](copy_setup_ui.md#symbol-CopySetupUI.destination.navigate).
+Прямые выражения вызова: `picker.navigate`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
-
-
-<a id="symbol-CopySetupUI.destination.navigate"></a>
-
-## `CopySetupUI.destination.navigate`
-
-[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.navigate`
-
-Загружает дочерние папки по выбранному адресу и игнорирует запоздалый ответ. Обновляет текущий путь, возможность сохранения и предложенный тип копии.
-
-```python
-async def navigate(volume_id, path='')
-```
-
-Прямые выражения вызова: `ValueError`, `back.set_enabled`, `bool`, `confirm.disable`, `confirm.set_enabled`, `data.get`, `folders.clear`, `kind.set_value`, `problem.set_visibility`, [scope_title](copy_setup_ui.md#symbol-scope_title), `selector.set_value`, `self.ws.error_text`, `self.ws.read_directory`, `state.update`, `ui.button`, `ui.button(item['name'], icon='folder', on_click=lambda p=item['path']: navigate(volume_id, p)).props`, `ui.button(item['name'], icon='folder', on_click=lambda p=item['path']: navigate(volume_id, p)).props('flat dense no-caps color=dark').classes`, `ui.label`, `ui.label('Вложенных папок нет').classes`, `ui.spinner`, `ui.spinner(size='18px').classes`, `volumes[volume_id].get`.
-
-Явные `raise`:
-
-- `ValueError(data.get('error') or 'Папка назначения сейчас недоступна.')`
-
-Перехватываемые типы: `Exception`.
-
-Выражения возврата (ветви, без исполнения):
-
-- `None`
 
 
 <a id="symbol-CopySetupUI.destination.submit"></a>
@@ -144,13 +319,30 @@ async def navigate(volume_id, path='')
 async def submit()
 ```
 
-Прямые выражения вызова: `back.set_enabled`, `bool`, `control.disable`, `control.enable`, `dialog.submit`, `problem.set_visibility`, [self.save](copy_setup_ui.md#symbol-CopySetupUI.save), `self.ws.error_text`.
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), `confirm.set_enabled`, `control.disable`, `control.enable`, `dialog.submit`, `dict`, `picker.set_locked`, `problem.set_visibility`, [self.save](copy_setup_ui.md#symbol-CopySetupUI.save), `self.ws.error_text`.
 
 Перехватываемые типы: `Exception`.
 
 Выражения возврата (ветви, без исполнения):
 
 - `None`
+
+
+<a id="symbol-CopySetupUI.destination.update_destination"></a>
+
+## `CopySetupUI.destination.update_destination`
+
+[copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.destination.update_destination`
+
+Согласует выбранный том, предложенный тип копии и доступность сохранения. Сбрасывает ошибку сохранения, когда меняется назначение.
+
+```python
+def update_destination()
+```
+
+Прямые выражения вызова: [can_save](copy_setup_ui.md#symbol-CopySetupUI.destination.can_save), `confirm.set_enabled`, `kind.set_value`, `problem.set_visibility`, `selector.set_value`, `volumes[volume_id].get`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-CopySetupUI.destination.update_origin"></a>
@@ -176,7 +368,7 @@ def update_origin()
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.open`
 
-Открывает диалог и показывает созданную строку копии после принятой связи. Асинхронно ожидает: self.destination, self.ws.copies.changed, self.ws.photo_libraries.refresh.
+Открывает диалог, обновляет боковой список и показывает созданную пару. Выбирает именно сохранённое назначение, даже если у источника уже есть копии.
 
 ```python
 async def open(self, volume_id, path='', *, index=None, preferred_kind=None)
@@ -184,7 +376,7 @@ async def open(self, volume_id, path='', *, index=None, preferred_kind=None)
 
 Присваивания полям `self`: `opened`.
 
-Прямые выражения вызова: [copy_volume](copy_setup_ui.md#symbol-copy_volume), `libraries.expanded.add`, `libraries.refresh`, `libraries.section.open`, [self.destination](copy_setup_ui.md#symbol-CopySetupUI.destination), [self.source](copy_setup_ui.md#symbol-CopySetupUI.source), [self.suggested](copy_setup_ui.md#symbol-CopySetupUI.suggested), `self.ws.copies.changed`, `self.ws.copies.expanded.add`, `self.ws.copies.section.open`, `self.ws.notice`, `ui.notify`.
+Прямые выражения вызова: `all`, [copy_volume](copy_setup_ui.md#symbol-copy_volume), `libraries.expanded.add`, `libraries.open_copy`, `libraries.refresh`, `libraries.section.open`, `next`, [self.destination](copy_setup_ui.md#symbol-CopySetupUI.destination), [self.source](copy_setup_ui.md#symbol-CopySetupUI.source), [self.suggested](copy_setup_ui.md#symbol-CopySetupUI.suggested), `self.ws.copies.changed`, `self.ws.copies.expanded.add`, `self.ws.copies.open_copy`, `self.ws.copies.section.open`, `self.ws.notice`, `target.items`, `ui.notify`.
 
 Перехватываемые типы: `Exception`.
 
@@ -199,10 +391,10 @@ async def open(self, volume_id, path='', *, index=None, preferred_kind=None)
 
 [copy_setup_ui.py](../../copy_setup_ui.py) · `CopySetupUI.save`
 
-Сохраняет настроенную связь через API соответствующего источника. Асинхронно ожидает: self.ws.request.
+Сохраняет настроенную связь через API соответствующего источника. Для iCloud сохраняет выбранный путь, включая явно выбранный корень.
 
 ```python
-async def save(self, source, target, kind, upstream, cloud_root)
+async def save(self, source, target, kind, upstream)
 ```
 
 Прямые выражения вызова: `dict`, `self.ws.request`.
@@ -211,7 +403,7 @@ async def save(self, source, target, kind, upstream, cloud_root)
 
 - `await self.ws.request('POST', '/api/storage/folder-copy-bindings', json=dict(source=origin, destination=dict(target, kind=kind)))`
 - `await self.ws.request('POST', f"/api/photos/libraries/{source['library']['id']}/copies", json=dict(target, source_link_id=upstream or None))`
-- `await self.ws.request('POST', '/api/icloud/copies', json=dict(target, source_path='' if cloud_root else source['path']))`
+- `await self.ws.request('POST', '/api/icloud/copies', json=dict(target, source_path=source['path']))`
 
 
 <a id="symbol-CopySetupUI.source"></a>
@@ -287,11 +479,13 @@ def copy_volume(volume)
 def photo_route(library, link_id)
 ```
 
-Прямые выражения вызова: `' → '.join`, `copy.get`, `library.get`, `nodes.append`, `reversed`, `seen.add`, `set`.
+Прямые выражения вызова: `' → '.join`, `copy_route`, `dict`, `library.get`, `next`.
 
 Выражения возврата (ветви, без исполнения):
 
-- `' → '.join(reversed(nodes))`
+- `label`
+- `'Недоступный источник'`
+- `' → '.join((node['label'] for node in route))`
 
 
 <a id="symbol-scope_title"></a>

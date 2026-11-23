@@ -12,8 +12,8 @@
 | [comparison_tree_ui.py](comparison_tree_ui.md) | UI найденных путей | 1 / 13 |
 | [comparison_ui.py](comparison_ui.md) | Совместимость адреса /compare | 0 / 2 |
 | [copy_groups_ui.py](copy_groups_ui.md) | UI наборов копий | 1 / 30 |
-| [copy_panels.py](copy_panels.md) | Общие роли панелей копирования | 0 / 4 |
-| [copy_setup_ui.py](copy_setup_ui.md) | Выбор назначения копии | 1 / 13 |
+| [copy_panels.py](copy_panels.md) | Маршруты и роли панелей копирования | 0 / 6 |
+| [copy_setup_ui.py](copy_setup_ui.md) | Выбор источника и назначения копии | 2 / 22 |
 | [media_manager/__init__.py](media_manager--__init__.md) | Пакет Core | 0 / 0 |
 | [media_manager/catalog.py](media_manager--catalog.md) | Медиаиндекс и очередь превью | 1 / 34 |
 | [media_manager/comparison.py](media_manager--comparison.md) | Поиск совпадений по именам | 2 / 25 |
@@ -41,15 +41,15 @@
 | [media_manager/watcher.py](media_manager--watcher.md) | Повторное сканирование источников | 2 / 8 |
 | [network_ui.py](network_ui.md) | Диалог NAS | 0 / 8 |
 | [paired_tree.py](paired_tree.md) | Python-обёртка Vue-дерева | 1 / 2 |
-| [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 45 |
-| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 50 |
+| [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 47 |
+| [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 54 |
 | [scripts/build_documentation.py](scripts--build_documentation.md) | Генератор смысловых справочников | 3 / 44 |
 | [sidebar_ui.py](sidebar_ui.md) | Строки и меню боковой колонки | 0 / 6 |
 | [storage_preview_ui.py](storage_preview_ui.md) | UI превью и плиток | 1 / 13 |
 | [storage_ui.py](storage_ui.md) | Общие элементы и регистрация UI | 0 / 2 |
 | [ui.py](ui.md) | Вход в NiceGUI и HTTP-клиент | 0 / 6 |
 | [workspace_state.py](workspace_state.md) | Состояние браузерной вкладки | 0 / 5 |
-| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 106 |
+| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 104 |
 
 - [Нативные определения](native.md)
 - [Тестовые сценарии](tests.md)

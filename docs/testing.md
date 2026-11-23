@@ -33,6 +33,7 @@ PYTHONPATH=tests .venv/bin/python -m unittest -v test_copy_sources
 | [test_copy_connections.py](../tests/test_copy_connections.py) | Подключение и отключение связей | 12 |
 | [test_copy_files.py](../tests/test_copy_files.py) | Планы, запись, гонки и незавершённые копии | 24 |
 | [test_copy_number_release.py](../tests/test_copy_number_release.py) | Освобождение номеров и история привязок | 14 |
+| [test_copy_panels.py](../tests/test_copy_panels.py) | Маршруты копий, разветвления и недоступные источники | 4 |
 | [test_copy_sandbox.py](../tests/test_copy_sandbox.py) | Запрет записи существующих оригиналов в sandbox | 4 |
 | [test_copy_sources.py](../tests/test_copy_sources.py) | Выбор источников и запрет циклов обычных копий | 5 |
 | [test_directory_sizes.py](../tests/test_directory_sizes.py) | Размеры, частичность, stale и UI-подписи | 18 |
@@ -60,7 +61,7 @@ PYTHONPATH=tests .venv/bin/python -m unittest -v test_copy_sources
 | [test_tree_keyboard.py](../tests/test_tree_keyboard.py) | Выделение, подписи томов, фокус и навигация | 8 |
 | [test_ui_connection.py](../tests/test_ui_connection.py) | Повторное использование HTTP-пула | 1 |
 | [test_volume_identity.py](../tests/test_volume_identity.py) | Маркеры, смена носителя и ёмкость | 18 |
-| [test_workspace_photos.py](../tests/test_workspace_photos.py) | Виртуальные медиатеки в общих панелях | 2 |
+| [test_workspace_photos.py](../tests/test_workspace_photos.py) | Пары Photos и iCloud Drive, выбор звена и восстановление | 7 |
 | [test_workspace_refresh.py](../tests/test_workspace_refresh.py) | Обновление UI без потери дерева | 4 |
 | [test_workspace_state.py](../tests/test_workspace_state.py) | Нормализация и восстановление состояния вкладки | 8 |
 

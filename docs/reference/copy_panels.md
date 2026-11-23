@@ -1,6 +1,6 @@
-# Общие роли панелей копирования: `copy_panels.py`
+# Маршруты и роли панелей копирования: `copy_panels.py`
 
-Выбирает первую доступную копию, сопоставляет пути с привязанными областями и форматирует подписи источника и назначения.
+Выбирает первую доступную копию, строит маршрут по сохранённым связям и форматирует подписи источника и назначения.
 
 Собирается командой `.venv/bin/python scripts/build_documentation.py`. Проверка актуальности — та же команда с `--check`.
 
@@ -10,33 +10,35 @@
 ## Связи модуля
 
 Импортирует из проекта: прямых импортов нет.
-Импортируется модулями: [copy_groups_ui.py](copy_groups_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md), [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos).
+Импортируется модулями: [copy_groups_ui.py](copy_groups_ui.md), [copy_setup_ui.py](copy_setup_ui.md), [paired_workspace_ui.py](paired_workspace_ui.md), [photo_libraries_ui.py](photo_libraries_ui.md).
+Тестовые модули с прямым импортом: [tests/test_copy_panels.py](tests.md#module-tests.test_copy_panels), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos).
 
 ## Оглавление определений
 
-- [contains_path](#symbol-contains_path) — Проверяет принадлежность выбранного пути области на томе.
+- [_copy_ancestry](#symbol-_copy_ancestry) — Поднимается от выбранной копии к корню по сохранённым ссылкам.
 - [copy_heading](#symbol-copy_heading) — Формирует подпись источника, действующей копии или архивного назначения.
+- [copy_route](#symbol-copy_route) — Строит маршрут через выбранную копию по фактическим связям источников.
+- [copy_upstream](#symbol-copy_upstream) — Возвращает фактический источник выбранной копии, учитывая тип хранимой ссылки.
 - [disconnected](#symbol-disconnected) — Проверяет доступность привязанной папки по состоянию связи и тома.
 - [first_copy](#symbol-first_copy) — Выбирает копию с наименьшим номером среди доступных.
 
-<a id="symbol-contains_path"></a>
+<a id="symbol-_copy_ancestry"></a>
 
-## `contains_path`
+## `_copy_ancestry`
 
-[copy_panels.py](../../copy_panels.py) · `contains_path`
+[copy_panels.py](../../copy_panels.py) · `_copy_ancestry`
 
-Проверяет принадлежность выбранного пути области на томе. Сравнивает компоненты пути, включая пустой корень.
+Поднимается от выбранной копии к корню по сохранённым ссылкам. Возвращает путь и признак цикла, отмечает отсутствующий источник без подстановки корня.
 
 ```python
-def contains_path(scope, volume_id, path)
+def _copy_ancestry(root, copies, target, parent_key)
 ```
 
-Прямые выражения вызова: `PurePosixPath`, `PurePosixPath(path).is_relative_to`.
+Прямые выражения вызова: `by_id.get`, `dict`, `list`, `nodes.append`, `nodes[-1].get`, `reversed`, `seen.add`.
 
 Выражения возврата (ветви, без исполнения):
 
-- `scope['volume_id'] == volume_id and PurePosixPath(path).is_relative_to(scope['path'])`
+- `(list(reversed(nodes)), cycle)`
 
 
 <a id="symbol-copy_heading"></a>
@@ -45,19 +47,58 @@ def contains_path(scope, volume_id, path)
 
 [copy_panels.py](../../copy_panels.py) · `copy_heading`
 
-Формирует подпись источника, действующей копии или архивного назначения. Для копии может дописать сохранённое предыдущее звено маршрута.
+Формирует подпись источника, действующей копии или архивного назначения. Заголовок показывает роль относительно выбранного перехода.
 
 ```python
 def copy_heading(scope, *, target=False, historical=False)
 ```
 
-Прямые выражения вызова: `scope.get`.
-
 Выражения возврата (ветви, без исполнения):
 
 - `f'{label} (источник копирования)'`
 - `f'Прежняя {label}'`
-- `f"{label} (копия №{scope['number']}){suffix}"`
+- `f"{label} (копия №{scope['number']})"`
+
+
+<a id="symbol-copy_route"></a>
+
+## `copy_route`
+
+[copy_panels.py](../../copy_panels.py) · `copy_route`
+
+Строит маршрут через выбранную копию по фактическим связям источников. По умолчанию продолжает маршрут первой доступной копией каждого следующего звена.
+
+```python
+def copy_route(root, copies, target, *, parent_key, downstream=True)
+```
+
+Прямые выражения вызова: [_copy_ancestry](copy_panels.md#symbol-_copy_ancestry), `copy.get`, [first_copy](copy_panels.md#symbol-first_copy), `nodes.append`, `seen.add`, `tuple`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `(root, target)`
+- `tuple(nodes)`
+
+
+<a id="symbol-copy_upstream"></a>
+
+## `copy_upstream`
+
+[copy_panels.py](../../copy_panels.py) · `copy_upstream`
+
+Возвращает фактический источник выбранной копии, учитывая тип хранимой ссылки. При отсутствующем непосредственном источнике или цикле возвращает None.
+
+```python
+def copy_upstream(root, copies, target, *, parent_key)
+```
+
+Прямые выражения вызова: [_copy_ancestry](copy_panels.md#symbol-_copy_ancestry), `len`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `root`
+- `nodes[-2]`
+- `None`
 
 
 <a id="symbol-disconnected"></a>

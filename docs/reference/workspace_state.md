@@ -11,7 +11,7 @@
 
 Импортирует из проекта: [media_manager/storage.py](media_manager--storage.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
-Тестовые модули с прямым импортом: [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state), [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
+Тестовые модули с прямым импортом: [tests/test_sidebar_state.py](tests.md#module-tests.test_sidebar_state), [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews), [tests/test_workspace_photos.py](tests.md#module-tests.test_workspace_photos), [tests/test_workspace_state.py](tests.md#module-tests.test_workspace_state).
 
 ## Оглавление определений
 

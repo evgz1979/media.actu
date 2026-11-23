@@ -884,6 +884,46 @@ async def test_history_view_does_not_offer_to_create_a_new_binding_from_old_repo
 async def test_history_view_rejects_queued_start_resume_and_copy_commands(self)
 ```
 
+<a id="module-tests.test_copy_panels"></a>
+
+## `test_copy_panels.py`
+
+Выбор и маршруты связанных копий.
+
+[tests/test_copy_panels.py](../../tests/test_copy_panels.py)
+
+<a id="symbol-tests.test_copy_panels.CopyRouteTests.test_cycle_has_no_root_or_upstream"></a>
+
+### `CopyRouteTests.test_cycle_has_no_root_or_upstream`
+
+```python
+def test_cycle_has_no_root_or_upstream(self)
+```
+
+<a id="symbol-tests.test_copy_panels.CopyRouteTests.test_direct_routes_stay_direct"></a>
+
+### `CopyRouteTests.test_direct_routes_stay_direct`
+
+```python
+def test_direct_routes_stay_direct(self)
+```
+
+<a id="symbol-tests.test_copy_panels.CopyRouteTests.test_missing_parent_does_not_replace_the_actual_upstream_with_root"></a>
+
+### `CopyRouteTests.test_missing_parent_does_not_replace_the_actual_upstream_with_root`
+
+```python
+def test_missing_parent_does_not_replace_the_actual_upstream_with_root(self)
+```
+
+<a id="symbol-tests.test_copy_panels.CopyRouteTests.test_route_selects_an_available_continuation_without_changing_the_target"></a>
+
+### `CopyRouteTests.test_route_selects_an_available_continuation_without_changing_the_target`
+
+```python
+def test_route_selects_an_available_continuation_without_changing_the_target(self)
+```
+
 <a id="module-tests.test_copy_sandbox"></a>
 
 ## `test_copy_sandbox.py`
@@ -3400,7 +3440,7 @@ def test_unregistered_disk_does_not_use_legacy_share_history(self)
 
 ## `test_workspace_photos.py`
 
-Виртуальные медиатеки в общих панелях.
+Photos и iCloud Drive в связанных панелях.
 
 [tests/test_workspace_photos.py](../../tests/test_workspace_photos.py)
 
@@ -3412,28 +3452,28 @@ def test_unregistered_disk_does_not_use_legacy_share_history(self)
 def test_common_heading_preserves_folder_copy_and_history_captions(self)
 ```
 
-<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy"></a>
-
-### `WorkspacePhotosTests.test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy`
-
-```python
-def test_heading_shows_the_actual_photos_chain_and_clears_outside_the_copy(self)
-```
-
-<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_headings_use_the_bound_source_and_destination_scopes"></a>
-
-### `WorkspacePhotosTests.test_icloud_headings_use_the_bound_source_and_destination_scopes`
-
-```python
-def test_icloud_headings_use_the_bound_source_and_destination_scopes(self)
-```
-
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline"></a>
 
 ### `WorkspacePhotosTests.test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline`
 
 ```python
 async def test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_pair_restores_without_using_folder_comparison_api"></a>
+
+### `WorkspacePhotosTests.test_icloud_pair_restores_without_using_folder_comparison_api`
+
+```python
+async def test_icloud_pair_restores_without_using_folder_comparison_api(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_opening_a_chained_photos_copy_uses_its_actual_source"></a>
+
+### `WorkspacePhotosTests.test_opening_a_chained_photos_copy_uses_its_actual_source`
+
+```python
+async def test_opening_a_chained_photos_copy_uses_its_actual_source(self)
 ```
 
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_opening_photos_selects_the_first_available_copy_and_restores_the_destination_tree"></a>
