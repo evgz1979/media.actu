@@ -364,6 +364,7 @@ class PhotoLibrariesUI:
                                  summary=branch_summary(branches)) as status:
                     self.rows[ICLOUD_VOLUME_ID] = dict(status=status, copies=self.render_copies(
                         ICLOUD_VOLUME_ID, branches, self.cloud_copy_menu))
+                self.rows[ICLOUD_VOLUME_ID]['batch'] = ui.label().classes('sidebar-note truncate')
 
     #: Рисует общие строки копий в порядке фактических источников.
     #: Для зависимой копии добавляет отступ и подпись непосредственного источника.
@@ -420,6 +421,11 @@ class PhotoLibrariesUI:
             online = self.cloud_volume()['availability'] == 'online'
             text = f'{len(copies)} коп.' if online else 'Офлайн'
             self.set_readout(row['status'], text, 'iCloud Drive на M4' if online else 'iCloud Drive недоступен на M4')
+            if batch_note := row.get('batch'):
+                batch = self.cloud.get('batch') or {}
+                batch_note.set_visibility(bool(batch.get('files')))
+                if batch.get('files'):
+                    batch_note.text = f"Пакет · {batch['files']} · {self.ws.format_bytes(batch['bytes'])}"
             for copy in copies:
                 if elements := row['copies'].get(copy['id']):
                     text = self.cloud_copy_status(copy)
@@ -549,43 +555,103 @@ class PhotoLibrariesUI:
         if not copy:
             return
         offset = 0
+        loading, expanded = False, False
         with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-2'):
             ui.label(f"iCloud Drive · {copy['number']:02d}-copy").classes('text-lg font-semibold')
             ui.label(f"{self.cloud_origin(copy)} → {copy['volume_name']} /{copy['path']}").classes('s-path break-words')
-            ui.label(f"{copy['done']} из {copy['total']} файлов · ждут {copy['waiting']} · расхождений {copy['conflicts']}").classes('s-note')
-            ui.linear_progress(value=copy['done'] / copy['total'] if copy['total'] else 0, show_value=False).props('color=green-7')
-            if copy['message']:
-                ui.label(copy['message']).classes('s-note break-words')
-            if copy['retry_at']:
-                ui.label('Повтор ' + retry_time(copy['retry_at'])).classes('s-note')
+            summary = ui.label().classes('s-note')
+            progress = ui.linear_progress(value=0, show_value=False).props('color=green-7')
+            batch_line = ui.label().classes('s-note')
+            disk_line = ui.label().classes('s-note')
+            phases = ui.label().classes('s-note')
+            released = ui.label().classes('s-note')
+            message = ui.label().classes('s-note break-words')
+            retry_label = ui.label().classes('s-note')
             entries = ui.column().classes('w-full max-h-[55vh] overflow-auto gap-1')
 
-            #: Получает и добавляет страницу событий в открытый журнал.
-            #: Обновляет смещение и видимость кнопки следующей страницы.
-            async def more():
-                nonlocal offset
+            #: Показывает свежий прогресс копии и общий пакет загрузок на M4.
+            #: Различает логически зарезервированные байты и выделенные на диске блоки.
+            def update_summary():
+                current = next((item for item in self.cloud['copies'] if item['id'] == copy_id), copy)
+                summary.text = (f"{current['done']} из {current['total']} файлов · ждут {current['waiting']} "
+                                f"· расхождений {current['conflicts']}")
+                progress.set_value(current['done'] / current['total'] if current['total'] else 0)
+                message.text = current['message'] or ''
+                retry_label.text = 'Повтор ' + retry_time(current['retry_at']) if current['retry_at'] else ''
+                message.set_visibility(bool(message.text))
+                retry_label.set_visibility(bool(retry_label.text))
+                size = self.ws.format_bytes
+                info = self.cloud.get('batch') or {}
+                batch_line.set_visibility(bool(info) and not current.get('source_link_id'))
+                disk_line.set_visibility(bool(info) and not current.get('source_link_id'))
+                phases.set_visibility(bool(info) and not current.get('source_link_id'))
+                released.set_visibility(not current.get('source_link_id'))
+                if info and not current.get('source_link_id'):
+                    limit = ' · крупный файл отдельно' if info['bytes'] > info['limit_bytes'] else f" из {size(info['limit_bytes'])}"
+                    batch_line.text = (f"Общий пакет · {info['files']} / {info['limit_files']} файлов "
+                                       f"· {size(info['bytes'])}{limit}")
+                    occupied = '—' if info['local_bytes'] is None else size(info['local_bytes'])
+                    free = '—' if info['free_bytes'] is None else size(info['free_bytes'])
+                    disk_line.text = f"На диске в пакете {occupied} · свободно {free} · резерв {size(info['reserve_bytes'])}"
+                    phases.text = (f"Ожидают загрузки {info['downloading']} · записывается {info['copying']} "
+                                   f"· ждут освобождения {info['releasing']}")
+                released.text = (f"Освобождено {current.get('evicted', 0)} · логический объём {size(current.get('evicted_bytes', 0))} "
+                                 f"· локально сохранено из пакета {current.get('kept_downloads', 0)}")
+
+            #: Получает страницу журнала с причинами задержек загрузки и освобождения.
+            #: Обновляет первую страницу автоматически и сохраняет выбранную старую страницу.
+            async def more(*, reset=False, quiet=False):
+                nonlocal offset, loading, expanded
+                if loading:
+                    return
+                loading = True
+                page_start = 0 if reset else offset
                 more_button.disable()
                 try:
-                    data = await self.ws.request('GET', f'/api/icloud/copies/{copy_id}/journal', params={'offset': offset})
+                    data = await self.ws.request('GET', f'/api/icloud/copies/{copy_id}/journal', params={'offset': page_start})
+                    if dialog.is_deleted:
+                        return
+                    if reset:
+                        entries.clear()
+                        expanded = False
+                    elif page_start:
+                        expanded = True
                     with entries:
                         for item in data['items']:
                             next_at = item['retry_at']
                             retry = ' · повтор ' + retry_time(next_at) if next_at else ''
-                            ui.label(f"{item['path'] or '/'} · {item['message'] or 'Готово'}{retry}").classes('text-xs break-all')
-                        if not offset and not data['items']:
+                            memo = item.get('cloud_message')
+                            cloud = f" · {self.ws.format_bytes(item['cloud_bytes'])} · {memo}" if memo else ''
+                            title = item['message'] or ('В обработке' if item['state'] == 'pending' else 'Готово')
+                            ui.label(f"{item['path'] or '/'} · {title}{cloud}{retry}").classes('text-xs break-all')
+                        if not page_start and not data['items']:
                             ui.label('Записей пока нет').classes('s-note')
-                    offset += len(data['items'])
+                    offset = page_start + len(data['items'])
                     more_button.set_visibility(data['more'])
                 except Exception as error:
-                    self.ws.notice(error)
+                    if not quiet:
+                        self.ws.notice(error)
                 finally:
-                    more_button.enable()
+                    loading = False
+                    if not dialog.is_deleted:
+                        more_button.enable()
+
+            #: Обновляет заголовок и первую страницу в открытом диалоге.
+            #: Останавливается при закрытии через обработчик hide.
+            async def poll_details():
+                update_summary()
+                if not expanded:
+                    await more(reset=True, quiet=True)
 
             with ui.row().classes('w-full justify-end'):
                 more_button = ui.button('Ещё записи', on_click=more).props('flat no-caps')
+                ui.button('Обновить журнал', on_click=lambda: more(reset=True)).props('flat no-caps')
                 ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
+            timer = ui.timer(4, poll_details)
+        dialog.on('hide', timer.cancel)
         dialog.open()
-        await more()
+        update_summary()
+        await more(reset=True)
 
     #: Исполняет команду источника с единым обновлением UI и обработкой ошибки.
     #: Обновляет состояние объекта: busy, signature.

@@ -36,8 +36,8 @@ PYTHONPATH=tests .venv/bin/python -m unittest -v test_copy_sources
 | [test_copy_panels.py](../tests/test_copy_panels.py) | Маршруты копий, порядок веток и недоступные источники | 5 |
 | [test_copy_sandbox.py](../tests/test_copy_sandbox.py) | Запрет записи существующих оригиналов в sandbox | 4 |
 | [test_copy_sources.py](../tests/test_copy_sources.py) | Выбор источников и запрет циклов обычных копий | 5 |
-| [test_directory_sizes.py](../tests/test_directory_sizes.py) | Размеры, частичность, stale и UI-подписи | 18 |
-| [test_icloud_copies.py](../tests/test_icloud_copies.py) | Повторы iCloud, цепочки через локальный диск и обновление базы | 10 |
+| [test_directory_sizes.py](../tests/test_directory_sizes.py) | Размеры по метаданным, iCloud Drive, частичность и UI | 20 |
+| [test_icloud_copies.py](../tests/test_icloud_copies.py) | Повторы, цепочки, лимиты загрузок и освобождение iCloud | 13 |
 | [test_documentation.py](../tests/test_documentation.py) | Смысловая генерация, сдвиги строк, контракты и ссылки | 13 |
 | [test_folder_markers.py](../tests/test_folder_markers.py) | Принадлежность, публикация и повтор маркеров папок | 15 |
 | [test_folder_tags.py](../tests/test_folder_tags.py) | Пользовательские метки папок | 8 |

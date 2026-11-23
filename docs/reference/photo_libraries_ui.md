@@ -26,7 +26,9 @@
 - [PhotoLibrariesUI.cloud_copy_menu](#symbol-PhotoLibrariesUI.cloud_copy_menu) — Показывает команды передачи, журнала и отвязки копии iCloud.
 - [PhotoLibrariesUI.cloud_copy_status](#symbol-PhotoLibrariesUI.cloud_copy_status) — Подписывает состояние передачи iCloud Drive для компактной строки.
 - [PhotoLibrariesUI.cloud_details](#symbol-PhotoLibrariesUI.cloud_details) — Показывает состояние копии и постраничный журнал iCloud Drive.
-- [PhotoLibrariesUI.cloud_details.more](#symbol-PhotoLibrariesUI.cloud_details.more) — Получает и добавляет страницу событий в открытый журнал.
+- [PhotoLibrariesUI.cloud_details.more](#symbol-PhotoLibrariesUI.cloud_details.more) — Получает страницу журнала с причинами задержек загрузки и освобождения.
+- [PhotoLibrariesUI.cloud_details.poll_details](#symbol-PhotoLibrariesUI.cloud_details.poll_details) — Обновляет заголовок и первую страницу в открытом диалоге.
+- [PhotoLibrariesUI.cloud_details.update_summary](#symbol-PhotoLibrariesUI.cloud_details.update_summary) — Показывает свежий прогресс копии и общий пакет загрузок на M4.
 - [PhotoLibrariesUI.cloud_menu](#symbol-PhotoLibrariesUI.cloud_menu) — Показывает корень iCloud Drive и команду добавления копии.
 - [PhotoLibrariesUI.cloud_origin](#symbol-PhotoLibrariesUI.cloud_origin) — Подписывает фактическую папку-источник для журнала или подтверждения отвязки.
 - [PhotoLibrariesUI.cloud_volume](#symbol-PhotoLibrariesUI.cloud_volume) — Возвращает виртуальный том iCloud Drive после первого успешного опроса.
@@ -267,7 +269,7 @@ def cloud_copy_status(copy)
 async def cloud_details(self, copy_id)
 ```
 
-Прямые выражения вызова: `dialog.open`, `more`, `next`, [retry_time](photo_libraries_ui.md#symbol-retry_time), [self.cloud_origin](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_origin), `ui.button`, `ui.button('Ещё записи', on_click=more).props`, `ui.button('Закрыть', on_click=dialog.close).props`, `ui.card`, `ui.card().classes`, `ui.column`, `ui.column().classes`, `ui.dialog`, `ui.label`, `ui.label('Повтор ' + retry_time(copy['retry_at'])).classes`, `ui.label(copy['message']).classes`, `ui.label(f"iCloud Drive · {copy['number']:02d}-copy").classes`, `ui.label(f"{copy['done']} из {copy['total']} файлов · ждут {copy['waiting']} · расхождений {copy['conflicts']}").classes`, `ui.label(f"{self.cloud_origin(copy)} → {copy['volume_name']} /{copy['path']}").classes`, `ui.linear_progress`, `ui.linear_progress(value=copy['done'] / copy['total'] if copy['total'] else 0, show_value=False).props`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: `dialog.on`, `dialog.open`, `more`, `next`, [self.cloud_origin](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_origin), `ui.button`, `ui.button('Ещё записи', on_click=more).props`, `ui.button('Закрыть', on_click=dialog.close).props`, `ui.button('Обновить журнал', on_click=lambda: more(reset=True)).props`, `ui.card`, `ui.card().classes`, `ui.column`, `ui.column().classes`, `ui.dialog`, `ui.label`, `ui.label().classes`, `ui.label(f"iCloud Drive · {copy['number']:02d}-copy").classes`, `ui.label(f"{self.cloud_origin(copy)} → {copy['volume_name']} /{copy['path']}").classes`, `ui.linear_progress`, `ui.linear_progress(value=0, show_value=False).props`, `ui.row`, `ui.row().classes`, `ui.timer`, `update_summary`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -280,15 +282,51 @@ async def cloud_details(self, copy_id)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_details.more`
 
-Получает и добавляет страницу событий в открытый журнал. Обновляет смещение и видимость кнопки следующей страницы.
+Получает страницу журнала с причинами задержек загрузки и освобождения. Обновляет первую страницу автоматически и сохраняет выбранную старую страницу.
 
 ```python
-async def more()
+async def more(*, reset=False, quiet=False)
 ```
 
-Прямые выражения вызова: `len`, `more_button.disable`, `more_button.enable`, `more_button.set_visibility`, [retry_time](photo_libraries_ui.md#symbol-retry_time), `self.ws.notice`, `self.ws.request`, `ui.label`, `ui.label('Записей пока нет').classes`, `ui.label(f"{item['path'] or '/'} · {item['message'] or 'Готово'}{retry}").classes`.
+Прямые выражения вызова: `entries.clear`, `item.get`, `len`, `more_button.disable`, `more_button.enable`, `more_button.set_visibility`, [retry_time](photo_libraries_ui.md#symbol-retry_time), `self.ws.format_bytes`, `self.ws.notice`, `self.ws.request`, `ui.label`, `ui.label('Записей пока нет').classes`, `ui.label(f"{item['path'] or '/'} · {title}{cloud}{retry}").classes`.
 
 Перехватываемые типы: `Exception`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
+
+
+<a id="symbol-PhotoLibrariesUI.cloud_details.poll_details"></a>
+
+## `PhotoLibrariesUI.cloud_details.poll_details`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_details.poll_details`
+
+Обновляет заголовок и первую страницу в открытом диалоге. Останавливается при закрытии через обработчик hide.
+
+```python
+async def poll_details()
+```
+
+Прямые выражения вызова: [more](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_details.more), [update_summary](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_details.update_summary).
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-PhotoLibrariesUI.cloud_details.update_summary"></a>
+
+## `PhotoLibrariesUI.cloud_details.update_summary`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_details.update_summary`
+
+Показывает свежий прогресс копии и общий пакет загрузок на M4. Различает логически зарезервированные байты и выделенные на диске блоки.
+
+```python
+def update_summary()
+```
+
+Прямые выражения вызова: `batch_line.set_visibility`, `bool`, `current.get`, `disk_line.set_visibility`, `message.set_visibility`, `next`, `phases.set_visibility`, `progress.set_value`, `released.set_visibility`, `retry_label.set_visibility`, [retry_time](photo_libraries_ui.md#symbol-retry_time), `self.cloud.get`, `size`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -715,7 +753,7 @@ async def rename(self, library)
 def render(self)
 ```
 
-Прямые выражения вызова: `branch_summary`, `copy_branches`, `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.cards.clear`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.render_copies](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copies), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line).
+Прямые выражения вызова: `branch_summary`, `copy_branches`, `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.cards.clear`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.render_copies](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copies), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line), `ui.label`, `ui.label().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -946,7 +984,7 @@ async def unbind_cloud(self, copy)
 def update_readouts(self)
 ```
 
-Прямые выражения вызова: `copy.get`, `int`, `job.get`, `len`, `library.get`, [library_state](photo_libraries_ui.md#symbol-library_state), [originals_state](photo_libraries_ui.md#symbol-originals_state), [originals_text](photo_libraries_ui.md#symbol-originals_text), [progress_text](photo_libraries_ui.md#symbol-progress_text), `row['copies'].get`, [self.cloud_copy_status](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_copy_status), [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.connection.get`, `self.rows.get`, [self.set_readout](photo_libraries_ui.md#symbol-PhotoLibrariesUI.set_readout).
+Прямые выражения вызова: `batch.get`, `batch_note.set_visibility`, `bool`, `copy.get`, `int`, `job.get`, `len`, `library.get`, [library_state](photo_libraries_ui.md#symbol-library_state), [originals_state](photo_libraries_ui.md#symbol-originals_state), [originals_text](photo_libraries_ui.md#symbol-originals_text), [progress_text](photo_libraries_ui.md#symbol-progress_text), `row.get`, `row['copies'].get`, `self.cloud.get`, [self.cloud_copy_status](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_copy_status), [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.connection.get`, `self.rows.get`, [self.set_readout](photo_libraries_ui.md#symbol-PhotoLibrariesUI.set_readout), `self.ws.format_bytes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

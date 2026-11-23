@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from media_manager.icloud_copies import ICloudCopies, ICloudReader
 from media_manager.storage import StorageCatalog
@@ -219,6 +219,86 @@ class ICloudCopiesTests(unittest.TestCase):
         self.assertEqual((copy['id'], copy['state'], copy['source_link_id']), (copy_id, 'paused', None))
         with self.storage.connect() as db:
             self.assertIsNotNone(db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=?', (copy_id,)).fetchone())
+
+    #: Проверяет глобальный бюджет, возобновление и выгрузку после записи.
+    #: Уже локальные и ранее скопированные файлы не запрашиваются у iCloud.
+    def test_cloud_batch_waits_for_capacity_and_evicts_only_its_verified_copy(self):
+        contents = {'a': b'abc', 'b': b'defg', 'c-local': b'local', 'd-existing': b'existing'}
+        for name, data in contents.items():
+            (self.source / name).write_bytes(data)
+        (self.target / 'd-existing').write_bytes(contents['d-existing'])
+        dataless = {(self.source / name).stat().st_ino for name in ('a', 'b', 'd-existing')}
+
+        #: Подтверждает освобождение загрузки только после появления готовой копии.
+        #: Имитирует удаление локальной загрузки метаданными исходного файла.
+        def bridge(parent, name, operation, version):
+            if operation == 'evict':
+                self.assertEqual((self.target / name).read_bytes(), contents[name])
+                dataless.add(version[1])
+            return True, ''
+
+        self.reader.residency = Mock(side_effect=bridge)
+        copy_id = self.copies.bind('', 'disk', 'Backup')['id']
+        self.copies.start_copy(copy_id)
+        with (patch('media_manager.icloud_copies.cloud_dataless', side_effect=lambda info: info.st_ino in dataless),
+              patch('media_manager.icloud_copies.free_bytes', return_value=4 * 1024**3),
+              patch('media_manager.icloud_copies.CLOUD_BATCH_BYTES', 6)):
+            self.read_pending()
+            self.assertEqual([(call.args[1], call.args[2]) for call in self.reader.residency.call_args_list], [('a', 'download')])
+            batch = self.copies.list()['batch']
+            self.assertEqual((batch['files'], batch['bytes']), (1, 3))
+            self.assertIsNotNone(batch['local_bytes'])
+            self.assertFalse((self.target / 'a').exists())
+            self.assertEqual((self.target / 'c-local').read_bytes(), b'local')
+            self.copies = self.service()
+            dataless.remove((self.source / 'a').stat().st_ino)
+            with self.storage.connect() as db:
+                db.execute("UPDATE icloud_copy_items SET retry_at=0 WHERE state='retry'")
+            self.read_pending()
+        events = [(call.args[1], call.args[2]) for call in self.reader.residency.call_args_list]
+        self.assertEqual(events, [('a', 'download'), ('a', 'evict'), ('b', 'download')])
+        status = self.copies.list()['copies'][0]
+        self.assertEqual((status['evicted'], status['evicted_bytes']), (1, 3))
+        self.assertIn('Локальная загрузка освобождена', [item['cloud_message'] for item in self.copies.journal(copy_id)['items']])
+
+    #: Проверяет резерв системного диска перед загрузкой и повтор после освобождения места.
+    #: Гарантирует отсутствие запроса к macOS, пока под файл не хватает места.
+    def test_cloud_reserve_defers_before_download(self):
+        (self.source / 'file').write_bytes(b'abc')
+        self.reader.residency = Mock(return_value=(True, ''))
+        copy_id = self.copies.bind('', 'disk', 'Backup')['id']
+        self.copies.start_copy(copy_id)
+        with (patch('media_manager.icloud_copies.cloud_dataless', return_value=True),
+              patch('media_manager.icloud_copies.free_bytes', return_value=2 * 1024**3)):
+            self.read_pending()
+        self.reader.residency.assert_not_called()
+        journal = self.copies.journal(copy_id)['items']
+        item = next(item for item in journal if item['path'] == 'file')
+        self.assertEqual(item['cloud_phase'], 'waiting_space')
+        self.assertIn('недостаточно места', item['message'])
+
+    #: Проверяет отказ от освобождения загрузки, если записанную копию заменили.
+    #: Сохраняет данные источника и указывает причину в журнале.
+    def test_cloud_download_is_kept_when_the_published_copy_was_replaced(self):
+        (self.source / 'file').write_bytes(b'abc')
+        self.reader.residency = Mock(return_value=(True, ''))
+        copy_id = self.copies.bind('', 'disk', 'Backup')['id']
+        self.copies.start_copy(copy_id)
+        with (patch('media_manager.icloud_copies.cloud_dataless', return_value=True) as dataless,
+              patch('media_manager.icloud_copies.free_bytes', return_value=4 * 1024**3)):
+            self.read_pending()
+            dataless.return_value = False
+            with self.storage.connect() as db:
+                db.execute("UPDATE icloud_copy_items SET retry_at=0 WHERE state='retry'")
+            self.copies._process(self.copies._next())
+            saved = self.target / 'file'
+            saved.unlink()
+            saved.write_bytes(b'not the verified file')
+            self.read_pending()
+        self.reader.residency.assert_called_once()
+        item = next(item for item in self.copies.journal(copy_id)['items'] if item['path'] == 'file')
+        self.assertEqual((item['state'], item['cloud_phase']), ('done', 'kept'))
+        self.assertIn('копия изменились', item['cloud_message'])
 
     def test_reader_ends_on_silent_process(self):
         reader = ICloudReader(self.root)

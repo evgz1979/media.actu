@@ -15,34 +15,85 @@ static BOOL sameVersion(struct stat first, struct stat second) {
         && first.st_ctimespec.tv_nsec == second.st_ctimespec.tv_nsec;
 }
 
-//: Запрашивает загрузку облачного файла либо передаёт локальное содержимое в stdout.
-//: Код 75 оставляет файл в очереди; передача использует дескриптор проверенного родителя.
+//: Сравнивает файл с сохранёнными метаданными передачи, не открывая его содержимое.
+//: Гидратация и выгрузка могут менять ctime, поэтому здесь сравнивается mtime.
+static BOOL expectedVersion(struct stat current, const char *argv[]) {
+    return current.st_dev == strtoll(argv[4], NULL, 10)
+        && current.st_ino == strtoull(argv[5], NULL, 10)
+        && current.st_size == strtoll(argv[6], NULL, 10)
+        && current.st_mtimespec.tv_sec == strtoll(argv[7], NULL, 10)
+        && current.st_mtimespec.tv_nsec == strtol(argv[8], NULL, 10);
+}
+
+//: Запрашивает загрузку или освобождение подтверждённого файла через FileManager.
+//: Код 76 сохраняет файл при наличии другого запроса или запрете выгрузки macOS.
+static int changeResidency(int parent, const char *name, BOOL download, BOOL retry, const char *argv[]) {
+    char directory[MAXPATHLEN];
+    if (fcntl(parent, F_GETPATH, directory) < 0) {
+        fputs("Не удалось получить путь iCloud Drive", stderr);
+        return 75;
+    }
+    NSURL *folder = [NSURL fileURLWithFileSystemRepresentation:directory isDirectory:YES relativeToURL:nil];
+    NSURL *url = [NSURL fileURLWithFileSystemRepresentation:name isDirectory:NO relativeToURL:folder];
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSArray *keys = download ? @[NSURLUbiquitousItemIsDownloadingKey, NSURLUbiquitousItemDownloadRequestedKey]
+        : @[NSURLIsUbiquitousItemKey, NSURLIsPurgeableKey, NSURLUbiquitousItemIsUploadedKey,
+            NSURLUbiquitousItemIsUploadingKey, NSURLUbiquitousItemHasUnresolvedConflictsKey];
+    NSError *error = nil;
+    NSDictionary *values = [url resourceValuesForKeys:keys error:&error];
+    struct stat current;
+    if (fstatat(parent, name, &current, AT_SYMLINK_NOFOLLOW) || !S_ISREG(current.st_mode)
+            || !expectedVersion(current, argv)) {
+        fputs("Версия файла iCloud изменилась", stderr);
+        return 76;
+    }
+    if (download) {
+        if (!(current.st_flags & SF_DATALESS) || [values[NSURLUbiquitousItemIsDownloadingKey] boolValue]
+                || (!retry && [values[NSURLUbiquitousItemDownloadRequestedKey] boolValue])) {
+            fputs("Файл уже локальный или загружается macOS", stderr);
+            return 76;
+        }
+        if ([manager startDownloadingUbiquitousItemAtURL:url error:&error]) return 0;
+    } else {
+        if (current.st_flags & SF_DATALESS) return 0;
+        if (![values[NSURLIsUbiquitousItemKey] boolValue] || ![values[NSURLIsPurgeableKey] boolValue]
+                || ![values[NSURLUbiquitousItemIsUploadedKey] boolValue]
+                || ![values[NSURLUbiquitousItemIsUploadingKey] isEqual:@NO]
+                || ![values[NSURLUbiquitousItemHasUnresolvedConflictsKey] isEqual:@NO]) {
+            fputs("macOS не подтвердила, что локальную загрузку можно освободить", stderr);
+            return 76;
+        }
+        if ([manager evictUbiquitousItemAtURL:url error:&error]) {
+            if (!fstatat(parent, name, &current, AT_SYMLINK_NOFOLLOW) && (current.st_flags & SF_DATALESS)) return 0;
+            fputs("macOS ещё освобождает локальную загрузку", stderr);
+            return 75;
+        }
+    }
+    fprintf(stderr, "%s", error.localizedDescription.UTF8String ?: "macOS отклонила действие iCloud");
+    return 75;
+}
+
+//: Передаёт локальное содержимое в stdout или явно меняет состояние облачного файла.
+//: Чтение заполнителя оставляет его в очереди без скрытого запроса на скачивание.
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
-        if (argc != 3) return 64;
+        if (argc != 3 && argc != 9) return 64;
         int parent = atoi(argv[1]);
         const char *name = argv[2];
         if (!*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) return 64;
+        if (argc == 9) {
+            if (!strcmp(argv[3], "download")) return changeResidency(parent, name, YES, NO, argv);
+            if (!strcmp(argv[3], "retry")) return changeResidency(parent, name, YES, YES, argv);
+            if (!strcmp(argv[3], "evict")) return changeResidency(parent, name, NO, NO, argv);
+            return 64;
+        }
         struct stat expected;
         if (fstatat(parent, name, &expected, AT_SYMLINK_NOFOLLOW) || !S_ISREG(expected.st_mode)) {
             fputs("Исходный файл недоступен", stderr);
             return 75;
         }
         if (expected.st_flags & SF_DATALESS) {
-            char directory[MAXPATHLEN];
-            if (fcntl(parent, F_GETPATH, directory) < 0) {
-                fputs("Не удалось получить путь iCloud Drive", stderr);
-                return 75;
-            }
-            NSFileManager *manager = NSFileManager.defaultManager;
-            NSURL *folder = [NSURL fileURLWithFileSystemRepresentation:directory isDirectory:YES relativeToURL:nil];
-            NSURL *url = [NSURL fileURLWithFileSystemRepresentation:name isDirectory:NO relativeToURL:folder];
-            NSError *error = nil;
-            if (![manager startDownloadingUbiquitousItemAtURL:url error:&error]) {
-                fprintf(stderr, "%s", error.localizedDescription.UTF8String ?: "iCloud не принял запрос загрузки");
-            } else {
-                fputs("Ожидание загрузки из iCloud", stderr);
-            }
+            fputs("Ожидание загрузки из iCloud", stderr);
             return 75;
         }
         int source = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);

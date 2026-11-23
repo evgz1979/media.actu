@@ -22,6 +22,35 @@ from .volume_identity import service_file
 ICLOUD_VOLUME_ID = 'icloud-drive'
 READ_TIMEOUT = 45
 PUBLISH_UNSUPPORTED = {errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EINVAL}
+CLOUD_BATCH_BYTES = 1024**3
+CLOUD_BATCH_FILES = 8
+CLOUD_DISK_RESERVE = 2 * 1024**3
+CLOUD_IN_PROGRESS = ('reserved', 'requested', 'external', 'copying', 'evict_pending')
+
+
+#: Откладывает путь, пока iCloud работает или освободится место в пакете.
+#: Пауза ожидания не увеличивает интервал обработки обычных ошибок.
+class CloudPending(OSError):
+    pass
+
+
+#: Читает системный признак отсутствующего содержимого из метаданных файла.
+#: Использует значение Darwin SF_DATALESS из sys/stat.h.
+def cloud_dataless(info):
+    return bool(getattr(info, 'st_flags', 0) & 0x40000000)
+
+
+#: Собирает идентичность, размер и mtime файла для дальнейшей проверки.
+#: Не использует ctime, который может измениться после загрузки из облака.
+def cloud_version(info):
+    return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns]
+
+
+#: Возвращает доступное место для новых загрузок на системном диске.
+#: Использует метаданные файловой системы открытого каталога.
+def free_bytes(descriptor):
+    capacity = os.fstatvfs(descriptor)
+    return capacity.f_bavail * capacity.f_frsize
 
 
 #: Возвращает виртуальный том iCloud Drive для двухпанельного дерева.
@@ -88,6 +117,20 @@ class ICloudReader:
                     except subprocess.TimeoutExpired:
                         pass
 
+    #: Вызывает одну явную операцию macOS над подтверждённой версией файла.
+    #: Отдельно возвращает отказ без изменения файла и временную ошибку.
+    def residency(self, parent, name, operation, version):
+        device, inode, size, mtime = version
+        seconds, nanos = divmod(mtime, 10**9)
+        result = subprocess.run([self.command(), str(parent), name, operation, *map(str, (device, inode, size, seconds, nanos))],
+                                pass_fds=(parent,), capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            return True, ''
+        message = result.stderr.strip() or 'macOS отклонила действие iCloud'
+        if result.returncode == 76:
+            return False, message
+        raise OSError(message)
+
 
 #: Хранит привязки папок iCloud Drive, очередь передачи и результат каждого пути.
 #: Зависимости конструктора: storage, build_directory, root, reader.
@@ -120,17 +163,25 @@ class ICloudCopies:
                     path TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
                     attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0,
                     message TEXT NOT NULL DEFAULT '', staging TEXT, updated_at TEXT NOT NULL,
+                    cloud_phase TEXT NOT NULL DEFAULT '', cloud_bytes INTEGER NOT NULL DEFAULT 0,
+                    cloud_version TEXT, cloud_message TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY(copy_id, path)
                 );
                 CREATE INDEX IF NOT EXISTS icloud_copy_due ON icloud_copy_items(copy_id, state, retry_at);
             """)
             if 'source_link_id' not in {row['name'] for row in db.execute('PRAGMA table_info(icloud_copies)')}:
                 db.execute('ALTER TABLE icloud_copies ADD COLUMN source_link_id TEXT REFERENCES icloud_copies(id)')
+            fields = {row['name'] for row in db.execute('PRAGMA table_info(icloud_copy_items)')}
+            for name, definition in (('cloud_phase', "TEXT NOT NULL DEFAULT ''"), ('cloud_bytes', 'INTEGER NOT NULL DEFAULT 0'),
+                                     ('cloud_version', 'TEXT'), ('cloud_message', "TEXT NOT NULL DEFAULT ''")):
+                if name not in fields:
+                    db.execute(f'ALTER TABLE icloud_copy_items ADD COLUMN {name} {definition}')
+            db.execute("CREATE INDEX IF NOT EXISTS icloud_copy_batch ON icloud_copy_items(cloud_phase, copy_id) WHERE cloud_phase != ''")
             db.execute("UPDATE icloud_copies SET current_path='' WHERE active=1")
 
-    #: Возвращает доступный путь облачного источника для операций чтения.
+    #: Возвращает доступный путь облачного источника для просмотра и подсчёта.
     #: Явно отклоняет недопустимое состояние через OSError.
-    def _source_volume(self):
+    def source_volume(self):
         if self.root is None or not self.root.is_dir():
             raise OSError('iCloud Drive недоступен на M4')
         return dict(mount_path=str(self.root))
@@ -139,7 +190,7 @@ class ICloudCopies:
     #: Поля результата: path, volume, entries, scanned_at, cached.
     def browse(self, path):
         path = relative_path(path)
-        volume = self._source_volume()
+        volume = self.source_volume()
         entries = StorageCatalog._read_directory(volume, path)
         return dict(path=path, volume=icloud_volume(True), entries=entries, scanned_at=now(), cached=False)
 
@@ -163,6 +214,15 @@ class ICloudCopies:
             raise OSError('Сначала подтверди том назначения')
         return volume
 
+    #: Возвращает общее число и логический объём загрузок, занявших пакет.
+    #: Учитывает очередь всех прямых копий, включая запрошенные до ручной паузы.
+    @staticmethod
+    def _batch_usage(db):
+        marks = ','.join('?' for _ in CLOUD_IN_PROGRESS)
+        row = db.execute(f'''SELECT COUNT(*) AS files, COALESCE(SUM(cloud_bytes),0) AS bytes
+                            FROM icloud_copy_items WHERE cloud_phase IN ({marks})''', CLOUD_IN_PROGRESS).fetchone()
+        return dict(row)
+
     #: Привязывает папку назначения к облачной области или её сохранённой копии.
     #: Проверяет непересечение корней и сохраняет их идентичность.
     def bind(self, source_path, volume_id, path, source_link_id=None):
@@ -182,8 +242,8 @@ class ICloudCopies:
                     raise ValueError('Папка назначения и iCloud Drive пересекаются.')
                 if self.root.is_dir():
                     MissingCopyCatalog._roots(dict(left={'path': ''}, right={'path': path}),
-                                              dict(left=self._source_volume(), right=destination))
-            origin = self._target_volume(upstream['volume_id']) if upstream else self._source_volume()
+                                              dict(left=self.source_volume(), right=destination))
+            origin = self._target_volume(upstream['volume_id']) if upstream else self.source_volume()
             scopes = dict(left={'path': upstream['path'] if upstream else ''}, right={'path': path})
             roots = MissingCopyCatalog._roots(scopes, dict(left=origin, right=destination))
             if upstream:
@@ -209,6 +269,11 @@ class ICloudCopies:
     def list(self):
         volumes = {v['id']: v for v in self.storage.refresh(cached_only=True)['volumes']}
         with self.storage.connect() as db:
+            batch = self._batch_usage(db)
+            marks = ','.join('?' for _ in CLOUD_IN_PROGRESS)
+            tracked = db.execute(f"""SELECT c.source_path,i.path,i.cloud_phase,i.cloud_version
+                                      FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id
+                                      WHERE i.cloud_phase IN ({marks})""", CLOUD_IN_PROGRESS).fetchall()
             rows = db.execute("""
                 SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,
                     c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,
@@ -216,6 +281,9 @@ class ICloudCopies:
                     COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,
                     COUNT(*) FILTER (WHERE i.state='retry') AS waiting,
                     COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,
+                    COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,
+                    COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,
+                    COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,
                     MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt
                 FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id
                 LEFT JOIN icloud_copy_items i ON c.id=i.copy_id
@@ -227,12 +295,44 @@ class ICloudCopies:
             copies.append(dict(row, volume_name=volume.get('display_name') or volume.get('name') or 'Том',
                                availability=volume.get('availability', 'offline'),
                                source_label=f"{row['source_number']:02d}-copy" if row['source_number'] else 'iCloud Drive'))
+        batch.update(limit_files=CLOUD_BATCH_FILES, limit_bytes=CLOUD_BATCH_BYTES, reserve_bytes=CLOUD_DISK_RESERVE,
+                     free_bytes=None, local_bytes=None,
+                     downloading=sum(row['cloud_phase'] in ('reserved', 'requested', 'external') for row in tracked),
+                     copying=sum(row['cloud_phase'] == 'copying' for row in tracked),
+                     releasing=sum(row['cloud_phase'] == 'evict_pending' for row in tracked))
         try:
-            self._source_volume()
+            source = self.source_volume()
             available = True
         except OSError:
             available = False
-        return dict(volume=icloud_volume(available), copies=copies)
+        if available:
+            try:
+                with open_readonly(source, '', directory=True) as descriptor:
+                    batch['free_bytes'] = free_bytes(descriptor)
+                batch['local_bytes'] = self._batch_local_bytes(source, tracked)
+            except OSError:
+                pass
+        return dict(volume=icloud_volume(available), copies=copies, batch=batch)
+
+    #: Суммирует реально выделенные блоки файлов текущего пакета по метаданным.
+    #: Два задания для одного файла учитываются один раз; неполные метаданные дают неизвестный результат.
+    @staticmethod
+    def _batch_local_bytes(source, tracked):
+        occupied = {}
+        for row in tracked:
+            path = PurePosixPath(row['source_path']) / row['path']
+            try:
+                with open_readonly(source, relative_path(str(path.parent)), directory=True) as parent:
+                    info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            except OSError:
+                return None
+            version = json.loads(row['cloud_version'])
+            if row['cloud_phase'] == 'evict_pending':
+                version = version['source']
+            if not stat.S_ISREG(info.st_mode) or cloud_version(info) != version:
+                return None
+            occupied[(info.st_dev, info.st_ino)] = info.st_blocks * 512
+        return sum(occupied.values())
 
     #: Возвращает страницу журнала с причинами задержек и временем повтора.
     #: Читает SQLite-таблицы: icloud_copy_items.
@@ -240,8 +340,8 @@ class ICloudCopies:
         copy = self._copy(copy_id)
         with self.storage.connect() as db:
             rows = db.execute("""
-                SELECT path,kind,state,attempts,retry_at,message,updated_at FROM icloud_copy_items
-                WHERE copy_id=? AND state!='pending'
+                SELECT path,kind,state,attempts,retry_at,message,updated_at,cloud_phase,cloud_bytes,cloud_message FROM icloud_copy_items
+                WHERE copy_id=? AND (state!='pending' OR cloud_phase!='')
                 ORDER BY CASE state WHEN 'retry' THEN 0 WHEN 'conflict' THEN 1 ELSE 2 END, updated_at DESC, path
                 LIMIT ? OFFSET ?
             """, (copy_id, limit + 1, offset)).fetchall()
@@ -287,6 +387,9 @@ class ICloudCopies:
                 raise ValueError('Сначала отвяжи копии, которые используют это звено как источник')
             if db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND staging IS NOT NULL', (copy_id,)).fetchone():
                 raise ValueError('Возобнови копирование, чтобы обработать незавершённую запись')
+            if db.execute("SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND cloud_phase IN ('reserved','requested','external','copying','evict_pending')",
+                          (copy_id,)).fetchone():
+                raise ValueError('Возобнови копирование, чтобы закончить обработку запрошенных загрузок iCloud')
             db.execute('DELETE FROM icloud_copies WHERE id=?', (copy_id,))
         return dict(id=copy_id)
 
@@ -358,14 +461,14 @@ class ICloudCopies:
             self._queue_ready_sources(db)
             item = db.execute("""
                 SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id
-                WHERE c.active=1 AND c.retry_at<=? AND i.state IN ('pending','retry') AND i.retry_at<=?
-                ORDER BY c.updated_at, i.retry_at, i.path LIMIT 1
+                WHERE c.active=1 AND c.retry_at<=? AND (i.state IN ('pending','retry') OR i.cloud_phase='evict_pending') AND i.retry_at<=?
+                ORDER BY (i.cloud_phase='evict_pending') DESC, c.updated_at, i.retry_at, i.path LIMIT 1
             """, (current, current)).fetchone()
             if item:
                 return dict(item)
             for row in db.execute("""
                 SELECT c.id,COUNT(*) FILTER (WHERE i.state='retry') AS waiting,
-                    COUNT(*) FILTER (WHERE i.state='pending') AS pending,
+                    COUNT(*) FILTER (WHERE i.state='pending' OR i.cloud_phase='evict_pending') AS pending,
                     COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts
                 FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id
                 WHERE c.active=1 AND c.state!='waiting_source' AND c.retry_at<=? GROUP BY c.id
@@ -383,7 +486,8 @@ class ICloudCopies:
         with self._lock, self.storage.connect() as db:
             if not self._copy(copy_id)['active']:
                 return
-            pending = db.execute("SELECT 1 FROM icloud_copy_items WHERE copy_id=? AND state='pending' LIMIT 1", (copy_id,)).fetchone()
+            pending = db.execute("""SELECT 1 FROM icloud_copy_items WHERE copy_id=?
+                                    AND (state='pending' OR cloud_phase='evict_pending') LIMIT 1""", (copy_id,)).fetchone()
             if pending:
                 return
             states = {row[0] for row in db.execute("SELECT DISTINCT state FROM icloud_copy_items WHERE copy_id=? AND state IN ('retry', 'conflict')", (copy_id,))}
@@ -437,7 +541,7 @@ class ICloudCopies:
                 source_volume = self._target_volume(upstream['volume_id'])
                 copy['read_path'] = upstream['path']
             else:
-                source_volume = self._source_volume()
+                source_volume = self.source_volume()
                 copy['read_path'] = copy['source_path']
             target_volume = self._target_volume(copy['volume_id'])
             self._validate_roots(copy, source_volume, target_volume)
@@ -450,12 +554,18 @@ class ICloudCopies:
         with self._lock, self.storage.connect() as db:
             self._check(identifier)
             self._update_copy(db, identifier, state='running', retry_at=0, message='', current_path=item['path'])
+        if item['cloud_phase'] == 'evict_pending':
+            self._evict_download(item, copy, source_volume, target_volume)
+            self._finish_item(identifier)
+            return
         try:
             if item['kind'] == 'directory':
                 state, message = self._scan(item, copy, source_volume, target_volume)
             else:
                 state, message = self._transfer(item, copy, source_volume, target_volume)
             self._update_item(item, state=state, message=message, retry_at=0)
+        except CloudPending as pending:
+            self._update_item(item, state='retry', retry_at=time.time() + 5, message=str(pending))
         except (OSError, subprocess.SubprocessError) as error:
             attempts = item['attempts'] + 1
             delay = min(900, 15 * 2 ** min(attempts - 1, 6))
@@ -519,6 +629,77 @@ class ICloudCopies:
         with open_readonly(source_volume, relative_path(str(full.parent)), directory=True) as parent:
             yield parent, full.name
 
+    #: Резервирует место пакета перед первым запросом загрузки заполнителя iCloud.
+    #: Разрешает большой файл отдельно, если после загрузки останется резерв диска.
+    def _reserve_download(self, item, original, source, version):
+        with self._lock, self.storage.connect() as db:
+            self._check(item['copy_id'])
+            batch = self._batch_usage(db)
+            size = source.st_size
+            if free_bytes(original) < CLOUD_DISK_RESERVE + batch['bytes'] + size:
+                message = 'На диске M4 недостаточно места с учётом резерва'
+            elif batch['files'] >= CLOUD_BATCH_FILES or (batch['files'] and batch['bytes'] + size > CLOUD_BATCH_BYTES):
+                message = 'Ожидает места в пакете загрузки'
+            else:
+                db.execute("""UPDATE icloud_copy_items
+                              SET cloud_phase='reserved',cloud_bytes=?,cloud_version=?,cloud_message=?,updated_at=?
+                              WHERE copy_id=? AND path=?""",
+                           (size, json.dumps(version), 'Зарезервировано место для загрузки', now(),
+                            item['copy_id'], item['path']))
+                return
+        self._update_item(item, cloud_phase='waiting_space', cloud_bytes=size, cloud_version=None, cloud_message=message)
+        raise CloudPending(message)
+
+    #: Управляет явной загрузкой отсутствующего облачного файла и записывает её владельца.
+    #: Уже локальный файл доступен сразу; после перезапуска сохраняется прежняя заявка.
+    def _prepare_download(self, item, original, name, source):
+        version = cloud_version(source)
+        phase = item['cloud_phase'] if json.loads(item['cloud_version'] or 'null') == version else ''
+        if not phase and item['cloud_phase'] in CLOUD_IN_PROGRESS:
+            self._update_item(item, cloud_phase='kept', cloud_message='Версия файла изменилась')
+        if not cloud_dataless(source):
+            if phase in ('requested', 'copying'):
+                self._update_item(item, cloud_phase='copying', cloud_message='Загружен на M4, записывается в копию')
+                return 'copying'
+            return phase if phase in CLOUD_IN_PROGRESS else 'local'
+        if phase not in CLOUD_IN_PROGRESS:
+            self._reserve_download(item, original, source, version)
+        try:
+            operation = 'retry' if phase in ('requested', 'copying') else 'download'
+            accepted, message = self.reader.residency(original, name, operation, version)
+        except OSError as error:
+            self._update_item(item, cloud_phase=phase if phase in CLOUD_IN_PROGRESS else 'waiting_space',
+                              cloud_message=str(error))
+            raise
+        phase = 'requested' if accepted or phase in ('requested', 'copying') else 'external'
+        self._update_item(item, cloud_phase=phase, cloud_message=message or 'Загрузка запрошена у macOS')
+        raise CloudPending('Ожидание загрузки из iCloud')
+
+    #: Освобождает загрузку приложения после проверки обеих версий файла.
+    #: Если macOS сохраняет загрузку, причина остаётся в журнале.
+    def _evict_download(self, item, copy, source_volume, target_volume):
+        versions = json.loads(item['cloud_version'])
+        parent = relative_path(str(PurePosixPath(item['path']).parent))
+        try:
+            with (self._source_parent(copy, source_volume, item['path']) as (original, name),
+                  destination_directory(target_volume, copy, parent) as target):
+                source = os.stat(name, dir_fd=original, follow_symlinks=False)
+                saved = os.stat(name, dir_fd=target, follow_symlinks=False)
+                if (not stat.S_ISREG(source.st_mode) or not stat.S_ISREG(saved.st_mode)
+                        or cloud_version(source) != versions['source'] or cloud_version(saved) != versions['target']):
+                    self._update_item(item, cloud_phase='kept', cloud_message='Источник или записанная копия изменились')
+                    return
+                self._check(copy['id'])
+                released, reason = self.reader.residency(original, name, 'evict', versions['source'])
+        except (OSError, subprocess.SubprocessError) as error:
+            attempts = item['attempts'] + 1
+            self._update_item(item, cloud_phase='evict_pending' if attempts < 3 else 'kept',
+                              attempts=attempts, retry_at=time.time() + 5 if attempts < 3 else 0,
+                              cloud_message=str(error))
+            return
+        self._update_item(item, cloud_phase='evicted' if released else 'kept',
+                          cloud_message='Локальная загрузка освобождена' if released else reason, retry_at=0)
+
     #: Планирует запись одного отсутствующего файла с учётом существующего назначения.
     #: Проверяет размер и не читает содержимое уже существующего файла.
     def _transfer(self, item, copy, source_volume, target_volume):
@@ -535,7 +716,23 @@ class ICloudCopies:
                 try:
                     existing = os.stat(name, dir_fd=target, follow_symlinks=False)
                 except FileNotFoundError:
-                    return self._write(item, copy, source_volume, target_volume, original, source, parent, target, name)
+                    linked = bool(copy['source_link_id'])
+                    phase = '' if linked else self._prepare_download(item, original, name, source)
+                    state, message, written = self._write(item, copy, source_volume, target_volume, original, source, parent, target, name)
+                    if phase == 'copying' and written:
+                        self._update_item(item, state=state, message=message, attempts=0, cloud_phase='evict_pending',
+                                          cloud_version=json.dumps(dict(source=cloud_version(source), target=written)),
+                                          cloud_message='Копия записана, ожидает освобождения загрузки')
+                    elif phase in CLOUD_IN_PROGRESS:
+                        self._update_item(item, cloud_phase='kept', cloud_message='Локальная загрузка сохранена')
+                    elif phase:
+                        self._update_item(item, cloud_phase='local', cloud_bytes=source.st_size,
+                                          cloud_message='Файл уже был загружен на M4')
+                    return state, message
+                if item['cloud_phase'] in CLOUD_IN_PROGRESS:
+                    if cloud_dataless(source):
+                        raise CloudPending('Ожидает завершения уже запрошенной загрузки iCloud')
+                    self._update_item(item, cloud_phase='kept', cloud_message='Файл назначения уже существует; загрузка сохранена')
                 if stat.S_ISREG(existing.st_mode) and existing.st_size == source.st_size:
                     return 'existing', 'Файл уже есть в копии, размер совпадает'
                 return 'conflict', 'Путь занят файлом другого размера или типа'
@@ -590,6 +787,7 @@ class ICloudCopies:
                 raise OSError('Размер записанного файла не совпал с размером источника')
             os.utime(descriptor, ns=(source.st_atime_ns, source.st_mtime_ns))
             os.fsync(descriptor)
+            written = cloud_version(os.fstat(descriptor))
             try:
                 with self._lock:
                     self._check(copy['id'])
@@ -599,13 +797,13 @@ class ICloudCopies:
                     self._publish(target, temporary, name, target_volume.get('kind') == 'network')
             except DirectCopyRequired:
                 try:
-                    self._write_network(item, copy, source_volume, target_volume, source, parent, target, name,
-                                        descriptor, staging, check)
+                    written = self._write_network(item, copy, source_volume, target_volume, source, parent, target, name,
+                                                  descriptor, staging, check)
                 except FileExistsError:
-                    return 'conflict', 'Файл появился в копии во время передачи'
+                    return 'conflict', 'Файл появился в копии во время передачи', None
             except FileExistsError:
-                return 'conflict', 'Файл появился в копии во время передачи'
-            return 'done', 'Скопирован'
+                return 'conflict', 'Файл появился в копии во время передачи', None
+            return 'done', 'Скопирован', written
         finally:
             os.close(descriptor)
             self._cleanup(item, target, staging)
@@ -663,3 +861,4 @@ class ICloudCopies:
                     raise OSError('Файл назначения заменён во время копирования')
                 self._update_item(item, staging=json.dumps(dict(staging, direct=None)))
                 staging.pop('direct')
+                return cloud_version(os.fstat(final))

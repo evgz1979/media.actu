@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from media_manager.directory_sizes import DirectorySizeService
+from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from media_manager.storage import StorageCatalog
 from workspace_ui import BrowserPane, StorageWorkspace
 
@@ -139,6 +140,30 @@ class DirectorySizeTests(unittest.TestCase):
             self.service.calculate('disk', 'Album')
         self.assertIsNone(self.size()['bytes'])
 
+    #: Проверяет виртуальный источник iCloud и логический размер без чтения файлов.
+    #: Подменяет открытие содержимого и поиск физических томов на явные ошибки.
+    def test_icloud_metadata_uses_the_same_queue_without_opening_files_or_discovering_disks(self):
+        self.service.icloud_source = lambda: dict(mount_path=str(self.volume))
+        open_fd = os.open
+
+        #: Разрешает только дескрипторы каталогов во время просмотра метаданных.
+        #: Открытие содержимого файла считается ошибкой теста.
+        def directory_only(path, flags, *args, **kwargs):
+            self.assertTrue(flags & os.O_DIRECTORY, f'Unexpected read of {path}')
+            return open_fd(path, flags, *args, **kwargs)
+
+        with (patch.object(self.storage, 'refresh', side_effect=AssertionError('Discovering disks')),
+              patch('media_manager.directory_sizes.os.open', side_effect=directory_only)):
+            self.service.request(ICLOUD_VOLUME_ID, ['Album'])
+            self.wait()
+            total = self.service.request(ICLOUD_VOLUME_ID, ['Album'], start=False)['sizes']['Album']
+        self.assertEqual((total['bytes'], total['files'], total['state']), (12, 2, 'ready'))
+
+        self.volume.rename(self.root / 'offline')
+        self.service.icloud_source = Mock(side_effect=OSError('iCloud Drive недоступен'))
+        cached = self.service.request(ICLOUD_VOLUME_ID, ['Album'])['sizes']['Album']
+        self.assertEqual((cached['bytes'], cached['state']), (12, 'offline'))
+
 
 class DirectorySizeDisplayTests(unittest.TestCase):
     def workspace(self):
@@ -177,6 +202,22 @@ class DirectorySizeDisplayTests(unittest.TestCase):
         self.assertEqual(pane.size_scope(), ('disk', 'Album'))
         ws.pair = SimpleNamespace(active=True, report=True, selected='Album', by_path={'Album': {'left': None}})
         self.assertIsNone(pane.size_scope())
+
+    #: Проверяет строку размера для выбранного облачного файла через его родителя.
+    #: Сохраняет исключение виртуального источника из обычной файловой сверки.
+    def test_icloud_header_counts_the_selected_folder_and_keeps_copy_scopes_separate(self):
+        ws = self.workspace()
+        ws.pair = SimpleNamespace(active=False)
+        ws.report = None
+        ws.directory_sizes[ICLOUD_VOLUME_ID] = {'Документы': dict(bytes=18, complete=True, state='ready')}
+        pane = BrowserPane.__new__(BrowserPane)
+        pane.view_mode, pane.workspace, pane.index, pane.volume_id = 'tree', ws, 0, ICLOUD_VOLUME_ID
+        pane.path, pane.kind, pane.refreshing = 'Документы/Фото.jpg', 'file', False
+        pane.refresh_button, pane.folder_size = Mock(), Mock()
+        pane.update_size_header()
+        self.assertEqual(pane.folder_size.text, 'Размер папки: 18 Б')
+        self.assertEqual(pane.size_scope(), (ICLOUD_VOLUME_ID, 'Документы'))
+        self.assertIsNone(pane.scope())
 
     def test_deleted_rows_are_not_updated_while_a_folder_is_loading(self):
         ws = self.workspace()

@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md).
+Импортирует из проекта: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/volume_identity.py](media_manager--volume_identity.md).
 Импортируется модулями: [app.py](app.md).
 Тестовые модули с прямым импортом: [tests/test_directory_sizes.py](tests.md#module-tests.test_directory_sizes), [tests/test_folder_markers.py](tests.md#module-tests.test_folder_markers).
 
@@ -17,6 +17,7 @@
 
 - [DirectorySizeService](#symbol-DirectorySizeService) — Считает логические размеры папок в фоне и сохраняет результаты для отключённых томов.
 - [DirectorySizeService.__init__](#symbol-DirectorySizeService.__init__) — Инициализирует DirectorySizeService и его рабочее состояние.
+- [DirectorySizeService._volume](#symbol-DirectorySizeService._volume) — Получает корень iCloud или обычного тома для опроса и фонового обхода.
 - [DirectorySizeService._worker](#symbol-DirectorySizeService._worker) — Извлекает области из очереди и записывает результаты либо ошибки подсчёта.
 - [DirectorySizeService.calculate](#symbol-DirectorySizeService.calculate) — Обходит дерево снизу вверх и сохраняет размеры каждой доступной папки.
 - [DirectorySizeService.close](#symbol-DirectorySizeService.close) — Останавливает очередь размеров и пробуждает ожидающие потоки.
@@ -29,14 +30,14 @@
 
 [media_manager/directory_sizes.py](../../media_manager/directory_sizes.py) · `DirectorySizeService`
 
-Считает логические размеры папок в фоне и сохраняет результаты для отключённых томов. Зависимости конструктора: storage.
+Считает логические размеры папок в фоне и сохраняет результаты для отключённых томов. Зависимости конструктора: storage и источник метаданных iCloud Drive.
 
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `_condition`, `_failures`, `_jobs`, `_queue`, `_stop`, `_workers`, `storage`.
+Состояние, присваиваемое конструктором: `_condition`, `_failures`, `_jobs`, `_queue`, `_stop`, `_workers`, `icloud_source`, `storage`.
 
-Именованные методы: `__init__`, `close`, `request`, `_worker`, `calculate`.
+Именованные методы: `__init__`, `close`, `_volume`, `request`, `_worker`, `calculate`.
 
 <a id="symbol-DirectorySizeService.__init__"></a>
 
@@ -47,16 +48,40 @@
 Инициализирует DirectorySizeService и его рабочее состояние. Изменяет SQLite-таблицы: directory_sizes.
 
 ```python
-def __init__(self, storage)
+def __init__(self, storage, *, icloud_source=None)
 ```
 
 SQLite: чтение не найдено; запись/DDL `directory_sizes`. См. [схему данных](../data-model.md).
 
-Присваивания полям `self`: `_condition`, `_failures`, `_jobs`, `_queue`, `_stop`, `_workers`, `storage`.
+Присваивания полям `self`: `_condition`, `_failures`, `_jobs`, `_queue`, `_stop`, `_workers`, `icloud_source`, `storage`.
 
 Прямые выражения вызова: `db.execute`, `deque`, `storage.connect`, `threading.Condition`, `threading.Event`, `threading.RLock`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-DirectorySizeService._volume"></a>
+
+## `DirectorySizeService._volume`
+
+[media_manager/directory_sizes.py](../../media_manager/directory_sizes.py) · `DirectorySizeService._volume`
+
+Получает корень iCloud или обычного тома для опроса и фонового обхода. Виртуальный источник обращается только к метаданным собственного корня.
+
+```python
+def _volume(self, volume_id, *, scan=False)
+```
+
+Прямые выражения вызова: `dict`, `next`, `self.icloud_source`, `self.storage._mounted.get`, `self.storage.get_volume`, `self.storage.refresh`, `str`, `volume.get`.
+
+Перехватываемые типы: `OSError`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `dict(self.icloud_source(), availability='online', identity_status='virtual')`
+- `dict(availability='offline', identity_error=str(error))`
+- `next((v for v in self.storage.refresh(True)['volumes'] if v['id'] == volume_id), dict(availability='offline'))`
+- `volume`
 
 
 <a id="symbol-DirectorySizeService._worker"></a>
@@ -94,11 +119,11 @@ def calculate(self, volume_id, path)
 
 SQLite: чтение `directory_sizes`; запись/DDL `directory_sizes`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `'/'.join`, `OSError`, `PurePosixPath`, `db.execute`, `db.execute('SELECT bytes,files,complete FROM directory_sizes WHERE volume_id=? AND path=?', (volume_id, current)).fetchone`, `dict`, `entry.stat`, `filter`, `next`, `now`, `open_readonly`, `os.fstat`, `os.scandir`, `pending.append`, `pending.extend`, `pending.pop`, `relative_path`, `reversed`, `self._failures.pop`, `self._stop.is_set`, `self.storage.connect`, `self.storage.refresh`, `service_file`, `stat.S_ISDIR`, `stat.S_ISREG`, `str`, `total.pop`, `total.update`, `total['children'].append`, `totals.pop`, `tuple`.
+Прямые выражения вызова: `'/'.join`, `OSError`, `PurePosixPath`, `db.execute`, `db.execute('SELECT bytes,files,complete FROM directory_sizes WHERE volume_id=? AND path=?', (volume_id, current)).fetchone`, `dict`, `entry.stat`, `filter`, `now`, `open_readonly`, `os.fstat`, `os.scandir`, `pending.append`, `pending.extend`, `pending.pop`, `relative_path`, `reversed`, `self._failures.pop`, `self._stop.is_set`, [self._volume](media_manager--directory_sizes.md#symbol-DirectorySizeService._volume), `self.storage.connect`, `service_file`, `stat.S_ISDIR`, `stat.S_ISREG`, `str`, `total.pop`, `total.update`, `total['children'].append`, `totals.pop`, `tuple`, `volume.get`.
 
 Явные `raise`:
 
-- `OSError('Том отключён или недоступен')`
+- `OSError(volume.get('identity_error') or 'Том отключён или недоступен')`
 - `OSError('Папка была заменена во время подсчёта')`
 - `OSError('Том был отключён или заменён во время подсчёта')`
 
@@ -142,7 +167,7 @@ SQLite: чтение `directory_sizes`; запись/DDL не найдена. С
 
 Присваивания полям `self`: `_workers`.
 
-Прямые выражения вызова: `','.join`, `any`, `bool`, `db.execute`, `dict`, `next`, `now`, `range`, `records.get`, `relative_path`, `self._condition.notify_all`, `self._failures.get`, `self._failures.pop`, `self._jobs.items`, `self._queue.append`, `self.storage._mounted.get`, `self.storage.connect`, `self.storage.get_volume`, `self.storage.refresh`, `sorted`, `threading.Thread`, `value.update`, `volume.get`, [within](media_manager--directory_sizes.md#symbol-within), `worker.start`.
+Прямые выражения вызова: `','.join`, `any`, `bool`, `db.execute`, `dict`, `next`, `now`, `range`, `records.get`, `relative_path`, `self._condition.notify_all`, `self._failures.get`, `self._failures.pop`, `self._jobs.items`, `self._queue.append`, [self._volume](media_manager--directory_sizes.md#symbol-DirectorySizeService._volume), `self.storage.connect`, `sorted`, `threading.Thread`, `value.update`, `volume.get`, [within](media_manager--directory_sizes.md#symbol-within), `worker.start`.
 
 Выражения возврата (ветви, без исполнения):
 

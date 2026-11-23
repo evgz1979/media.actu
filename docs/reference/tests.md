@@ -1052,6 +1052,14 @@ def test_deleted_rows_are_not_updated_while_a_folder_is_loading(self)
 def test_header_follows_folder_navigation_and_file_parent_and_hides_missing_side(self)
 ```
 
+<a id="symbol-tests.test_directory_sizes.DirectorySizeDisplayTests.test_icloud_header_counts_the_selected_folder_and_keeps_copy_scopes_separate"></a>
+
+### `DirectorySizeDisplayTests.test_icloud_header_counts_the_selected_folder_and_keeps_copy_scopes_separate`
+
+```python
+def test_icloud_header_counts_the_selected_folder_and_keeps_copy_scopes_separate(self)
+```
+
 <a id="symbol-tests.test_directory_sizes.DirectorySizeDisplayTests.test_zero_partial_refresh_and_offline_values_are_distinct"></a>
 
 ### `DirectorySizeDisplayTests.test_zero_partial_refresh_and_offline_values_are_distinct`
@@ -1074,6 +1082,14 @@ def test_changed_child_invalidates_ancestor_until_it_is_recalculated(self)
 
 ```python
 def test_failed_refresh_preserves_previous_size(self)
+```
+
+<a id="symbol-tests.test_directory_sizes.DirectorySizeTests.test_icloud_metadata_uses_the_same_queue_without_opening_files_or_discovering_disks"></a>
+
+### `DirectorySizeTests.test_icloud_metadata_uses_the_same_queue_without_opening_files_or_discovering_disks`
+
+```python
+def test_icloud_metadata_uses_the_same_queue_without_opening_files_or_discovering_disks(self)
 ```
 
 <a id="symbol-tests.test_directory_sizes.DirectorySizeTests.test_parent_request_covers_child_without_blocking_or_duplicate_traversals"></a>
@@ -1586,6 +1602,30 @@ def test_chain_rejects_different_scopes_overlap_and_unbinding_its_source(self)
 
 ```python
 def test_chain_waits_for_completed_source_and_never_reads_cloud_for_second_hop(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_cloud_batch_waits_for_capacity_and_evicts_only_its_verified_copy"></a>
+
+### `ICloudCopiesTests.test_cloud_batch_waits_for_capacity_and_evicts_only_its_verified_copy`
+
+```python
+def test_cloud_batch_waits_for_capacity_and_evicts_only_its_verified_copy(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_cloud_download_is_kept_when_the_published_copy_was_replaced"></a>
+
+### `ICloudCopiesTests.test_cloud_download_is_kept_when_the_published_copy_was_replaced`
+
+```python
+def test_cloud_download_is_kept_when_the_published_copy_was_replaced(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_cloud_reserve_defers_before_download"></a>
+
+### `ICloudCopiesTests.test_cloud_reserve_defers_before_download`
+
+```python
+def test_cloud_reserve_defers_before_download(self)
 ```
 
 <a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_existing_database_gains_source_link_without_changing_direct_copy"></a>

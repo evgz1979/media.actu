@@ -555,7 +555,7 @@ class BrowserPane:
             return None
         if getattr(self.workspace.pair, 'history_only', False):
             return None
-        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
+        if self.workspace.is_photos(self.volume_id):
             return None
         if self.workspace.pair.active and self.workspace.pair.report:
             row = self.workspace.pair.by_path.get(self.workspace.pair.selected)
@@ -576,7 +576,7 @@ class BrowserPane:
     def update_size_header(self):
         if self.view_mode == 'preview':
             return
-        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
+        if self.workspace.is_photos(self.volume_id):
             self.folder_size.set_visibility(False)
             self.refresh_button.set_enabled(not self.refreshing)
             return
@@ -836,7 +836,7 @@ class BrowserPane:
             return
         if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
-        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
+        if self.workspace.is_photos(self.volume_id):
             path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
             await self.load_folder(path)
             self.render()

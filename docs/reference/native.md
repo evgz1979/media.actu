@@ -6,7 +6,9 @@
 
 ## Оглавление
 
-- [media_manager.icloud_reader.m.main](#symbol-media_manager.icloud_reader.m.main) — Запрашивает загрузку облачного файла либо передаёт локальное содержимое в stdout.
+- [media_manager.icloud_reader.m.changeResidency](#symbol-media_manager.icloud_reader.m.changeResidency) — Запрашивает загрузку или освобождение подтверждённого файла через FileManager.
+- [media_manager.icloud_reader.m.expectedVersion](#symbol-media_manager.icloud_reader.m.expectedVersion) — Сравнивает файл с сохранёнными метаданными передачи, не открывая его содержимое.
+- [media_manager.icloud_reader.m.main](#symbol-media_manager.icloud_reader.m.main) — Передаёт локальное содержимое в stdout или явно меняет состояние облачного файла.
 - [media_manager.icloud_reader.m.sameVersion](#symbol-media_manager.icloud_reader.m.sameVersion) — Сопоставляет версии файла по идентичности, размеру и времени.
 - [media_manager.video_frame.m.DescriptorLoader](#symbol-media_manager.video_frame.m.DescriptorLoader) — Передаёт AVFoundation диапазоны уже проверенного файлового дескриптора.
 - [media_manager.video_frame.m.DescriptorLoader.resourceLoader:shouldWaitForLoadingOfRequestedResource:](#symbol-media_manager.video_frame.m.DescriptorLoader.resourceLoader%3AshouldWaitForLoadingOfRequestedResource%3A) — Отвечает на запрос диапазона байтов через pread без изменения позиции дескриптора.
@@ -48,13 +50,39 @@
 - [photos_adapter.open.applescript.run](#symbol-photos_adapter.open.applescript.run) — Выделяет объект по ID в системном приложении Photos без экспорта.
 - [photos_adapter.scan.js.module](#symbol-photos_adapter.scan.js.module) — Прежний JXA-скрипт собирает метаданные всех объектов через scripting API Photos.
 
+<a id="symbol-media_manager.icloud_reader.m.changeResidency"></a>
+
+## `media_manager.icloud_reader.m.changeResidency`
+
+[media_manager/icloud_reader.m](../../media_manager/icloud_reader.m)
+
+Запрашивает загрузку или освобождение подтверждённого файла через FileManager. Код 76 сохраняет файл при наличии другого запроса или запрете выгрузки macOS.
+
+```text
+static int changeResidency ( int parent , const char * name , BOOL download , BOOL retry , const char * argv [ ] )
+```
+
+
+<a id="symbol-media_manager.icloud_reader.m.expectedVersion"></a>
+
+## `media_manager.icloud_reader.m.expectedVersion`
+
+[media_manager/icloud_reader.m](../../media_manager/icloud_reader.m)
+
+Сравнивает файл с сохранёнными метаданными передачи, не открывая его содержимое. Гидратация и выгрузка могут менять ctime, поэтому здесь сравнивается mtime.
+
+```text
+static BOOL expectedVersion ( struct stat current , const char * argv [ ] )
+```
+
+
 <a id="symbol-media_manager.icloud_reader.m.main"></a>
 
 ## `media_manager.icloud_reader.m.main`
 
 [media_manager/icloud_reader.m](../../media_manager/icloud_reader.m)
 
-Запрашивает загрузку облачного файла либо передаёт локальное содержимое в stdout. Код 75 оставляет файл в очереди; передача использует дескриптор проверенного родителя.
+Передаёт локальное содержимое в stdout или явно меняет состояние облачного файла. Чтение заполнителя оставляет его в очереди без скрытого запроса на скачивание.
 
 ```text
 int main ( int argc , const char * argv [ ] )

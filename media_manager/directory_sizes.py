@@ -8,6 +8,7 @@ import stat
 import threading
 
 from .comparison import open_readonly
+from .icloud_copies import ICLOUD_VOLUME_ID
 from .storage import now, relative_path
 from .volume_identity import service_file
 
@@ -19,12 +20,13 @@ def within(path, root):
 
 
 #: Считает логические размеры папок в фоне и сохраняет результаты для отключённых томов.
-#: Зависимости конструктора: storage.
+#: Зависимости конструктора: storage и источник метаданных iCloud Drive.
 class DirectorySizeService:
     #: Инициализирует DirectorySizeService и его рабочее состояние.
     #: Изменяет SQLite-таблицы: directory_sizes.
-    def __init__(self, storage):
+    def __init__(self, storage, *, icloud_source=None):
         self.storage = storage
+        self.icloud_source = icloud_source
         self._condition = threading.Condition(threading.RLock())
         self._queue = deque()
         self._jobs = {}
@@ -49,17 +51,31 @@ class DirectorySizeService:
         for worker in self._workers:
             worker.join(timeout=1)
 
-    #: Возвращает сохранённые размеры и при разрешении ставит непокрытые области в очередь.
-    #: Поля результата: sizes.
-    def request(self, volume_id, paths, *, start=True, refresh=False):
-        paths = sorted({relative_path(path) for path in paths}, key=lambda p: (p.count('/'), len(p), p))
-        # Polling cached sizes must not discover disks or wait for NAS metadata.
+    #: Получает корень iCloud или обычного тома для опроса и фонового обхода.
+    #: Виртуальный источник обращается только к метаданным собственного корня.
+    def _volume(self, volume_id, *, scan=False):
+        if volume_id == ICLOUD_VOLUME_ID and self.icloud_source:
+            try:
+                return dict(self.icloud_source(), availability='online', identity_status='virtual')
+            except OSError as error:
+                return dict(availability='offline', identity_error=str(error))
+        if scan:
+            return next((v for v in self.storage.refresh(True)['volumes'] if v['id'] == volume_id),
+                        dict(availability='offline'))
         if not self.storage._checked:
             self.storage.refresh()
         volume = self.storage.get_volume(volume_id)
         mounted = self.storage._mounted.get(volume_id)
         volume['availability'] = ('unknown' if self.storage._discovery_error or volume.get('identity_status') == 'unverified'
                                   else 'online' if mounted else 'offline')
+        return volume
+
+    #: Возвращает сохранённые размеры и при разрешении ставит непокрытые области в очередь.
+    #: Поля результата: sizes.
+    def request(self, volume_id, paths, *, start=True, refresh=False):
+        paths = sorted({relative_path(path) for path in paths}, key=lambda p: (p.count('/'), len(p), p))
+        # Polling cached sizes must not discover disks or wait for NAS metadata.
+        volume = self._volume(volume_id)
         with self.storage.connect() as db:
             records = {r['path']: dict(r) for r in db.execute(
                 'SELECT * FROM directory_sizes WHERE volume_id=? AND path IN (' + ','.join('?' for _ in paths) + ')',
@@ -122,9 +138,9 @@ class DirectorySizeService:
     def calculate(self, volume_id, path):
         """One traversal supplies totals for every descendant; file contents stay closed."""
         path = relative_path(path)
-        volume = next((v for v in self.storage.refresh(True)['volumes'] if v['id'] == volume_id), None)
-        if not volume or volume['availability'] != 'online':
-            raise OSError('Том отключён или недоступен')
+        volume = self._volume(volume_id, scan=True)
+        if volume['availability'] != 'online':
+            raise OSError(volume.get('identity_error') or 'Том отключён или недоступен')
         with open_readonly(volume, path, directory=True) as descriptor:
             info = os.fstat(descriptor)
             identity = info.st_dev, info.st_ino
@@ -175,8 +191,8 @@ class DirectorySizeService:
                         info = os.fstat(descriptor)
                         if (info.st_dev, info.st_ino) != identity:
                             raise OSError('Папка была заменена во время подсчёта')
-                    latest = next((v for v in self.storage.refresh(True)['volumes'] if v['id'] == volume_id), None)
-                    if not latest or latest['availability'] != 'online':
+                    latest = self._volume(volume_id, scan=True)
+                    if latest['availability'] != 'online':
                         raise OSError('Том был отключён или заменён во время подсчёта')
                 if total['bytes'] is None:
                     with self._condition:

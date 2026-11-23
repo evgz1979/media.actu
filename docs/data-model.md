@@ -1305,6 +1305,10 @@ CREATE TABLE icloud_copies (
 | `message` | `TEXT` | True | `''` | 0 |
 | `staging` | `TEXT` | False | не задано | 0 |
 | `updated_at` | `TEXT` | True | не задано | 0 |
+| `cloud_phase` | `TEXT` | True | `''` | 0 |
+| `cloud_bytes` | `INTEGER` | True | `0` | 0 |
+| `cloud_version` | `TEXT` | False | не задано | 0 |
+| `cloud_message` | `TEXT` | True | `''` | 0 |
 
 Полное DDL с CHECK, UNIQUE и добавленными полями:
 
@@ -1314,6 +1318,8 @@ CREATE TABLE icloud_copy_items (
                     path TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
                     attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0,
                     message TEXT NOT NULL DEFAULT '', staging TEXT, updated_at TEXT NOT NULL,
+                    cloud_phase TEXT NOT NULL DEFAULT '', cloud_bytes INTEGER NOT NULL DEFAULT 0,
+                    cloud_version TEXT, cloud_message TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY(copy_id, path)
                 );
 ```
@@ -1322,7 +1328,7 @@ CREATE TABLE icloud_copy_items (
 
 - `copy_id` → `icloud_copies.id`, ON DELETE `CASCADE`, ON UPDATE `NO ACTION`.
 
-Индексы: `icloud_copy_due` (unique=False, partial=False), `sqlite_autoindex_icloud_copy_items_1` (unique=True, partial=False).
+Индексы: `icloud_copy_batch` (unique=False, partial=True), `icloud_copy_due` (unique=False, partial=False), `sqlite_autoindex_icloud_copy_items_1` (unique=True, partial=False).
 
 <a id="table-network-servers"></a>
 
