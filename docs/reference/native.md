@@ -6,6 +6,8 @@
 
 ## Оглавление
 
+- [media_manager.icloud_reader.m.main](#symbol-media_manager.icloud_reader.m.main) — Запрашивает загрузку облачного файла либо передаёт локальное содержимое в stdout.
+- [media_manager.icloud_reader.m.sameVersion](#symbol-media_manager.icloud_reader.m.sameVersion) — Сопоставляет версии файла по идентичности, размеру и времени.
 - [media_manager.video_frame.m.DescriptorLoader](#symbol-media_manager.video_frame.m.DescriptorLoader) — Передаёт AVFoundation диапазоны уже проверенного файлового дескриптора.
 - [media_manager.video_frame.m.DescriptorLoader.resourceLoader:shouldWaitForLoadingOfRequestedResource:](#symbol-media_manager.video_frame.m.DescriptorLoader.resourceLoader%3AshouldWaitForLoadingOfRequestedResource%3A) — Отвечает на запрос диапазона байтов через pread без изменения позиции дескриптора.
 - [media_manager.video_frame.m.main](#symbol-media_manager.video_frame.m.main) — Извлекает первый кадр видео и возвращает JPEG через stdout.
@@ -45,6 +47,32 @@
 - [photos_adapter.main.m.writeJSON](#symbol-photos_adapter.main.m.writeJSON) — Отправляет один JSON-объект с переводом строки и немедленным fflush.
 - [photos_adapter.open.applescript.run](#symbol-photos_adapter.open.applescript.run) — Выделяет объект по ID в системном приложении Photos без экспорта.
 - [photos_adapter.scan.js.module](#symbol-photos_adapter.scan.js.module) — Прежний JXA-скрипт собирает метаданные всех объектов через scripting API Photos.
+
+<a id="symbol-media_manager.icloud_reader.m.main"></a>
+
+## `media_manager.icloud_reader.m.main`
+
+[media_manager/icloud_reader.m](../../media_manager/icloud_reader.m)
+
+Запрашивает загрузку облачного файла либо передаёт локальное содержимое в stdout. Код 75 оставляет файл в очереди; передача использует дескриптор проверенного родителя.
+
+```text
+int main ( int argc , const char * argv [ ] )
+```
+
+
+<a id="symbol-media_manager.icloud_reader.m.sameVersion"></a>
+
+## `media_manager.icloud_reader.m.sameVersion`
+
+[media_manager/icloud_reader.m](../../media_manager/icloud_reader.m)
+
+Сопоставляет версии файла по идентичности, размеру и времени. Принимает два снимка stat до и после передачи.
+
+```text
+static BOOL sameVersion ( struct stat first , struct stat second )
+```
+
 
 <a id="symbol-media_manager.video_frame.m.DescriptorLoader"></a>
 

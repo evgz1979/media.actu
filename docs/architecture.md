@@ -25,6 +25,7 @@ flowchart LR
   A --> K[JPEG-кэш]
   A --> H[PhotoKit GUI-helper]
   H --> P[Системная медиатека Photos]
+  A --> I[Изолированное чтение iCloud Drive]
 ```
 
 Браузер получает URL JPEG на основе `core_url`; поэтому принятой схеме туннеля нужны
@@ -59,6 +60,7 @@ flowchart LR
 | Медиатеки | PhotoLibraries, PhotosBrowser | catalog.sqlite3 | Сопоставление профилей, виртуальные годы и месяцы |
 | Оригиналы | PhotosOriginals | catalog.sqlite3 + папки копий | Манифест, квитанции и потоковая запись новых файлов |
 | Расписание | PhotosSyncSchedule | catalog.sqlite3 | Окна работы и постоянные запросы оригиналов |
+| iCloud Drive | ICloudCopies, ICloudReader | storage.sqlite3 + папки копий | Области, очередь повторов, перенос недостающих файлов через macOS |
 | Превью индекса | ThumbnailService, ThumbnailWorkerPool | каталог + JPEG-кэш | Постоянная очередь, отдельные виды воркеров |
 | Превью томов | StoragePreviewService | JPEG-кэш | Фото/видео по запросу, вне медиаиндекса |
 

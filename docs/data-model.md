@@ -53,6 +53,8 @@
 - [disconnected_copy_groups](#table-disconnected-copy-groups)
 - [disconnected_copy_locations](#table-disconnected-copy-locations)
 - [folder_marker_jobs](#table-folder-marker-jobs)
+- [icloud_copies](#table-icloud-copies)
+- [icloud_copy_items](#table-icloud-copy-items)
 - [network_servers](#table-network-servers)
 - [network_shares](#table-network-shares)
 - [network_volume_links](#table-network-volume-links)
@@ -1239,6 +1241,82 @@ CREATE TABLE folder_marker_jobs (
 ```
 
 Индексы: `sqlite_autoindex_folder_marker_jobs_1` (unique=True, partial=False).
+
+<a id="table-icloud-copies"></a>
+
+## `icloud_copies`
+
+База: `storage.sqlite3`. Определение: [media_manager/icloud_copies.py / ICloudCopies.__init__](reference/media_manager--icloud_copies.md#symbol-ICloudCopies.__init__).
+
+Привязка области iCloud Drive к существующей папке. Хранит проверенную идентичность корней, стабильный номер, состояние и срок повторной проверки недоступного назначения.
+
+| Поле | Тип SQLite | NOT NULL | По умолчанию | Позиция PK |
+| --- | --- | --- | --- | --- |
+| `id` | `TEXT` | False | не задано | 1 |
+| `number` | `INTEGER` | True | не задано | 0 |
+| `source_path` | `TEXT` | True | не задано | 0 |
+| `volume_id` | `TEXT` | True | не задано | 0 |
+| `path` | `TEXT` | True | не задано | 0 |
+| `roots` | `TEXT` | True | не задано | 0 |
+| `active` | `INTEGER` | True | `0` | 0 |
+| `state` | `TEXT` | True | `'idle'` | 0 |
+| `current_path` | `TEXT` | True | `''` | 0 |
+| `message` | `TEXT` | True | `''` | 0 |
+| `retry_at` | `REAL` | True | `0` | 0 |
+| `updated_at` | `TEXT` | True | не задано | 0 |
+
+Полное DDL с CHECK, UNIQUE и добавленными полями:
+
+```sql
+CREATE TABLE icloud_copies (
+                    id TEXT PRIMARY KEY, number INTEGER UNIQUE NOT NULL, source_path TEXT NOT NULL,
+                    volume_id TEXT NOT NULL, path TEXT NOT NULL, roots TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'idle',
+                    current_path TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '',
+                    retry_at REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+                    UNIQUE(volume_id, path)
+                );
+```
+
+Индексы: `sqlite_autoindex_icloud_copies_1` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_2` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_3` (unique=True, partial=False).
+
+<a id="table-icloud-copy-items"></a>
+
+## `icloud_copy_items`
+
+База: `storage.sqlite3`. Определение: [media_manager/icloud_copies.py / ICloudCopies.__init__](reference/media_manager--icloud_copies.md#symbol-ICloudCopies.__init__).
+
+Очередь и журнал отдельных путей активной или последней передачи. Срок повтора задаётся временем Unix; staging отмечает подтверждённую принадлежность временного или незавершённого имени приложению.
+
+| Поле | Тип SQLite | NOT NULL | По умолчанию | Позиция PK |
+| --- | --- | --- | --- | --- |
+| `copy_id` | `TEXT` | True | не задано | 1 |
+| `path` | `TEXT` | True | не задано | 2 |
+| `kind` | `TEXT` | True | не задано | 0 |
+| `state` | `TEXT` | True | `'pending'` | 0 |
+| `attempts` | `INTEGER` | True | `0` | 0 |
+| `retry_at` | `REAL` | True | `0` | 0 |
+| `message` | `TEXT` | True | `''` | 0 |
+| `staging` | `TEXT` | False | не задано | 0 |
+| `updated_at` | `TEXT` | True | не задано | 0 |
+
+Полное DDL с CHECK, UNIQUE и добавленными полями:
+
+```sql
+CREATE TABLE icloud_copy_items (
+                    copy_id TEXT NOT NULL REFERENCES icloud_copies(id) ON DELETE CASCADE,
+                    path TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0,
+                    message TEXT NOT NULL DEFAULT '', staging TEXT, updated_at TEXT NOT NULL,
+                    PRIMARY KEY(copy_id, path)
+                );
+```
+
+Внешние ключи:
+
+- `copy_id` → `icloud_copies.id`, ON DELETE `CASCADE`, ON UPDATE `NO ACTION`.
+
+Индексы: `icloud_copy_due` (unique=False, partial=False), `sqlite_autoindex_icloud_copy_items_1` (unique=True, partial=False).
 
 <a id="table-network-servers"></a>
 

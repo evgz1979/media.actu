@@ -1,21 +1,29 @@
-"""Library bookmarks, per-library thumbnail progress, and copy associations."""
+"""Compact sidebar for Photos and iCloud Drive sources and their copies."""
+from asyncio import gather
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import PurePosixPath
+from zoneinfo import ZoneInfo
 
 from nicegui import ui
 
+from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 
-LIBRARY_CSS = '''
-.library-list { width:100%; padding:4px; gap:5px; }
-.library-button.q-btn { width:100%; padding:8px; text-align:left; border:1px solid transparent; }
-.library-button .q-btn__content { width:100%; display:flex; flex-direction:column; align-items:stretch; gap:4px; }
-.library-button.connected { background:#edf4e9; border-color:#c5d3bd; }
-.library-name { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.library-progress { font-size:10px; color:#6c7865; text-transform:none; overflow-wrap:anywhere; line-height:14px; }
-.library-progress-bar { height:3px; }
-.library-copy { display:block; padding:3px 8px 3px 18px; font-size:10px; color:#637b91; text-decoration:none; overflow-wrap:anywhere; }
-.library-note { font-size:10px; line-height:15px; color:#7b8475; padding:5px 10px; }
-.library-actions .q-btn { font-size:10px; padding:2px 7px; min-height:26px; }
-'''
+
+LIBRARY_CSS = """
+.library-list { width:100%; padding:3px 5px 5px; gap:3px; }
+.source-items { gap:1px; }
+.source-row { width:100%; gap:3px; min-width:0; min-height:28px; border-radius:4px; padding:0 2px; }
+.source-row.active { background:#eef4eb; }
+.source-row.source-copy { padding-left:22px; min-height:24px; }
+.source-row .q-btn { min-height:22px; padding:1px 3px; }
+.source-row .source-name { flex:1; min-width:0; font-size:11px; }
+.source-name .q-btn__content { width:100%; justify-content:flex-start; flex-wrap:nowrap; }
+.source-name .block { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.source-readout { flex-shrink:0; max-width:40%; color:#58674f; font-size:10px; white-space:nowrap; }
+.source-schedule { padding-left:27px; font-size:10px; color:#64705f; }
+.library-note { font-size:10px; color:#835649; padding:2px 9px; }
+"""
 
 
 #: Формирует подпись прогресса превью одной медиатеки.
@@ -59,6 +67,12 @@ def schedule_text(library):
     return 'Только ночью · ' + schedule.get('window', '00:00–07:00 МСК') if schedule.get('night_only') else ''
 
 
+#: Показывает точное время следующей попытки в московском часовом поясе.
+#: Принимает Unix-время из журнала iCloud Drive.
+def retry_time(timestamp):
+    return datetime.fromtimestamp(timestamp, ZoneInfo('Europe/Moscow')).strftime('%d.%m.%Y %H:%M:%S МСК')
+
+
 #: Определяет пользовательскую подпись доступности и паузы медиатеки.
 #: Использует (library.get('sync_schedule') or {}).get, library.get.
 def library_state(library):
@@ -90,6 +104,9 @@ class PhotoLibrariesUI:
     def __init__(self, workspace):
         self.ws = workspace
         self.libraries = []
+        self.connection = {}
+        self.cloud = {}
+        self.expanded = set()
         self.rows = {}
         self.signature = None
         self.copy_roles_signature = None
@@ -127,146 +144,390 @@ class PhotoLibrariesUI:
                      mount_path=None, availability='online' if s['active'] else 'offline',
                      mounted=False, identity_status='virtual', library=s) for s in self.libraries]
 
-    #: Создаёт сворачиваемую секцию списка медиатек.
-    #: Обновляет состояние объекта: add_button, cards, connect_button, note, permission_button, section.
+    #: Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
+    #: Обновляет состояние объекта: cards, note, section.
     def build(self):
         ui.add_css(LIBRARY_CSS)
-        with self.ws.sidebar_expansion('libraries', 'Медиатеки', icon='photo_library').props('dense').classes('copy-section w-full') as self.section:
+        with self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open').props('dense').classes('copy-section w-full') as self.section:
             self.cards = ui.column().classes('library-list')
-            self.note = ui.label().classes('library-note w-full')
-            with ui.column().classes('library-actions w-full px-2 pb-2 gap-1'):
-                self.permission_button = ui.button('Разрешить доступ Photos', icon='lock_open', on_click=self.authorize).props('flat no-caps color=green-9')
-                self.connect_button = ui.button('Подключить текущую', icon='sync', on_click=self.connect).props('flat no-caps color=dark')
-                self.add_button = ui.button('Добавить текущую медиатеку', icon='add', on_click=self.add).props('flat no-caps color=dark')
-        self.permission_button.set_visibility(False)
+            self.note = ui.label().classes('library-note w-full truncate')
+            self.note.set_visibility(False)
 
-    #: Обновляет данные медиатек и перерисовывает изменившиеся состояния.
-    #: Обновляет состояние объекта: libraries, refreshing, signature.
+    #: Обновляет Photos и iCloud независимо, сохраняя раскрытие копий и открытое меню.
+    #: Обновляет состояние объекта: cloud, connection, libraries, refreshing, signature.
     async def refresh(self):
         if self.refreshing or self.ws.client.is_deleted:
             return
         self.refreshing = True
         try:
-            data = await self.ws.request('GET', '/api/photos/libraries', timeout=20)
+            photos, cloud = await gather(
+                self.ws.request('GET', '/api/photos/libraries', timeout=20),
+                self.ws.request('GET', '/api/icloud/drive', timeout=20),
+                return_exceptions=True)
             with self.ws.client:
                 if self.ws.client.is_deleted:
                     return
-                self.libraries = data['libraries']
-                connection = data.get('connection', {})
-                self.permission_button.set_visibility(connection.get('state') == 'no_access')
-                self.add_button.set_enabled(not self.busy and connection.get('state') != 'no_access')
-                self.connect_button.set_enabled(not self.busy)
-                self.permission_button.set_enabled(not self.busy)
-                self.note.text = connection.get('error') or 'Оригиналы → привязанные копии'
-                self.section.text = f'Медиатеки · {len(self.libraries)}'
-                signature = tuple((s['id'], s.get('label'), s['active'], s['paused'], s['connection_state'],
-                                   tuple((s.get('sync_schedule') or {}).get(key) for key in ('night_only', 'start_hour', 'end_hour')),
-                                   tuple((c['id'], c['volume_name'], c['path'], c['number'],c.get('source_link_id'),c.get('source_label'), c['availability'], (c.get('originals') or {}).get('state'), (c.get('originals') or {}).get('scheduled')) for c in s.get('copies', [])))
-                                  for s in self.libraries)
+                errors = [self.ws.error_text(result) for result in (photos, cloud) if isinstance(result, Exception)]
+                if isinstance(photos, dict):
+                    self.libraries, self.connection = photos['libraries'], photos.get('connection', {})
+                if isinstance(cloud, dict):
+                    self.cloud = cloud
+                self.note.text = errors[0] if errors else ''
+                self.note.set_visibility(bool(errors))
+                self.section.text = f'Источники · {len(self.libraries) + bool(self.cloud)}'
+                signature = self.render_signature()
                 if signature != self.signature and not self.ws.context_menu_open:
                     self.signature = signature
                     self.render()
                     for pane in self.ws.panes:
-                        if self.ws.is_photos(pane.display_volume_id):
+                        if self.ws.is_photos(pane.display_volume_id) or pane.display_volume_id == ICLOUD_VOLUME_ID:
                             pane.path_signature = None
                             pane.update_header()
                 self.refresh_copy_roles()
+                self.update_readouts()
                 for library in self.libraries:
-                    row = self.rows.get(library['id'])
-                    if row:
-                        row['progress'].text = progress_text(library)
-                        total = library.get('thumbnail_total') or 0
-                        row['bar'].value = min(1, library.get('thumbnail_done', 0) / total) if total else 0
-                        row['state'].text = library_state(library)
-                        row['schedule'].text = schedule_text(library)
-                        row['schedule'].set_visibility(bool(schedule_text(library)))
-                        for copy in library.get('copies', []):
-                            refs = row.get('copies', {}).get(copy['id'])
-                            if refs:
-                                job = copy.get('originals') or {}
-                                refs['progress'].text = originals_text(copy)
-                                refs['state'].text = originals_state(copy)
-                                refs['bar'].value = min(1, job.get('done_assets', 0) / job['total_assets']) if job.get('total_assets') else 0
                     for pane in self.ws.panes:
                         if pane.view_mode == 'preview' and pane.preview.volume_id == f"photos-{library['id']}":
                             await pane.preview.refresh_pending(library.get('thumbnail_done', 0))
         except Exception as error:
             if not self.ws.client.is_deleted:
                 self.note.text = self.ws.error_text(error)
+                self.note.set_visibility(True)
         finally:
             self.refreshing = False
 
-    #: Создаёт общие команды доступа, подключения и добавления медиатеки.
-    #: Использует menu.on, ui.context_menu.
-    def menu(self):
-        menu = ui.context_menu()
-        menu.on('show', lambda: setattr(self.ws, 'context_menu_open', True))
-        menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
-        return menu
+    #: Отслеживает только изменения состава строк и доступности команд меню.
+    #: Числовой прогресс и подробности обновляются на существующих элементах UI.
+    def render_signature(self):
+        photos = tuple((library['id'], library.get('label'), library['active'], library['paused'],
+                        tuple((library.get('sync_schedule') or {}).get(key) for key in ('night_only', 'start_hour', 'end_hour')),
+                        tuple((c['id'], c['volume_name'], c['path'], c['number'], c.get('source_link_id'),
+                               c.get('source_label'), c['availability'], self.originals_running(c))
+                              for c in library.get('copies', []))) for library in self.libraries)
+        cloud = tuple((c['id'], c['number'], c['volume_name'], c['active'], c['availability']) for c in self.cloud.get('copies', []))
+        return photos, cloud, self.cloud.get('volume'), self.connection.get('state')
 
-    #: Перерисовывает записи медиатек, индикаторы и контекстные меню копий.
-    #: Использует (copy.get('originals') or {}).get, (library.get('sync_schedule') or {}).get, copy.get, job.get, library.get.
+    #: Возвращает виртуальный том iCloud Drive после первого успешного опроса.
+    #: Использует self.cloud.get.
+    def cloud_volume(self):
+        return self.cloud.get('volume')
+
+    #: Раскрывает или сворачивает список копий отдельного источника.
+    #: Обновляет состояние объекта: expanded и видимость списка.
+    def toggle_copies(self, key, button, copies):
+        if key in self.expanded:
+            self.expanded.remove(key)
+        else:
+            self.expanded.add(key)
+        opened = key in self.expanded
+        button.props('icon=' + ('expand_more' if opened else 'chevron_right'))
+        button.props['aria-expanded'] = str(opened).lower()
+        button.props['aria-label'] = 'Свернуть копии' if opened else 'Показать копии'
+        copies.set_visibility(opened)
+
+    #: Сохраняет фокус бокового меню при фоновом обновлении.
+    #: Использует menu.on.
+    def track_menu(self, menu):
+        menu.on('before-show', lambda: setattr(self.ws, 'context_menu_open', True))
+        menu.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
+
+    #: Создаёт строку источника или копии с одним показателем и кнопкой команд.
+    #: Возвращает обновляемую подпись показателя и её подсказку.
+    def source_line(self, name, on_open, on_menu, *, active=False, copy=False, path=None, toggle=None):
+        classes = 'source-row items-center no-wrap' + (' active' if active else '') + (' source-copy' if copy else '')
+        with ui.row().classes(classes) as line:
+            if toggle:
+                toggle()
+            button = ui.button(name, on_click=on_open).props('flat dense no-caps color=dark align=left').classes('source-name')
+            if path:
+                button.tooltip(path)
+            status = ui.label().classes('source-readout truncate')
+            with status:
+                detail = ui.tooltip()
+            with ui.button(icon='more_horiz').props('flat dense size=sm color=grey-7 aria-label="Команды"'):
+                with ui.menu().props('anchor="bottom right" self="top right"') as menu:
+                    self.track_menu(menu)
+                    on_menu()
+            line.on('contextmenu', menu.open, js_handler='(event) => { event.preventDefault(); emit(); }')
+        return status, detail
+
+    #: Создаёт заголовок источника и отдельный раскрываемый список его копий.
+    #: Возвращает показатель заголовка и контейнер строк копий.
+    @contextmanager
+    def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None):
+        with ui.column().classes('w-full source-items'):
+            opened = key in self.expanded
+            button = None
+
+            #: Создаёт кнопку раскрытия копий текущего источника.
+            #: Открытие изменяет видимость строк без повторного запроса Core.
+            def toggle():
+                nonlocal button
+                button = ui.button(icon='expand_more' if opened else 'chevron_right',
+                                   on_click=lambda: self.toggle_copies(key, button, children)).props(
+                    f'flat dense size=sm color=grey-7 aria-expanded={str(opened).lower()}')
+                button.props['aria-label'] = 'Свернуть копии' if opened else 'Показать копии'
+
+            header = self.source_line(name, on_open, on_menu, active=active, path=title, toggle=toggle if copies else None)
+            if schedule:
+                ui.label(schedule).classes('source-schedule')
+            with ui.column().classes('w-full source-items') as children:
+                yield header
+            children.set_visibility(opened)
+
+    #: Определяет, запущены ли оригиналы копии Photos либо ожидают расписания.
+    #: Использует copy.get, job.get.
+    @staticmethod
+    def originals_running(copy):
+        job = copy.get('originals') or {}
+        return job.get('state') in ('manifest', 'inventory', 'saving', 'pausing') or job.get('scheduled', False)
+
+    #: Заполняет меню управления системной медиатекой и разрешением Photos.
+    #: Использует self.add, self.authorize, self.connect.
+    def connection_menu(self):
+        if self.connection.get('state') == 'no_access':
+            ui.menu_item('Разрешить доступ Photos', on_click=self.authorize)
+        ui.menu_item('Подключить текущую медиатеку', on_click=self.connect)
+        ui.menu_item('Добавить текущую медиатеку', on_click=self.add)
+
+    #: Заполняет меню выбранной медиатеки и её настроек.
+    #: Использует self.connection_menu и существующие команды Photos.
+    def library_menu(self, library):
+        source_id = library['id']
+        ui.menu_item('Подробнее о медиатеке', on_click=lambda: self.library_details(source_id))
+        ui.menu_item('Переименовать', on_click=lambda: self.rename(library))
+        ui.menu_item('Продолжить превью' if library['paused'] or not library['active'] else 'Пауза превью',
+                     on_click=lambda: self.toggle(library))
+        night_only = bool((library.get('sync_schedule') or {}).get('night_only'))
+        ui.menu_item(('✓ ' if night_only else '') + 'Синхронизация только ночью', on_click=lambda: self.toggle_schedule(library))
+        ui.menu_item('Часы ночной синхронизации…', on_click=lambda: self.schedule_dialog(library))
+        scan = ui.menu_item('Обновить каталог', on_click=lambda: self.scan(source_id))
+        scan.set_enabled(bool(library['active']))
+        ui.menu_item('Привязать папку для копий оригиналов', on_click=lambda: self.bind(library))
+        ui.separator()
+        self.connection_menu()
+
+    #: Заполняет меню копии Photos командами передачи и связей.
+    #: Использует originals_running для выбора команды передачи.
+    def photo_copy_menu(self, library, copy):
+        source_id = library['id']
+        running = self.originals_running(copy)
+        ui.menu_item('Пауза сохранения' if running else 'Сохранить / проверить оригиналы',
+                     on_click=lambda: self.originals_action(source_id, copy, running))
+        ui.menu_item('Подробности и журнал', on_click=lambda: self.originals_journal(source_id, copy))
+        ui.menu_item('Источник копирования…', on_click=lambda: self.copy_source_dialog(library, copy))
+        if copy['number'] != 1:
+            ui.menu_item('Сделать 01-copy', on_click=lambda: self.action('POST', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/make-first"))
+        ui.separator()
+        ui.menu_item('Отвязать копию', on_click=lambda: self.unbind(source_id, copy))
+
+    #: Перерисовывает компактные заголовки и строки копий Photos и iCloud Drive.
+    #: Сохраняет команды на кнопках меню и правом клике по строке.
     def render(self):
         self.cards.clear()
         self.rows.clear()
         with self.cards:
             for library in self.libraries:
                 source_id = library['id']
-                with ui.column().classes('w-full gap-0'):
-                    with ui.button(on_click=lambda sid=source_id: self.ws.open_library(sid)).props('flat no-caps').classes(
-                        'library-button' + (' connected' if library['active'] else '')):
-                        with self.menu():
-                            ui.menu_item('Открыть медиатеку', on_click=lambda sid=source_id: self.ws.open_library(sid))
-                            ui.menu_item('Переименовать', on_click=lambda s=library: self.rename(s))
-                            ui.menu_item('Продолжить превью' if library['paused'] or not library['active'] else 'Пауза превью',
-                                         on_click=lambda s=library: self.toggle(s))
-                            for copy in library.get('copies', []):
-                                job = copy.get('originals') or {}
-                                running = job.get('state') in ('manifest', 'inventory', 'saving', 'pausing') or job.get('scheduled', False)
-                                ui.menu_item(('Пауза оригиналов' if running else 'Продолжить оригиналы') + f" · {copy['number']:02d}-copy",
-                                    on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
-                            night_only = bool((library.get('sync_schedule') or {}).get('night_only'))
-                            with ui.menu_item(on_click=lambda s=library: self.toggle_schedule(s)).props(
-                                'role=menuitemcheckbox aria-checked=' + str(night_only).lower()):
-                                with ui.item_section().props('side'):
-                                    ui.icon('check_box' if night_only else 'check_box_outline_blank', size='18px')
-                                ui.item_section('Синхронизация только ночью')
-                            ui.menu_item('Часы ночной синхронизации…', on_click=lambda s=library: self.schedule_dialog(s))
-                            scan = ui.menu_item('Обновить каталог', on_click=lambda sid=source_id: self.scan(sid))
-                            scan.set_enabled(bool(library['active']))
-                            ui.separator()
-                            ui.menu_item('Привязать папку для копий оригиналов', on_click=lambda s=library: self.bind(s))
-                        ui.label(library.get('label') or 'Photos').classes('library-name')
-                        progress = ui.label(progress_text(library)).classes('library-progress')
-                        bar = ui.linear_progress(value=0, show_value=False).props('color=green-7').classes('library-progress-bar')
-                        state = ui.label(library_state(library)).classes('library-progress')
-                        schedule = ui.label(schedule_text(library)).classes('library-progress')
-                        schedule.set_visibility(bool(schedule_text(library)))
-                        self.rows[source_id] = dict(progress=progress, bar=bar, state=state, schedule=schedule, copies={})
-                        for copy in library.get('copies', []):
-                            refs = dict(progress=ui.label(originals_text(copy)).classes('library-progress'))
-                            refs['bar'] = ui.linear_progress(value=0, show_value=False).props('color=blue-7').classes('library-progress-bar')
-                            refs['state'] = ui.label(originals_state(copy)).classes('library-progress')
-                            self.rows[source_id]['copies'][copy['id']] = refs
-                        if library.get('copies'):
-                            ui.label('Управление: правой кнопкой по папке копии').classes('library-progress')
-                    for copy in library.get('copies', []):
-                        title = f"{copy['number']:02d}-copy · {copy['volume_name']} /{copy['path']}"
-                        with ui.link(title, '#').classes('library-copy').on('click',
-                            lambda c=copy: self.ws.open_volume(c['volume_id'], 1, path=c['path']), js_handler='(event) => { event.preventDefault(); emit(); }'):
-                            with self.menu():
-                                job_state = (copy.get('originals') or {}).get('state', 'idle')
-                                running = job_state in ('manifest', 'inventory', 'saving', 'pausing') or (copy.get('originals') or {}).get('scheduled', False)
-                                ui.menu_item('Пауза сохранения' if running else ('Сохранить оригиналы' if job_state == 'idle' else 'Продолжить / проверить оригиналы'),
-                                             on_click=lambda sid=source_id, c=copy, active=running: self.originals_action(sid, c, active))
-                                ui.menu_item('Журнал сохранения', on_click=lambda sid=source_id, c=copy: self.originals_journal(sid, c))
-                                ui.menu_item('Источник копирования…', on_click=lambda s=library,c=copy:self.copy_source_dialog(s,c))
-                                if copy['number'] != 1:
-                                    ui.menu_item('Сделать 01-copy', on_click=lambda sid=source_id,c=copy:self.action('POST',f"/api/photos/libraries/{sid}/copies/{c['id']}/make-first"))
-                                ui.separator()
-                                ui.menu_item('Отвязать копию', on_click=lambda sid=source_id, c=copy: self.unbind(sid, c))
+                copies = library.get('copies', [])
+                title = library.get('label') or 'Photos'
+                name = 'Photos' if title == 'Системная медиатека Photos' else title
+                with self.source(source_id, name, lambda sid=source_id: self.ws.open_library(sid),
+                                 lambda s=library: self.library_menu(s), active=library['active'],
+                                 copies=copies, schedule=schedule_text(library), title=title) as status:
+                    self.rows[source_id] = dict(status=status, copies={})
+                    for copy in copies:
+                        self.rows[source_id]['copies'][copy['id']] = self.render_copy(
+                            copy, lambda s=library, c=copy: self.photo_copy_menu(s, c))
+            if not self.libraries:
+                self.rows['photos'] = dict(status=self.source_line('Photos', None, self.connection_menu))
+            if self.cloud:
+                copies = self.cloud['copies']
+                with self.source(ICLOUD_VOLUME_ID, 'iCloud Drive', self.open_cloud, self.cloud_menu,
+                                 active=self.cloud_volume()['availability'] == 'online', copies=copies) as status:
+                    self.rows[ICLOUD_VOLUME_ID] = dict(status=status, copies={})
+                    for copy in copies:
+                        self.rows[ICLOUD_VOLUME_ID]['copies'][copy['id']] = self.render_copy(
+                            copy, lambda c=copy: self.cloud_copy_menu(c))
 
-    #: Исполняет запрос Photos с единым обновлением UI и обработкой ошибки.
+    #: Рисует строку копии с переходом в её папку и подсказкой полного пути.
+    #: Возвращает показатель состояния строки.
+    def render_copy(self, copy, on_menu):
+        return self.source_line(f"{copy['number']:02d}-copy · {copy['volume_name']}",
+                                lambda: self.ws.open_volume(copy['volume_id'], 1, path=copy['path']), on_menu,
+                                path=f"{copy['volume_name']} /{copy['path']}", copy=True)
+
+    #: Применяет краткую подпись и подробную подсказку к существующей строке.
+    #: Обновляет поля элементов label и tooltip.
+    @staticmethod
+    def set_readout(elements, text, details):
+        label, tooltip = elements
+        label.text = text
+        tooltip.text = details
+
+    #: Обновляет компактный статус источников и копий без перерисовки строк.
+    #: Использует полные подписи прогресса в подсказках.
+    def update_readouts(self):
+        if row := self.rows.get('photos'):
+            self.set_readout(row['status'], 'Доступ' if self.connection.get('state') == 'no_access' else '',
+                             self.connection.get('error') or 'Настройки Photos')
+        for library in self.libraries:
+            if row := self.rows.get(library['id']):
+                done = int(library.get('thumbnail_done') or 0)
+                total = int(library.get('thumbnail_total') or 0)
+                text = f'{done / total:.1%}' if total else '—'
+                if not library['active']:
+                    text = 'Офлайн'
+                elif library['paused']:
+                    text = 'Пауза'
+                self.set_readout(row['status'], text, progress_text(library) + ' · ' + library_state(library))
+                for copy in library.get('copies', []):
+                    if elements := row['copies'].get(copy['id']):
+                        job = copy.get('originals') or {}
+                        total = job.get('total_assets') or 0
+                        done = job.get('done_assets') or 0
+                        state = job.get('state', 'idle')
+                        text = ('Офлайн' if copy['availability'] != 'online' else '✓' if state == 'completed'
+                                else '⚠' if state in ('failed', 'completed_with_errors') else f'{done / total:.0%}' if total else '—')
+                        self.set_readout(elements, text, originals_text(copy) + ' · ' + originals_state(copy))
+        if row := self.rows.get(ICLOUD_VOLUME_ID):
+            copies = self.cloud['copies']
+            online = self.cloud_volume()['availability'] == 'online'
+            text = f'{len(copies)} коп.' if online else 'Офлайн'
+            self.set_readout(row['status'], text, 'iCloud Drive на M4' if online else 'iCloud Drive недоступен на M4')
+            for copy in copies:
+                if elements := row['copies'].get(copy['id']):
+                    text = self.cloud_copy_status(copy)
+                    self.set_readout(elements, text, copy['message'] or f"{copy['done']} / {copy['total']} файлов")
+
+    #: Показывает прогресс и состояние превью в подробностях медиатеки.
+    #: Использует progress_text, library_state.
+    def library_details(self, source_id):
+        library = next((s for s in self.libraries if s['id'] == source_id), None)
+        if not library:
+            return
+        with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-2'):
+            ui.label(library.get('label') or 'Photos').classes('text-lg font-semibold')
+            ui.label(progress_text(library))
+            done, total = library.get('thumbnail_done') or 0, library.get('thumbnail_total') or 0
+            ui.linear_progress(value=min(1, done / total) if total else 0, show_value=False).props('color=green-7')
+            ui.label(library_state(library)).classes('s-note')
+            if schedule := schedule_text(library):
+                ui.label(schedule).classes('s-note')
+            ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
+        dialog.open()
+
+    #: Открывает дерево iCloud Drive в активной панели с режимом дерева.
+    #: Асинхронно ожидает: self.ws.open_volume.
+    async def open_cloud(self):
+        if self.cloud_volume()['availability'] != 'online':
+            ui.notify('iCloud Drive недоступен на M4', type='warning')
+            return
+        index = self.ws.active_index
+        if self.ws.panes[index].view_mode == 'preview':
+            index = 1 - index
+        await self.ws.open_volume(ICLOUD_VOLUME_ID, index)
+
+    #: Показывает команду добавления копии для доступного iCloud Drive.
+    #: Использует self.bind_cloud.
+    def cloud_menu(self):
+        bind = ui.menu_item('Привязать папку для копии…', on_click=self.bind_cloud)
+        bind.set_enabled(self.cloud_volume()['availability'] == 'online')
+
+    #: Подписывает состояние передачи iCloud Drive для компактной строки.
+    #: Использует состояние очереди и количество обработанных файлов.
+    @staticmethod
+    def cloud_copy_status(copy):
+        if copy['availability'] != 'online':
+            return 'Офлайн'
+        return {'idle': '—', 'paused': 'Пауза', 'waiting': 'Ждёт', 'completed': '✓',
+                'completed_with_conflicts': '⚠'}.get(copy['state'], f"{copy['done']}/{copy['total']}")
+
+    #: Показывает команды передачи, журнала и отвязки копии iCloud.
+    #: Использует self.action, self.cloud_details.
+    def cloud_copy_menu(self, copy):
+        endpoint = f"/api/icloud/copies/{copy['id']}"
+        action = 'pause' if copy['active'] else 'start'
+        title = 'Пауза' if copy['active'] else 'Скопировать недостающие'
+        ui.menu_item(title, on_click=lambda: self.action('POST', f'{endpoint}/{action}'))
+        ui.menu_item('Подробности и журнал', on_click=lambda: self.cloud_details(copy['id']))
+        ui.separator()
+        unbind = ui.menu_item('Отвязать копию', on_click=lambda: self.action('DELETE', endpoint))
+        unbind.set_enabled(not copy['active'])
+
+    #: Связывает весь iCloud Drive или выбранную слева папку с назначением справа.
+    #: Асинхронно ожидает: self.action и подтверждение диалога.
+    async def bind_cloud(self):
+        scope = self.ws.panes[1].scope()
+        volume = self.ws.resolve_volume(scope['volume_id']) if scope else None
+        if not volume or not scope['path'] or volume['availability'] != 'online':
+            ui.notify('Открой папку назначения на подключённом томе в правой панели.', type='info')
+            return
+        left = self.ws.panes[0]
+        paths = {'': 'Весь iCloud Drive'}
+        if left.volume_id == ICLOUD_VOLUME_ID and left.view_mode == 'tree' and left.kind == 'directory' and left.path:
+            paths[left.path] = f'iCloud Drive /{left.path}'
+        with ui.dialog() as dialog, ui.card().classes('w-[460px] max-w-full p-5 gap-3'):
+            ui.label('Привязать копию iCloud Drive').classes('text-lg font-semibold')
+            source = ui.select(paths, value=next(reversed(paths)), label='Скопировать из').props('outlined dense').classes('w-full')
+            ui.label('Назначение').classes('s-muted text-xs')
+            ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
+            if len(paths) == 1:
+                ui.label('Чтобы выбрать отдельную папку, открой её в iCloud Drive слева.').classes('s-note')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
+                ui.button('Привязать', on_click=lambda: dialog.submit(source.value)).props('unelevated no-caps color=green-9')
+        choice = await dialog
+        if choice is not None:
+            self.expanded.add(ICLOUD_VOLUME_ID)
+            await self.action('POST', '/api/icloud/copies', json=dict(scope, source_path=choice))
+
+    #: Показывает состояние копии и постраничный журнал iCloud Drive.
+    #: Отображает причину и дату каждой запланированной повторной попытки.
+    async def cloud_details(self, copy_id):
+        copy = next((c for c in self.cloud['copies'] if c['id'] == copy_id), None)
+        if not copy:
+            return
+        offset = 0
+        with ui.dialog() as dialog, ui.card().classes('w-[660px] max-w-full p-5 gap-2'):
+            ui.label(f"iCloud Drive · {copy['number']:02d}-copy").classes('text-lg font-semibold')
+            ui.label(f"iCloud Drive /{copy['source_path']} → {copy['volume_name']} /{copy['path']}").classes('s-path break-words')
+            ui.label(f"{copy['done']} из {copy['total']} файлов · ждут {copy['waiting']} · расхождений {copy['conflicts']}").classes('s-note')
+            ui.linear_progress(value=copy['done'] / copy['total'] if copy['total'] else 0, show_value=False).props('color=green-7')
+            if copy['message']:
+                ui.label(copy['message']).classes('s-note break-words')
+            if copy['retry_at']:
+                ui.label('Повтор ' + retry_time(copy['retry_at'])).classes('s-note')
+            entries = ui.column().classes('w-full max-h-[55vh] overflow-auto gap-1')
+
+            #: Получает и добавляет страницу событий в открытый журнал.
+            #: Обновляет смещение и видимость кнопки следующей страницы.
+            async def more():
+                nonlocal offset
+                more_button.disable()
+                try:
+                    data = await self.ws.request('GET', f'/api/icloud/copies/{copy_id}/journal', params={'offset': offset})
+                    with entries:
+                        for item in data['items']:
+                            next_at = item['retry_at']
+                            retry = ' · повтор ' + retry_time(next_at) if next_at else ''
+                            ui.label(f"{item['path'] or '/'} · {item['message'] or 'Готово'}{retry}").classes('text-xs break-all')
+                        if not offset and not data['items']:
+                            ui.label('Записей пока нет').classes('s-note')
+                    offset += len(data['items'])
+                    more_button.set_visibility(data['more'])
+                except Exception as error:
+                    self.ws.notice(error)
+                finally:
+                    more_button.enable()
+
+            with ui.row().classes('w-full justify-end'):
+                more_button = ui.button('Ещё записи', on_click=more).props('flat no-caps')
+                ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
+        dialog.open()
+        await more()
+
+    #: Исполняет команду источника с единым обновлением UI и обработкой ошибки.
     #: Обновляет состояние объекта: busy, signature.
     async def action(self, method, path, *, timeout=45, **kwargs):
         if self.busy:
@@ -367,7 +628,7 @@ class PhotoLibrariesUI:
             ui.label('Привязать папку для копий оригиналов').classes('text-lg font-semibold')
             ui.label(library.get('label') or 'Photos').classes('font-semibold')
             ui.label((volume.get('display_name') or volume['name']) + ' /' + scope['path']).classes('s-path break-words')
-            ui.label('Оригиналы будут сохраняться сразу в эту папку. Для запуска выбери «Сохранить оригиналы» в меню папки копии. Уже лежащие в ней файлы будут проверены по содержимому.').classes('s-note')
+            ui.label('Оригиналы будут сохраняться сразу в эту папку. Для запуска выбери «Сохранить оригиналы» в меню папки копии. Сохранённые оригиналы определяются по учёту Photos и параметрам файлов.').classes('s-note')
             with ui.row().classes('w-full justify-end'):
                 ui.button('Отмена', on_click=lambda: dialog.submit(False)).props('flat no-caps color=dark')
                 ui.button('Привязать', on_click=lambda: dialog.submit(True)).props('unelevated no-caps color=green-9')
@@ -409,9 +670,15 @@ class PhotoLibrariesUI:
     async def originals_journal(self, source_id, copy):
         try:
             data = await self.ws.request('GET', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/originals/journal")
+            job = data['job']
+            total = job.get('total_assets') or 0
             with ui.dialog() as dialog, ui.card().classes('w-[720px] max-w-full p-5 gap-3'):
                 ui.label('Сохранение оригиналов · журнал').classes('text-lg font-semibold')
-                ui.label(data['job'].get('message', '')).classes('s-note')
+                ui.label(f"{copy['volume_name']} /{copy['path']}").classes('s-path break-words')
+                ui.label(originals_text(dict(copy, originals=job))).classes('s-note')
+                ui.linear_progress(value=min(1, (job.get('done_assets') or 0) / total) if total else 0,
+                                   show_value=False).props('color=blue-7')
+                ui.label(job.get('message', '')).classes('s-note')
                 with ui.column().classes('w-full max-h-[60vh] overflow-auto gap-2'):
                     for path in data.get('incomplete_paths', []):
                         ui.label('Незавершённый файл оставлен в копии: ' + path).classes('text-xs text-red-8 break-all')

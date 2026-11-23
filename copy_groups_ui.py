@@ -277,10 +277,10 @@ class CopyGroupsUI:
             return
         ws = self.workspace
         history_only = getattr(ws.pair, 'history_only', False)
-        preview = any(getattr(p, 'view_mode', 'tree') == 'preview' or (p.volume or {}).get('kind') == 'photos'
-                      for p in getattr(ws, 'panes', ()))
-        self.controls.set_visibility(not bool(ws.report) and not history_only and not preview)
-        if ws.report or history_only or preview:
+        browse_only = any(getattr(p, 'view_mode', 'tree') == 'preview' or (p.volume or {}).get('kind') in ('photos', 'icloud')
+                          for p in getattr(ws, 'panes', ()))
+        self.controls.set_visibility(not bool(ws.report) and not history_only and not browse_only)
+        if ws.report or history_only or browse_only:
             return
         left, right = ws.panes
         policy = tuple((g['id'], g['next_number'], g.get('connected', True),

@@ -10,7 +10,7 @@
 ## Связи модуля
 
 Импортирует из проекта: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/storage.py](media_manager--storage.md).
-Импортируется модулями: [app.py](app.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/photos_originals.py](media_manager--photos_originals.md).
+Импортируется модулями: [app.py](app.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/photos_originals.py](media_manager--photos_originals.md).
 Тестовые модули с прямым импортом: [tests/test_copy_files.py](tests.md#module-tests.test_copy_files), [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_folder_markers.py](tests.md#module-tests.test_folder_markers).
 
 ## Оглавление определений

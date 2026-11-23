@@ -13,6 +13,12 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 | Метод | Путь | Назначение и обработчик |
 | --- | --- | --- |
 | `GET` | `/api/catalog/summary` | [catalog_summary](reference/app.md#symbol-catalog_summary) — Возвращает суммарные показатели сохранённого медиаиндекса. |
+| `GET` | `/api/icloud/browse` | [browse_icloud](reference/app.md#symbol-browse_icloud) — Показывает файлы и папки внутри iCloud Drive по метаданным. |
+| `POST` | `/api/icloud/copies` | [bind_icloud_copy](reference/app.md#symbol-bind_icloud_copy) — Привязывает выбранную папку тома к области iCloud Drive. |
+| `DELETE` | `/api/icloud/copies/{copy_id}` | [unbind_icloud_copy](reference/app.md#symbol-unbind_icloud_copy) — Удаляет остановленную привязку iCloud Drive. |
+| `GET` | `/api/icloud/copies/{copy_id}/journal` | [icloud_copy_journal](reference/app.md#symbol-icloud_copy_journal) — Читает журнал копии iCloud Drive с датами повторных попыток. |
+| `POST` | `/api/icloud/copies/{copy_id}/{action}` | [set_icloud_copy_state](reference/app.md#symbol-set_icloud_copy_state) — Запускает, продолжает или приостанавливает передачу iCloud Drive. |
+| `GET` | `/api/icloud/drive` | [list_icloud_copies](reference/app.md#symbol-list_icloud_copies) — Возвращает состояние iCloud Drive и прогресс его привязанных копий. |
 | `POST` | `/api/media/{media_id}/open` | [open_media_in_default_app](reference/app.md#symbol-open_media_in_default_app) — Открывает обычный файл системной командой или выделяет объект Photos. |
 | `GET` | `/api/media/{media_id}/thumbnail` | [media_thumbnail](reference/app.md#symbol-media_thumbnail) — Отдаёт только готовый JPEG из кэша медиаиндекса. |
 | `POST` | `/api/photos/authorize` | [authorize_system_photos](reference/app.md#symbol-authorize_system_photos) — Запрашивает разрешение Photos и возвращает состояние доступа. |
@@ -102,6 +108,63 @@ OpenAPI получен из текущих контрактов FastAPI на в�
 ### `GET /api/catalog/summary`
 
 [catalog_summary](reference/app.md#symbol-catalog_summary). Возвращает суммарные показатели сохранённого медиаиндекса.
+
+Декларированные ответы: `200` Successful Response.
+
+### `GET /api/icloud/browse`
+
+[browse_icloud](reference/app.md#symbol-browse_icloud). Показывает файлы и папки внутри iCloud Drive по метаданным.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `path` | `query` | False | `{"default": "", "maxLength": 4096, "title": "Path", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/icloud/copies`
+
+[bind_icloud_copy](reference/app.md#symbol-bind_icloud_copy). Привязывает выбранную папку тома к области iCloud Drive.
+
+Тело JSON: `{"$ref": "#/components/schemas/ICloudCopyRequest"}`; обязательное: True.
+
+Декларированные ответы: `201` Successful Response, `422` Validation Error.
+
+### `DELETE /api/icloud/copies/{copy_id}`
+
+[unbind_icloud_copy](reference/app.md#symbol-unbind_icloud_copy). Удаляет остановленную привязку iCloud Drive.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `copy_id` | `path` | True | `{"title": "Copy Id", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/icloud/copies/{copy_id}/journal`
+
+[icloud_copy_journal](reference/app.md#symbol-icloud_copy_journal). Читает журнал копии iCloud Drive с датами повторных попыток.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `copy_id` | `path` | True | `{"title": "Copy Id", "type": "string"}` |
+| `offset` | `query` | False | `{"default": 0, "minimum": 0, "title": "Offset", "type": "integer"}` |
+| `limit` | `query` | False | `{"default": 100, "maximum": 200, "minimum": 1, "title": "Limit", "type": "integer"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `POST /api/icloud/copies/{copy_id}/{action}`
+
+[set_icloud_copy_state](reference/app.md#symbol-set_icloud_copy_state). Запускает, продолжает или приостанавливает передачу iCloud Drive.
+
+| Параметр | Где | Обязательный | Тип, пределы и значение по умолчанию |
+| --- | --- | --- | --- |
+| `copy_id` | `path` | True | `{"title": "Copy Id", "type": "string"}` |
+| `action` | `path` | True | `{"enum": ["start", "pause"], "title": "Action", "type": "string"}` |
+
+Декларированные ответы: `200` Successful Response, `422` Validation Error.
+
+### `GET /api/icloud/drive`
+
+[list_icloud_copies](reference/app.md#symbol-list_icloud_copies). Возвращает состояние iCloud Drive и прогресс его привязанных копий.
 
 Декларированные ответы: `200` Successful Response.
 
@@ -1399,6 +1462,40 @@ required задаёт обязательность поля, null в anyOf до�
     }
   },
   "title": "HTTPValidationError",
+  "type": "object"
+}
+```
+
+### `ICloudCopyRequest`
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "source_path": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Source Path",
+      "type": "string"
+    },
+    "volume_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Volume Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "volume_id",
+    "path"
+  ],
+  "title": "ICloudCopyRequest",
   "type": "object"
 }
 ```

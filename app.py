@@ -33,6 +33,7 @@ from media_manager.folder_tracking import FolderTrackingService
 from media_manager.folder_markers import FolderMarkerService
 from media_manager.paired_comparison import PairedComparisonCatalog, DECISIONS
 from media_manager.copy_files import MissingCopyCatalog
+from media_manager.icloud_copies import ICloudCopies
 from media_manager.directory_sizes import DirectorySizeService
 from media_manager.storage_previews import StoragePreviewService
 from media_manager.photo_libraries import PhotoLibraries
@@ -65,6 +66,7 @@ folder_tracking = FolderTrackingService(copies)
 folder_markers = FolderMarkerService(copies)
 paired_comparison = PairedComparisonCatalog(storage, copies, comparison)
 missing_copies = MissingCopyCatalog(paired_comparison)
+icloud_copies = ICloudCopies(storage, DATA_DIR / 'native')
 directory_sizes = DirectorySizeService(storage)
 comparison_gate = threading.RLock()
 photos_adapter = SystemPhotosAdapter(ROOT / "photos_adapter", DATA_DIR / "native")
@@ -149,6 +151,7 @@ async def lifespan(_: FastAPI):
             watcher.watch(int(source["id"]), source_path)
             schedule_scan(int(source["id"]))
     photos_schedule.start()
+    icloud_copies.start()
     thumbnail_workers.start()
     #: Проверяет подключение Photos каждые 30 секунд и пробуждает очередь превью.
     #: Асинхронно ожидает: asyncio.sleep, asyncio.to_thread.
@@ -167,6 +170,7 @@ async def lifespan(_: FastAPI):
     directory_sizes.close()
     photos_schedule.close()
     photos_originals.close()
+    icloud_copies.close()
     missing_copies.close()
     paired_comparison.close()
     comparison.close()
@@ -1007,7 +1011,7 @@ async def authorize_system_photos() -> dict[str, object]:
     return {'status': status}
 
 
-#: Выполняет команду Photos в потоке с переводом ошибок доступа в HTTP.
+#: Выполняет команды Photos и iCloud Drive в потоке с переводом ошибок в HTTP.
 #: Явно отклоняет недопустимое состояние через HTTPException.
 async def library_call(method, *args, **kwargs):
     try:
@@ -1035,6 +1039,55 @@ class LibraryCopyRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     volume_id: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=4096)
+
+
+#: Задаёт облачную область и существующую папку назначения.
+#: Поля: source_path, volume_id, path.
+class ICloudCopyRequest(LibraryCopyRequest):
+    source_path: str = Field(default='', max_length=4096)
+
+
+#: Возвращает состояние iCloud Drive и прогресс его привязанных копий.
+#: Асинхронно ожидает: library_call.
+@app.get('/api/icloud/drive')
+async def list_icloud_copies() -> dict:
+    return await library_call(icloud_copies.list)
+
+
+#: Показывает файлы и папки внутри iCloud Drive по метаданным.
+#: Асинхронно ожидает: library_call.
+@app.get('/api/icloud/browse')
+async def browse_icloud(path: str = Query(default='', max_length=4096)) -> dict:
+    return await library_call(icloud_copies.browse, path)
+
+
+#: Привязывает выбранную папку тома к области iCloud Drive.
+#: Асинхронно ожидает: library_call.
+@app.post('/api/icloud/copies', status_code=201)
+async def bind_icloud_copy(request: ICloudCopyRequest) -> dict:
+    return await library_call(icloud_copies.bind, **request.model_dump())
+
+
+#: Удаляет остановленную привязку iCloud Drive.
+#: Асинхронно ожидает: library_call.
+@app.delete('/api/icloud/copies/{copy_id}')
+async def unbind_icloud_copy(copy_id: str) -> dict:
+    return await library_call(icloud_copies.unbind, copy_id)
+
+
+#: Запускает, продолжает или приостанавливает передачу iCloud Drive.
+#: Асинхронно ожидает: library_call.
+@app.post('/api/icloud/copies/{copy_id}/{action}')
+async def set_icloud_copy_state(copy_id: str, action: Literal['start', 'pause']) -> dict:
+    method = icloud_copies.start_copy if action == 'start' else icloud_copies.pause_copy
+    return await library_call(method, copy_id)
+
+
+#: Читает журнал копии iCloud Drive с датами повторных попыток.
+#: Асинхронно ожидает: library_call.
+@app.get('/api/icloud/copies/{copy_id}/journal')
+async def icloud_copy_journal(copy_id: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200)) -> dict:
+    return await library_call(icloud_copies.journal, copy_id, offset, limit)
 
 
 #: Определяет Pydantic-контракт временного окна Photos.

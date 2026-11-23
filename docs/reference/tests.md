@@ -900,6 +900,14 @@ def test_atomic_copy_keeps_existing_files_write_protected(self)
 def test_folder_marker_write_exception_covers_only_its_service_filename(self)
 ```
 
+<a id="symbol-tests.test_copy_sandbox.CopySandboxTests.test_icloud_copy_can_stage_files_on_a_protected_volume"></a>
+
+### `CopySandboxTests.test_icloud_copy_can_stage_files_on_a_protected_volume`
+
+```python
+def test_icloud_copy_can_stage_files_on_a_protected_volume(self)
+```
+
 <a id="symbol-tests.test_copy_sandbox.CopySandboxTests.test_marker_rename_is_atomic_and_keeps_originals_protected"></a>
 
 ### `CopySandboxTests.test_marker_rename_is_atomic_and_keeps_originals_protected`
@@ -1490,6 +1498,62 @@ def test_read_events_and_copy_temporaries_do_not_trigger_a_change(self)
 
 ```python
 def test_reconnect_restores_tracking_and_replaced_or_symlink_roots_are_rejected(self)
+```
+
+<a id="module-tests.test_icloud_copies"></a>
+
+## `test_icloud_copies.py`
+
+Пауза, восстановление очереди после перезапуска, тайм-ауты и безопасная публикация копий iCloud Drive.
+
+[tests/test_icloud_copies.py](../../tests/test_icloud_copies.py)
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_manual_pause_survives_restart_and_copies_have_independent_destinations"></a>
+
+### `ICloudCopiesTests.test_manual_pause_survives_restart_and_copies_have_independent_destinations`
+
+```python
+def test_manual_pause_survives_restart_and_copies_have_independent_destinations(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_network_fallback_writes_an_exclusive_final_file"></a>
+
+### `ICloudCopiesTests.test_network_fallback_writes_an_exclusive_final_file`
+
+```python
+def test_network_fallback_writes_an_exclusive_final_file(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_reader_ends_on_silent_process"></a>
+
+### `ICloudCopiesTests.test_reader_ends_on_silent_process`
+
+```python
+def test_reader_ends_on_silent_process(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_refuses_to_copy_into_cloud_or_into_an_overlapping_destination"></a>
+
+### `ICloudCopiesTests.test_refuses_to_copy_into_cloud_or_into_an_overlapping_destination`
+
+```python
+def test_refuses_to_copy_into_cloud_or_into_an_overlapping_destination(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_retries_partial_transfer_after_restart_and_continues_other_files"></a>
+
+### `ICloudCopiesTests.test_retries_partial_transfer_after_restart_and_continues_other_files`
+
+```python
+def test_retries_partial_transfer_after_restart_and_continues_other_files(self)
+```
+
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_scope_is_read_only_and_preserves_existing_files_and_structure"></a>
+
+### `ICloudCopiesTests.test_scope_is_read_only_and_preserves_existing_files_and_structure`
+
+```python
+def test_scope_is_read_only_and_preserves_existing_files_and_structure(self)
 ```
 
 <a id="module-tests.test_network"></a>

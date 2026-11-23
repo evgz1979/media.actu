@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/scanner.py](media_manager--scanner.md), [media_manager/storage.py](media_manager--storage.md).
+Импортирует из проекта: [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/scanner.py](media_manager--scanner.md), [media_manager/storage.py](media_manager--storage.md).
 Импортируется модулями: [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_storage_previews.py](tests.md#module-tests.test_storage_previews).
 
@@ -213,7 +213,7 @@ async def refresh_pending(self, revision)
 def render(self)
 ```
 
-Прямые выражения вызова: `' · '.join`, `Path`, `PurePosixPath`, `details.append`, `entry.get`, `media_kind`, `self.content.clear`, [self.image](storage_preview_ui.md#symbol-StoragePreview.image), `self.pending_images.clear`, [self.render_folder](storage_preview_ui.md#symbol-StoragePreview.render_folder), [self.update_header](storage_preview_ui.md#symbol-StoragePreview.update_header), `self.ws.format_bytes`, `self.ws.format_date`, `ui.button`, `ui.button('К папке', icon='arrow_back', on_click=self.parent).props`, `ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda: self.ws.open_photo(entry['media_id'])).props`, `ui.icon`, `ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes`, `ui.label`, `ui.label(' · '.join(details)).classes`, `ui.label('Выбери папку или файл в соседнем дереве.').classes`, `ui.label('Для этого типа файла доступна информация без изображения.').classes`, `ui.label('Кадр видео').classes`, `ui.label(entry.get('name') or PurePosixPath(self.path).name).classes`.
+Прямые выражения вызова: `' · '.join`, `Path`, `PurePosixPath`, `details.append`, `entry.get`, `media_kind`, `self.content.clear`, [self.image](storage_preview_ui.md#symbol-StoragePreview.image), `self.pending_images.clear`, [self.render_folder](storage_preview_ui.md#symbol-StoragePreview.render_folder), [self.update_header](storage_preview_ui.md#symbol-StoragePreview.update_header), `self.ws.format_bytes`, `self.ws.format_date`, `ui.button`, `ui.button('К папке', icon='arrow_back', on_click=self.parent).props`, `ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda: self.ws.open_photo(entry['media_id'])).props`, `ui.icon`, `ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes`, `ui.label`, `ui.label(' · '.join(details)).classes`, `ui.label('Выбери папку или файл в соседнем дереве.').classes`, `ui.label('Кадр видео').classes`, `ui.label(entry.get('name') or PurePosixPath(self.path).name).classes`, `ui.label(message).classes`.
 
 Выражения возврата (ветви, без исполнения):
 

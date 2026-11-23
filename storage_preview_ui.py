@@ -4,6 +4,7 @@ from urllib.parse import quote, urlencode
 
 from nicegui import ui
 
+from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from media_manager.scanner import media_kind
 from media_manager.storage import relative_path
 
@@ -217,7 +218,7 @@ class StoragePreview:
             entry = self.entry or {}
             ui.label(entry.get('name') or PurePosixPath(self.path).name).classes('preview-title')
             kind = entry.get('media_kind') or media_kind(Path(entry.get('name') or self.path))
-            if self.kind == 'file' and kind:
+            if self.kind == 'file' and kind and self.volume_id != ICLOUD_VOLUME_ID:
                 self.image(entry, large=True)
                 if kind == 'video':
                     ui.label('Кадр видео').classes('preview-info')
@@ -225,7 +226,9 @@ class StoragePreview:
                     ui.button('Открыть в Photos', icon='open_in_new', on_click=lambda: self.ws.open_photo(entry['media_id'])).props('flat dense no-caps color=dark')
             else:
                 ui.icon('link' if self.kind == 'symlink' else 'insert_drive_file', size='64px').classes('s-muted')
-                ui.label('Для этого типа файла доступна информация без изображения.').classes('preview-info')
+                message = ('iCloud Drive · сведения о файле' if self.volume_id == ICLOUD_VOLUME_ID
+                           else 'Для этого типа файла доступна информация без изображения.')
+                ui.label(message).classes('preview-info')
             details = []
             if entry.get('size') is not None:
                 details.append(self.ws.format_bytes(entry['size']))
@@ -253,7 +256,7 @@ class StoragePreview:
             for entry in entries[:self.limit]:
                 with ui.button(on_click=lambda e=entry: self.show(self.volume_id, e)).props('flat no-caps').classes('preview-tile'):
                     kind = (entry.get('media_kind') or media_kind(Path(entry['name']))) if entry['kind'] == 'file' else None
-                    if kind:
+                    if kind and self.volume_id != ICLOUD_VOLUME_ID:
                         self.image(entry)
                     else:
                         with ui.element('div').classes('preview-tile-symbol'):

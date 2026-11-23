@@ -11,6 +11,7 @@ from nicegui import app, background_tasks, ui
 from comparison_tree_ui import ComparisonTree
 from copy_groups_ui import CopyGroupsUI
 from media_manager.comparison import LABELS, NAME_STATUSES
+from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from media_manager.storage import FLAGS, FOLDER_TAGS, PURPOSES, relative_path
 from media_manager.volume_identity import validate_name
 from network_ui import show_network_dialog
@@ -278,7 +279,7 @@ class BrowserPane:
     #: Возвращает допустимую файловую область панели для операций с папками.
     #: Поля результата: volume_id, path.
     def scope(self):
-        if self.workspace.is_photos(self.display_volume_id):
+        if self.workspace.is_photos(self.display_volume_id) or self.display_volume_id == ICLOUD_VOLUME_ID:
             return None
         if self.view_mode == 'preview':
             volume = next((v for v in self.workspace.volumes if v['id'] == self.preview.volume_id), None)
@@ -534,7 +535,7 @@ class BrowserPane:
             return None
         if getattr(self.workspace.pair, 'history_only', False):
             return None
-        if self.workspace.is_photos(self.volume_id):
+        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
             return None
         if self.workspace.pair.active and self.workspace.pair.report:
             row = self.workspace.pair.by_path.get(self.workspace.pair.selected)
@@ -555,7 +556,7 @@ class BrowserPane:
     def update_size_header(self):
         if self.view_mode == 'preview':
             return
-        if self.workspace.is_photos(self.volume_id):
+        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
             self.folder_size.set_visibility(False)
             self.refresh_button.set_enabled(not self.refreshing)
             return
@@ -653,7 +654,7 @@ class BrowserPane:
         self.filter_value = ''
         self.result_filter.set_value('')
         self.volume_select.set_value(volume_id)
-        if self.volume and self.volume['kind'] != 'photos' and archived(self.volume):
+        if self.volume and self.volume['kind'] not in ('photos', 'icloud') and archived(self.volume):
             self.workspace.archive.open()
         if activate:
             self.workspace.set_active(self.index)
@@ -662,7 +663,7 @@ class BrowserPane:
         self.tree.clear()
         with self.tree:
             ui.spinner(size='22px').classes('m-4')
-        live = not self.scan and self.volume and self.volume['kind'] != 'photos' and self.volume['availability'] == 'online'
+        live = not self.scan and self.volume and self.volume['kind'] not in ('photos', 'icloud') and self.volume['availability'] == 'online'
         if live:
             self.loading_folders.add(self.root_path)
         await self.load_folder(self.root_path, refresh=False)
@@ -816,7 +817,7 @@ class BrowserPane:
             return
         if self.comparison_open() or self.refresh_busy() or not self.volume_id:
             return
-        if self.workspace.is_photos(self.volume_id):
+        if self.workspace.is_photos(self.volume_id) or self.volume_id == ICLOUD_VOLUME_ID:
             path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
             await self.load_folder(path)
             self.render()
@@ -993,7 +994,7 @@ class BrowserPane:
                             if entry.get('media_id'):
                                 with ui.context_menu():
                                     ui.menu_item('Открыть в Photos', on_click=lambda e=entry: self.workspace.open_photo(e['media_id']))
-                        else:
+                        elif self.volume_id != ICLOUD_VOLUME_ID:
                             self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
                                                          volume_id=self.volume_id, path=entry['path'],
                                                          folder=directory,
@@ -1032,7 +1033,7 @@ class BrowserPane:
                             modified = datetime.fromtimestamp(entry['mtime_ns'] / 1e9, timezone.utc).isoformat()
                         ui.label(self.workspace.format_date(modified)).classes('s-entry-cell')
                         size = entry.get('size')
-                        if directory and not self.workspace.is_photos(self.volume_id):
+                        if directory and not self.workspace.is_photos(self.volume_id) and self.volume_id != ICLOUD_VOLUME_ID:
                             self.size_cells[self.volume_id, entry['path']] = ui.label(
                                 self.workspace.directory_size_text(self.volume_id, entry['path'])).classes('s-entry-cell s-entry-size')
                         else:
@@ -1174,11 +1175,12 @@ class StorageWorkspace:
     def is_photos(volume_id):
         return bool(isinstance(volume_id, str) and volume_id.startswith('photos-') and volume_id[7:].isdigit())
 
-    #: Объединяет обычные тома и виртуальные медиатеки для выбора в панелях.
+    #: Объединяет обычные тома и виртуальные источники для выбора в панелях.
     #: Использует libraries.volumes.
     def browse_volumes(self):
         libraries = getattr(self, 'photo_libraries', None)
-        return self.volumes + (libraries.volumes() if libraries else [])
+        cloud = getattr(libraries, 'cloud', {}).get('volume')
+        return self.volumes + (libraries.volumes() if libraries else []) + ([cloud] if cloud else [])
 
     #: Формирует варианты селектора томов с отображаемыми названиями.
     #: Использует archived, self.browse_volumes, v.get.
@@ -1190,12 +1192,14 @@ class StorageWorkspace:
     def resolve_volume(self, volume_id):
         return next((v for v in self.browse_volumes() if v['id'] == volume_id), None)
 
-    #: Выбирает API обычного тома или виртуальной медиатеки и получает страницу.
+    #: Выбирает API обычного тома, Photos или iCloud Drive и получает список.
     #: Асинхронно ожидает: self.request.
     async def read_directory(self, volume_id, path, *, refresh=False, discover=False, offset=0, limit=150):
         if self.is_photos(volume_id):
             return await self.request('GET', f'/api/photos/libraries/{volume_id[7:]}/browse',
                                       params=dict(path=path, offset=offset, limit=limit), timeout=45)
+        if volume_id == ICLOUD_VOLUME_ID:
+            return await self.request('GET', '/api/icloud/browse', params={'path': path}, timeout=45)
         return await self.request('GET', f'/api/storage/volumes/{volume_id}/directory',
                                   params=dict(path=path, refresh=refresh, discover=discover), timeout=45)
 
@@ -1509,7 +1513,8 @@ class StorageWorkspace:
             #: Обновляет состояние объекта: context_menu_open.
             def before_show():
                 self.context_menu_open = True
-                virtual = self.is_photos(volume_id() if callable(volume_id) else volume_id)
+                identifier = volume_id() if callable(volume_id) else volume_id
+                virtual = self.is_photos(identifier) or identifier == ICLOUD_VOLUME_ID
                 finder.set_visibility(not virtual)
                 properties.set_visibility(not virtual)
                 if tags:
@@ -1616,7 +1621,7 @@ class StorageWorkspace:
                 pane.update_header()
                 # Capacity and metadata polling must not replace thousands of
                 # tree elements, their focus, or their scroll positions.
-                if pane.volume_id and (force or (not self.is_photos(pane.volume_id)
+                if pane.volume_id and (force or (not self.is_photos(pane.volume_id) and pane.volume_id != ICLOUD_VOLUME_ID
                                                  and previous.get(pane.volume_id) != access_state(pane.volume))):
                     pane.render()
             self.update_scopes()

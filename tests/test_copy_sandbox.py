@@ -76,6 +76,50 @@ for action in (lambda:(disk/'original').write_bytes(b'overwrite'), lambda:(disk/
     def test_network_direct_copy_keeps_existing_files_write_protected(self):
         self.exercise('network')
 
+    def test_icloud_copy_can_stage_files_on_a_protected_volume(self):
+        with tempfile.TemporaryDirectory(prefix='media-actu-icloud-sandbox-') as temporary:
+            root = Path(temporary).resolve()
+            volumes = root / 'volumes'
+            backup = volumes / 'disk' / 'Backup'
+            backup.mkdir(parents=True)
+            cloud = root / 'iCloud Drive'
+            cloud.mkdir()
+            (cloud / 'new.txt').write_text('copy this')
+            (cloud / 'existing.txt').write_text('source')
+            (backup / 'existing.txt').write_text('keep this')
+            profile = ('(version 1) (allow default) (deny file-write* (subpath '
+                       + json.dumps(str(volumes)) + ')) ' + copy_write_rules(str(volumes)))
+            code = '''
+from pathlib import Path
+import os, sys
+from media_manager.icloud_copies import ICloudCopies
+from media_manager.storage import StorageCatalog
+
+class Reader:
+    def stream(self, parent, name, check):
+        check()
+        with os.fdopen(os.open(name, os.O_RDONLY, dir_fd=parent), 'rb') as source:
+            yield source.read()
+
+root = Path(sys.argv[1])
+disk = root / 'volumes' / 'disk'
+storage = StorageCatalog(root / 'db.sqlite3', lambda: [dict(id='disk', name='disk', kind='external',
+                         mount_path=str(disk), device=disk.stat().st_dev)])
+copies = ICloudCopies(storage, root / 'native', root=root / 'iCloud Drive', reader=Reader())
+copy_id = copies.bind('', 'disk', 'Backup')['id']
+copies.start_copy(copy_id)
+while item := copies._next():
+    copies._process(item)
+assert (disk / 'Backup' / 'new.txt').read_text() == 'copy this', copies.journal(copy_id)
+assert (disk / 'Backup' / 'existing.txt').read_text() == 'keep this'
+assert not list(disk.rglob('.media-actu-copy-*.part'))
+'''
+            result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code, str(root)],
+                                    capture_output=True, text=True)
+            if 'sandbox_apply: Operation not permitted' in result.stderr:
+                self.skipTest('Host does not allow nested sandbox-exec')
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def exercise(self, kind):
         with tempfile.TemporaryDirectory(prefix='media-actu-sandbox-') as temporary:
             root = Path(temporary).resolve()

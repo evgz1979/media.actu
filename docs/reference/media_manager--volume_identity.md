@@ -10,7 +10,7 @@
 ## Связи модуля
 
 Импортирует из проекта: прямых импортов нет.
-Импортируется модулями: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/directory_sizes.py](media_manager--directory_sizes.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/folder_tracking.py](media_manager--folder_tracking.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/storage.py](media_manager--storage.md), [workspace_ui.py](workspace_ui.md).
+Импортируется модулями: [media_manager/comparison.py](media_manager--comparison.md), [media_manager/directory_sizes.py](media_manager--directory_sizes.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/folder_tracking.py](media_manager--folder_tracking.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/storage.py](media_manager--storage.md), [workspace_ui.py](workspace_ui.md).
 Тестовые модули с прямым импортом: [tests/test_folder_markers.py](tests.md#module-tests.test_folder_markers), [tests/test_volume_identity.py](tests.md#module-tests.test_volume_identity).
 
 ## Оглавление определений

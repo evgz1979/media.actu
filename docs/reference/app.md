@@ -9,7 +9,7 @@
 
 ## Связи модуля
 
-Импортирует из проекта: [media_manager/catalog.py](media_manager--catalog.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/copies.py](media_manager--copies.md), [media_manager/copy_files.py](media_manager--copy_files.md), [media_manager/directory_sizes.py](media_manager--directory_sizes.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/folder_tracking.py](media_manager--folder_tracking.md), [media_manager/network.py](media_manager--network.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/photo_libraries.py](media_manager--photo_libraries.md), [media_manager/photos_adapter.py](media_manager--photos_adapter.md), [media_manager/photos_browser.py](media_manager--photos_browser.md), [media_manager/photos_originals.py](media_manager--photos_originals.md), [media_manager/photos_schedule.py](media_manager--photos_schedule.md), [media_manager/scanner.py](media_manager--scanner.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/storage_previews.py](media_manager--storage_previews.md), [media_manager/thumbnail_workers.py](media_manager--thumbnail_workers.md), [media_manager/thumbnails.py](media_manager--thumbnails.md), [media_manager/watcher.py](media_manager--watcher.md).
+Импортирует из проекта: [media_manager/catalog.py](media_manager--catalog.md), [media_manager/comparison.py](media_manager--comparison.md), [media_manager/copies.py](media_manager--copies.md), [media_manager/copy_files.py](media_manager--copy_files.md), [media_manager/directory_sizes.py](media_manager--directory_sizes.md), [media_manager/folder_markers.py](media_manager--folder_markers.md), [media_manager/folder_tracking.py](media_manager--folder_tracking.md), [media_manager/icloud_copies.py](media_manager--icloud_copies.md), [media_manager/network.py](media_manager--network.md), [media_manager/paired_comparison.py](media_manager--paired_comparison.md), [media_manager/photo_libraries.py](media_manager--photo_libraries.md), [media_manager/photos_adapter.py](media_manager--photos_adapter.md), [media_manager/photos_browser.py](media_manager--photos_browser.md), [media_manager/photos_originals.py](media_manager--photos_originals.md), [media_manager/photos_schedule.py](media_manager--photos_schedule.md), [media_manager/scanner.py](media_manager--scanner.md), [media_manager/storage.py](media_manager--storage.md), [media_manager/storage_previews.py](media_manager--storage_previews.md), [media_manager/thumbnail_workers.py](media_manager--thumbnail_workers.md), [media_manager/thumbnails.py](media_manager--thumbnails.md), [media_manager/watcher.py](media_manager--watcher.md).
 Импортируется модулями: [scripts/build_documentation.py](scripts--build_documentation.md).
 Тестовые модули с прямым импортом: [tests/test_copy_connections.py](tests.md#module-tests.test_copy_connections), [tests/test_copy_files.py](tests.md#module-tests.test_copy_files), [tests/test_copy_number_release.py](tests.md#module-tests.test_copy_number_release), [tests/test_folder_tags.py](tests.md#module-tests.test_folder_tags), [tests/test_folder_tracking.py](tests.md#module-tests.test_folder_tracking), [tests/test_photos_schedule.py](tests.md#module-tests.test_photos_schedule), [tests/test_volume_identity.py](tests.md#module-tests.test_volume_identity).
 
@@ -30,6 +30,7 @@
 - [FolderChoiceRequest](#symbol-FolderChoiceRequest) — Определяет Pydantic-контракт выбора папок macOS.
 - [FolderRequest](#symbol-FolderRequest) — Определяет Pydantic-контракт открытия папки источника.
 - [FolderTagsRequest](#symbol-FolderTagsRequest) — Определяет Pydantic-контракт меток папки.
+- [ICloudCopyRequest](#symbol-ICloudCopyRequest) — Задаёт облачную область и существующую папку назначения.
 - [LibraryCopyRequest](#symbol-LibraryCopyRequest) — Определяет Pydantic-контракт папки-копии медиатеки.
 - [LibraryNameRequest](#symbol-LibraryNameRequest) — Определяет Pydantic-контракт названия медиатеки.
 - [NetworkShareRequest](#symbol-NetworkShareRequest) — Определяет Pydantic-контракт запоминания SMB-ресурса.
@@ -42,7 +43,9 @@
 - [StoragePathRequest](#symbol-StoragePathRequest) — Определяет Pydantic-контракт открытия пути тома.
 - [VolumeNameRequest](#symbol-VolumeNameRequest) — Определяет Pydantic-контракт названия сменного носителя.
 - [authorize_system_photos](#symbol-authorize_system_photos) — Запрашивает разрешение Photos и возвращает состояние доступа.
+- [bind_icloud_copy](#symbol-bind_icloud_copy) — Привязывает выбранную папку тома к области iCloud Drive.
 - [bind_photo_library_copy](#symbol-bind_photo_library_copy) — Привязывает выбранную папку как копию медиатеки.
+- [browse_icloud](#symbol-browse_icloud) — Показывает файлы и папки внутри iCloud Drive по метаданным.
 - [browse_photo_library](#symbol-browse_photo_library) — Возвращает виртуальную папку Photos и повышает приоритет её превью.
 - [catalog_summary](#symbol-catalog_summary) — Возвращает суммарные показатели сохранённого медиаиндекса.
 - [choose_folders_macos](#symbol-choose_folders_macos) — Открывает системный диалог выбора нескольких папок на машине Core.
@@ -61,9 +64,11 @@
 - [delete_source](#symbol-delete_source) — Снимает наблюдение и удаляет источник из медиаиндекса.
 - [discover_nas](#symbol-discover_nas) — Запускает обнаружение NAS через Bonjour на машине Core.
 - [health](#symbol-health) — Возвращает готовность HTTP-процесса и текущую ревизию каталога.
-- [library_call](#symbol-library_call) — Выполняет команду Photos в потоке с переводом ошибок доступа в HTTP.
+- [icloud_copy_journal](#symbol-icloud_copy_journal) — Читает журнал копии iCloud Drive с датами повторных попыток.
+- [library_call](#symbol-library_call) — Выполняет команды Photos и iCloud Drive в потоке с переводом ошибок в HTTP.
 - [lifespan](#symbol-lifespan) — Запускает фоновые службы FastAPI и закрывает их при завершении Core.
 - [lifespan.monitor_libraries](#symbol-lifespan.monitor_libraries) — Проверяет подключение Photos каждые 30 секунд и пробуждает очередь превью.
+- [list_icloud_copies](#symbol-list_icloud_copies) — Возвращает состояние iCloud Drive и прогресс его привязанных копий.
 - [list_photo_libraries](#symbol-list_photo_libraries) — Возвращает медиатеки, состояние подключения, превью и привязанные копии.
 - [list_sources](#symbol-list_sources) — Возвращает сохранённые источники медиаиндекса.
 - [local_thumbnail_cache_directory](#symbol-local_thumbnail_cache_directory) — Выбирает каталог превью из config.local.json либо MEDIA_ACTU_DATA_DIR.
@@ -106,6 +111,7 @@
 - [schedule_scan](#symbol-schedule_scan) — Ставит сканирование источника в пул из двух потоков Core.
 - [set_copy_connection](#symbol-set_copy_connection) — Меняет подключение связи с защитой от конфликтующего копирования.
 - [set_folder_copy_source](#symbol-set_folder_copy_source) — Меняет источник копии под общей блокировкой запуска сверок.
+- [set_icloud_copy_state](#symbol-set_icloud_copy_state) — Запускает, продолжает или приостанавливает передачу iCloud Drive.
 - [set_photos_sync_schedule](#symbol-set_photos_sync_schedule) — Сохраняет часы синхронизации выбранной медиатеки.
 - [source_files](#symbol-source_files) — Возвращает файлы папки источника и повышает приоритет их превью.
 - [source_tree](#symbol-source_tree) — Возвращает дерево виртуальных папок зарегистрированного источника.
@@ -136,6 +142,7 @@
 - [storage_renumber_copies](#symbol-storage_renumber_copies) — Применяет подтверждённую нумерацию по снимку текущих связей.
 - [storage_volumes](#symbol-storage_volumes) — Возвращает обнаруженные и сохранённые тома через API Core.
 - [thumbnail_status](#symbol-thumbnail_status) — Возвращает очередь превью и диагностическое состояние её воркеров.
+- [unbind_icloud_copy](#symbol-unbind_icloud_copy) — Удаляет остановленную привязку iCloud Drive.
 - [unbind_photo_library_copy](#symbol-unbind_photo_library_copy) — Отключает привязку копии медиатеки и возвращает обновлённый список.
 - [update_source](#symbol-update_source) — Обновляет роль, название и комментарий обычного источника.
 
@@ -405,6 +412,22 @@
 
 Именованные методы: собственных методов нет.
 
+<a id="symbol-ICloudCopyRequest"></a>
+
+## `ICloudCopyRequest`
+
+[app.py](../../app.py) · `ICloudCopyRequest`
+
+Задаёт облачную область и существующую папку назначения. Поля: source_path, volume_id, path.
+
+Базовые классы: `LibraryCopyRequest`.
+
+| Поле | Аннотация | Значение / ограничение |
+| --- | --- | --- |
+| `source_path` | `str` | `Field(default='', max_length=4096)` |
+
+Именованные методы: собственных методов нет.
+
 <a id="symbol-LibraryCopyRequest"></a>
 
 ## `LibraryCopyRequest`
@@ -627,6 +650,27 @@ async def authorize_system_photos() -> dict[str, object]
 - `{'status': status}`
 
 
+<a id="symbol-bind_icloud_copy"></a>
+
+## `bind_icloud_copy`
+
+[app.py](../../app.py) · `bind_icloud_copy`
+
+Привязывает выбранную папку тома к области iCloud Drive. Асинхронно ожидает: library_call.
+
+```python
+async def bind_icloud_copy(request: ICloudCopyRequest) -> dict
+```
+
+Декораторы: `app.post('/api/icloud/copies', status_code=201)`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call), `request.model_dump`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(icloud_copies.bind, **request.model_dump())`
+
+
 <a id="symbol-bind_photo_library_copy"></a>
 
 ## `bind_photo_library_copy`
@@ -646,6 +690,27 @@ async def bind_photo_library_copy(source_id: int, request: LibraryCopyRequest) -
 Выражения возврата (ветви, без исполнения):
 
 - `await library_call(photo_libraries.bind_copy, source_id, request.volume_id, request.path)`
+
+
+<a id="symbol-browse_icloud"></a>
+
+## `browse_icloud`
+
+[app.py](../../app.py) · `browse_icloud`
+
+Показывает файлы и папки внутри iCloud Drive по метаданным. Асинхронно ожидает: library_call.
+
+```python
+async def browse_icloud(path: str=Query(default='', max_length=4096)) -> dict
+```
+
+Декораторы: `app.get('/api/icloud/browse')`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(icloud_copies.browse, path)`
 
 
 <a id="symbol-browse_photo_library"></a>
@@ -1063,13 +1128,34 @@ async def health() -> dict[str, object]
 - `{'status': 'ok', 'revision': catalog.revision()}`
 
 
+<a id="symbol-icloud_copy_journal"></a>
+
+## `icloud_copy_journal`
+
+[app.py](../../app.py) · `icloud_copy_journal`
+
+Читает журнал копии iCloud Drive с датами повторных попыток. Асинхронно ожидает: library_call.
+
+```python
+async def icloud_copy_journal(copy_id: str, offset: int=Query(0, ge=0), limit: int=Query(100, ge=1, le=200)) -> dict
+```
+
+Декораторы: `app.get('/api/icloud/copies/{copy_id}/journal')`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(icloud_copies.journal, copy_id, offset, limit)`
+
+
 <a id="symbol-library_call"></a>
 
 ## `library_call`
 
 [app.py](../../app.py) · `library_call`
 
-Выполняет команду Photos в потоке с переводом ошибок доступа в HTTP. Явно отклоняет недопустимое состояние через HTTPException.
+Выполняет команды Photos и iCloud Drive в потоке с переводом ошибок в HTTP. Явно отклоняет недопустимое состояние через HTTPException.
 
 ```python
 async def library_call(method, *args, **kwargs)
@@ -1105,7 +1191,7 @@ async def lifespan(_: FastAPI)
 
 Декораторы: `asynccontextmanager`.
 
-Прямые выражения вызова: `Path`, `asyncio.create_task`, `asyncio.to_thread`, `catalog.list_sources`, `catalog.reset_stale_source_scans`, `comparison.close`, `directory_sizes.close`, `executor.shutdown`, `folder_markers.close`, `folder_markers.start`, `folder_tracking.close`, `folder_tracking.start`, `int`, `missing_copies.close`, `monitor_libraries`, `paired_comparison.close`, `photo_libraries.profile`, `photos_adapter.close`, `photos_monitor.cancel`, `photos_originals.close`, `photos_schedule.close`, `photos_schedule.start`, [schedule_scan](app.md#symbol-schedule_scan), `source.get`, `source_path.is_dir`, `str`, `thumbnail_workers.start`, `thumbnail_workers.stop`, `watcher.start`, `watcher.stop`, `watcher.watch`.
+Прямые выражения вызова: `Path`, `asyncio.create_task`, `asyncio.to_thread`, `catalog.list_sources`, `catalog.reset_stale_source_scans`, `comparison.close`, `directory_sizes.close`, `executor.shutdown`, `folder_markers.close`, `folder_markers.start`, `folder_tracking.close`, `folder_tracking.start`, `icloud_copies.close`, `icloud_copies.start`, `int`, `missing_copies.close`, `monitor_libraries`, `paired_comparison.close`, `photo_libraries.profile`, `photos_adapter.close`, `photos_monitor.cancel`, `photos_originals.close`, `photos_schedule.close`, `photos_schedule.start`, [schedule_scan](app.md#symbol-schedule_scan), `source.get`, `source_path.is_dir`, `str`, `thumbnail_workers.start`, `thumbnail_workers.stop`, `watcher.start`, `watcher.stop`, `watcher.watch`.
 
 Передаёт управление через `yield`; освобождение ресурса описано в теле контекстного менеджера.
 
@@ -1125,6 +1211,27 @@ async def monitor_libraries()
 Прямые выражения вызова: `asyncio.sleep`, `asyncio.to_thread`, `photo_libraries.connection.get`, `thumbnail_workers.wake`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-list_icloud_copies"></a>
+
+## `list_icloud_copies`
+
+[app.py](../../app.py) · `list_icloud_copies`
+
+Возвращает состояние iCloud Drive и прогресс его привязанных копий. Асинхронно ожидает: library_call.
+
+```python
+async def list_icloud_copies() -> dict
+```
+
+Декораторы: `app.get('/api/icloud/drive')`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(icloud_copies.list)`
 
 
 <a id="symbol-list_photo_libraries"></a>
@@ -2094,6 +2201,27 @@ def set_folder_copy_source(location_id, source_id)
 - `copies.set_copy_source(location_id, source_id)`
 
 
+<a id="symbol-set_icloud_copy_state"></a>
+
+## `set_icloud_copy_state`
+
+[app.py](../../app.py) · `set_icloud_copy_state`
+
+Запускает, продолжает или приостанавливает передачу iCloud Drive. Асинхронно ожидает: library_call.
+
+```python
+async def set_icloud_copy_state(copy_id: str, action: Literal['start', 'pause']) -> dict
+```
+
+Декораторы: `app.post('/api/icloud/copies/{copy_id}/{action}')`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(method, copy_id)`
+
+
 <a id="symbol-set_photos_sync_schedule"></a>
 
 ## `set_photos_sync_schedule`
@@ -2768,6 +2896,27 @@ async def thumbnail_status() -> dict[str, object]
 Выражения возврата (ветви, без исполнения):
 
 - `thumbnail_workers.status()`
+
+
+<a id="symbol-unbind_icloud_copy"></a>
+
+## `unbind_icloud_copy`
+
+[app.py](../../app.py) · `unbind_icloud_copy`
+
+Удаляет остановленную привязку iCloud Drive. Асинхронно ожидает: library_call.
+
+```python
+async def unbind_icloud_copy(copy_id: str) -> dict
+```
+
+Декораторы: `app.delete('/api/icloud/copies/{copy_id}')`.
+
+Прямые выражения вызова: [library_call](app.md#symbol-library_call).
+
+Выражения возврата (ветви, без исполнения):
+
+- `await library_call(icloud_copies.unbind, copy_id)`
 
 
 <a id="symbol-unbind_photo_library_copy"></a>
