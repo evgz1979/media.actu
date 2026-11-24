@@ -30,6 +30,11 @@ SIDEBAR_CSS = """
 .sidebar-row .sidebar-name { width:100%; min-width:0; font-size:11px; }
 .sidebar-name .q-btn__content { width:100%; justify-content:flex-start; flex-wrap:nowrap; overflow:hidden; }
 .sidebar-name .block { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sidebar-name .q-icon { flex:none; font-size:13px; margin-right:4px; color:#497695; }
+.sidebar-library-header { position:relative; }
+.sidebar-library-header > .sidebar-add-library.q-btn { position:absolute; top:3px; right:26px; z-index:1;
+    width:22px; height:22px; min-width:0; min-height:0; padding:0; }
+.sidebar-add-library .q-icon { font-size:15px; }
 .sidebar-entry { flex:1; min-width:0; }
 .sidebar-copy-origin { max-width:100%; margin:-3px 0 2px 3px; font-size:10px; line-height:13px; color:#526d56; }
 .sidebar-copy-summary.q-btn { align-self:flex-start; margin-left:24px; padding:0 3px; max-width:calc(100% - 25px);
@@ -39,6 +44,7 @@ SIDEBAR_CSS = """
 .sidebar-copy-summary .block { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sidebar-leading { flex:0 0 19px; text-align:center; }
 .sidebar-readout { flex-shrink:0; max-width:40%; color:#5d6b57; font-size:10px; white-space:nowrap; }
+.sidebar-entry-role { font-size:9px; color:#497047; line-height:12px; }
 .sidebar-note { padding:2px 6px 2px 25px; color:#64705f; font-size:10px; }
 .sidebar-empty { padding:3px 7px; color:#687467; font-size:11px; }
 """
@@ -48,7 +54,7 @@ SIDEBAR_CSS = """
 #: В контексте строки размещаются статус и необязательное меню действий.
 @contextmanager
 def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggle=None,
-                 chosen=False, offline=False, indented=False, depth=0, origin=''):
+                 chosen=False, offline=False, indented=False, depth=0, origin='', role='', name_icon=None):
     with ui.row().classes('sidebar-row w-full items-center no-wrap') as line:
         line.classes(add=' '.join(label for label, enabled in
                                   (('chosen', chosen), ('offline', offline), ('indented', indented)) if enabled))
@@ -61,9 +67,12 @@ def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggl
             line.classes('copy-dependent').style(f'--copy-depth:{min(depth, 3)}')
             ui.icon('subdirectory_arrow_right', size='11px').classes('sidebar-branch-arrow')
         with ui.column().classes('sidebar-entry gap-0'):
-            button = ui.button(name, color=None, on_click=on_open).props('flat dense no-caps align=left').classes('sidebar-name')
+            button = ui.button(name, icon=name_icon, color=None, on_click=on_open).props(
+                'flat dense no-caps align=left').classes('sidebar-name')
             if tooltip:
                 button.tooltip(tooltip)
+            if role:
+                ui.label(role).classes('sidebar-entry-role truncate')
             if origin:
                 ui.label(origin).classes('sidebar-copy-origin truncate')
         yield line

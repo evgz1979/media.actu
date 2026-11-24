@@ -21,26 +21,28 @@
 - [PhotoLibrariesUI.add](#symbol-PhotoLibrariesUI.add) — Добавляет текущую системную медиатеку под выбранным названием.
 - [PhotoLibrariesUI.authorize](#symbol-PhotoLibrariesUI.authorize) — Запрашивает разрешение на доступ к Photos через Core.
 - [PhotoLibrariesUI.bind](#symbol-PhotoLibrariesUI.bind) — Начинает выбор назначения для оригиналов Photos в правом дереве.
-- [PhotoLibrariesUI.bind_cloud](#symbol-PhotoLibrariesUI.bind_cloud) — Начинает выбор назначения для выбранной папки либо всего iCloud Drive.
-- [PhotoLibrariesUI.build](#symbol-PhotoLibrariesUI.build) — Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
+- [PhotoLibrariesUI.build_cloud_groups](#symbol-PhotoLibrariesUI.build_cloud_groups) — Создаёт место для облачных наборов в общем списке папок.
+- [PhotoLibrariesUI.build_libraries](#symbol-PhotoLibrariesUI.build_libraries) — Создаёт отдельный раздел Photos и компактную кнопку подключения в шапке.
 - [PhotoLibrariesUI.cloud_copy_menu](#symbol-PhotoLibrariesUI.cloud_copy_menu) — Показывает команды передачи, журнала и отвязки копии iCloud.
 - [PhotoLibrariesUI.cloud_copy_status](#symbol-PhotoLibrariesUI.cloud_copy_status) — Подписывает состояние передачи iCloud Drive для компактной строки.
 - [PhotoLibrariesUI.cloud_details](#symbol-PhotoLibrariesUI.cloud_details) — Показывает состояние копии и постраничный журнал iCloud Drive.
 - [PhotoLibrariesUI.cloud_details.more](#symbol-PhotoLibrariesUI.cloud_details.more) — Получает страницу журнала с причинами задержек загрузки и освобождения.
 - [PhotoLibrariesUI.cloud_details.poll_details](#symbol-PhotoLibrariesUI.cloud_details.poll_details) — Обновляет заголовок и первую страницу в открытом диалоге.
 - [PhotoLibrariesUI.cloud_details.update_summary](#symbol-PhotoLibrariesUI.cloud_details.update_summary) — Показывает свежий прогресс копии и общий пакет загрузок на M4.
-- [PhotoLibrariesUI.cloud_menu](#symbol-PhotoLibrariesUI.cloud_menu) — Показывает корень iCloud Drive и команду добавления копии.
+- [PhotoLibrariesUI.cloud_groups](#symbol-PhotoLibrariesUI.cloud_groups) — Группирует только реально привязанные папки по точному пути в iCloud.
+- [PhotoLibrariesUI.cloud_menu](#symbol-PhotoLibrariesUI.cloud_menu) — Добавляет копию точной облачной области из её меню.
+- [PhotoLibrariesUI.cloud_name](#symbol-PhotoLibrariesUI.cloud_name) — Возвращает короткое видимое имя точного облачного корня.
 - [PhotoLibrariesUI.cloud_origin](#symbol-PhotoLibrariesUI.cloud_origin) — Подписывает фактическую папку-источник для журнала или подтверждения отвязки.
 - [PhotoLibrariesUI.cloud_volume](#symbol-PhotoLibrariesUI.cloud_volume) — Возвращает виртуальный том iCloud Drive после первого успешного опроса.
 - [PhotoLibrariesUI.connect](#symbol-PhotoLibrariesUI.connect) — Повторяет сопоставление текущей системной медиатеки с сохранённым профилем.
 - [PhotoLibrariesUI.connection_menu](#symbol-PhotoLibrariesUI.connection_menu) — Заполняет меню управления системной медиатекой и разрешением Photos.
 - [PhotoLibrariesUI.copy_group](#symbol-PhotoLibrariesUI.copy_group) — Представляет Photos или выбранную папку iCloud в формате общей связанной пары.
-- [PhotoLibrariesUI.copy_membership](#symbol-PhotoLibrariesUI.copy_membership) — Находит копию медиатеки, содержащую выбранный файловый путь.
+- [PhotoLibrariesUI.copy_membership](#symbol-PhotoLibrariesUI.copy_membership) — Находит корень виртуального набора или его физическую копию.
 - [PhotoLibrariesUI.copy_source_dialog](#symbol-PhotoLibrariesUI.copy_source_dialog) — Показывает выбор Photos или другой копии как источника оригиналов.
 - [PhotoLibrariesUI.library_details](#symbol-PhotoLibrariesUI.library_details) — Показывает прогресс и состояние превью в подробностях медиатеки.
 - [PhotoLibrariesUI.library_menu](#symbol-PhotoLibrariesUI.library_menu) — Заполняет меню выбранной медиатеки и её настроек.
 - [PhotoLibrariesUI.name_dialog](#symbol-PhotoLibrariesUI.name_dialog) — Показывает ввод названия медиатеки и возвращает подтверждённое значение.
-- [PhotoLibrariesUI.open_cloud](#symbol-PhotoLibrariesUI.open_cloud) — Открывает iCloud Drive слева и первую доступную копию справа.
+- [PhotoLibrariesUI.open_cloud](#symbol-PhotoLibrariesUI.open_cloud) — Открывает iCloud Drive из списка томов для просмотра его корня.
 - [PhotoLibrariesUI.open_copy](#symbol-PhotoLibrariesUI.open_copy) — Открывает виртуальный источник через тот же контроллер, что и обычную пару.
 - [PhotoLibrariesUI.originals_action](#symbol-PhotoLibrariesUI.originals_action) — Запускает или приостанавливает сохранение оригиналов выбранной копии.
 - [PhotoLibrariesUI.originals_journal](#symbol-PhotoLibrariesUI.originals_journal) — Показывает события сохранения и пути незавершённых оригиналов.
@@ -48,7 +50,7 @@
 - [PhotoLibrariesUI.pair_controls](#symbol-PhotoLibrariesUI.pair_controls) — Показывает запуск, журнал и меню выбранной виртуальной копии между панелями.
 - [PhotoLibrariesUI.photo_copy_menu](#symbol-PhotoLibrariesUI.photo_copy_menu) — Заполняет меню копии Photos командами передачи и связей.
 - [PhotoLibrariesUI.refresh](#symbol-PhotoLibrariesUI.refresh) — Обновляет Photos и iCloud независимо, сохраняя раскрытие копий и открытое меню.
-- [PhotoLibrariesUI.refresh_copy_roles](#symbol-PhotoLibrariesUI.refresh_copy_roles) — Обновляет метки копий Photos в уже загруженных деревьях.
+- [PhotoLibrariesUI.refresh_copy_roles](#symbol-PhotoLibrariesUI.refresh_copy_roles) — Обновляет метки источников и копий в уже загруженных деревьях.
 - [PhotoLibrariesUI.refresh_pair](#symbol-PhotoLibrariesUI.refresh_pair) — Синхронизирует открытую виртуальную пару с актуальными привязками и статусами.
 - [PhotoLibrariesUI.rename](#symbol-PhotoLibrariesUI.rename) — Меняет пользовательское название сохранённой медиатеки.
 - [PhotoLibrariesUI.render](#symbol-PhotoLibrariesUI.render) — Перерисовывает компактные заголовки и строки копий Photos и iCloud Drive.
@@ -87,7 +89,7 @@
 
 Состояние, присваиваемое конструктором: `busy`, `cloud`, `connection`, `copy_roles_signature`, `expanded`, `libraries`, `refresh_lock`, `rows`, `signature`, `ws`.
 
-Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build`, `refresh`, `render_signature`, `cloud_volume`, `copy_group`, `open_copy`, `refresh_pair`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copies`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `cloud_origin`, `pair_controls`, `unbind_cloud`, `bind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
+Именованные методы: `__init__`, `copy_membership`, `refresh_copy_roles`, `volumes`, `build_libraries`, `build_cloud_groups`, `cloud_groups`, `cloud_name`, `refresh`, `render_signature`, `cloud_volume`, `copy_group`, `open_copy`, `refresh_pair`, `source_line`, `source`, `originals_running`, `connection_menu`, `library_menu`, `photo_copy_menu`, `render`, `render_copies`, `set_readout`, `update_readouts`, `library_details`, `open_cloud`, `cloud_menu`, `cloud_copy_status`, `cloud_copy_menu`, `cloud_origin`, `pair_controls`, `unbind_cloud`, `cloud_details`, `action`, `authorize`, `connect`, `toggle`, `toggle_schedule`, `schedule_dialog`, `scan`, `name_dialog`, `add`, `rename`, `bind`, `unbind`, `originals_action`, `copy_source_dialog`, `originals_journal`.
 
 <a id="symbol-PhotoLibrariesUI.__init__"></a>
 
@@ -182,38 +184,40 @@ async def bind(self, library)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-PhotoLibrariesUI.bind_cloud"></a>
+<a id="symbol-PhotoLibrariesUI.build_cloud_groups"></a>
 
-## `PhotoLibrariesUI.bind_cloud`
+## `PhotoLibrariesUI.build_cloud_groups`
 
-[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.bind_cloud`
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.build_cloud_groups`
 
-Начинает выбор назначения для выбранной папки либо всего iCloud Drive. Асинхронно ожидает: self.ws.copy_setup.open.
+Создаёт место для облачных наборов в общем списке папок. Общий статус пакета и ошибки остаются рядом с этими наборами.
 
 ```python
-async def bind_cloud(self)
+def build_cloud_groups(self)
 ```
 
-Прямые выражения вызова: `next`, `self.ws.copy_setup.open`.
+Присваивания полям `self`: `cloud_cards`, `cloud_note`.
+
+Прямые выражения вызова: `self.cloud_note.set_visibility`, `ui.column`, `ui.column().classes`, `ui.label`, `ui.label().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
-<a id="symbol-PhotoLibrariesUI.build"></a>
+<a id="symbol-PhotoLibrariesUI.build_libraries"></a>
 
-## `PhotoLibrariesUI.build`
+## `PhotoLibrariesUI.build_libraries`
 
-[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.build`
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.build_libraries`
 
-Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия. Обновляет состояние объекта: cards, note, section.
+Создаёт отдельный раздел Photos и компактную кнопку подключения в шапке. Кнопка доступна и при свёрнутом списке.
 
 ```python
-def build(self)
+def build_libraries(self)
 ```
 
-Присваивания полям `self`: `cards`, `note`, `section`.
+Присваивания полям `self`: `connection_actions`, `library_cards`, `library_note`, `library_section`.
 
-Прямые выражения вызова: `self.note.set_visibility`, `self.ws.sidebar_expansion`, `ui.column`, `ui.column().classes`, `ui.label`, `ui.label().classes`.
+Прямые выражения вызова: `button.tooltip`, `self.connection_actions.on`, [self.connection_menu](photo_libraries_ui.md#symbol-PhotoLibrariesUI.connection_menu), `self.library_note.set_visibility`, `self.ws.sidebar_expansion`, `ui.button`, `ui.button(icon='add').props`, `ui.button(icon='add').props('flat dense round color=green-9 aria-label="Подключить медиатеку Photos"').classes`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.label`, `ui.label().classes`, `ui.menu`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -331,21 +335,61 @@ def update_summary()
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
+<a id="symbol-PhotoLibrariesUI.cloud_groups"></a>
+
+## `PhotoLibrariesUI.cloud_groups`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_groups`
+
+Группирует только реально привязанные папки по точному пути в iCloud. Для вложенных областей создаются отдельные записи.
+
+```python
+def cloud_groups(self)
+```
+
+Прямые выражения вызова: `groups.setdefault`, `groups.setdefault(copy['source_path'], []).append`, `self.cloud.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `groups`
+
+
 <a id="symbol-PhotoLibrariesUI.cloud_menu"></a>
 
 ## `PhotoLibrariesUI.cloud_menu`
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_menu`
 
-Показывает корень iCloud Drive и команду добавления копии. Команды доступны при подключении iCloud на M4.
+Добавляет копию точной облачной области из её меню. В меню тома пустой путь означает весь iCloud Drive.
 
 ```python
-def cloud_menu(self)
+def cloud_menu(self, path='')
 ```
 
-Прямые выражения вызова: `bind.set_enabled`, `root.set_enabled`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `ui.menu_item`.
+Прямые выражения вызова: `bind.set_enabled`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `ui.menu_item`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-PhotoLibrariesUI.cloud_name"></a>
+
+## `PhotoLibrariesUI.cloud_name`
+
+[photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.cloud_name`
+
+Возвращает короткое видимое имя точного облачного корня. Пустой путь означает привязку всего iCloud Drive.
+
+```python
+def cloud_name(path)
+```
+
+Декораторы: `staticmethod`.
+
+Прямые выражения вызова: `PurePosixPath`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `PurePosixPath(path).name if path else 'iCloud Drive'`
 
 
 <a id="symbol-PhotoLibrariesUI.cloud_origin"></a>
@@ -431,7 +475,7 @@ def connection_menu(self)
 Представляет Photos или выбранную папку iCloud в формате общей связанной пары. Выбирает указанную копию или первую доступную по номеру.
 
 ```python
-def copy_group(self, virtual_id, copy_id=None)
+def copy_group(self, virtual_id, copy_id=None, *, source_path=None)
 ```
 
 Прямые выражения вызова: `(library if library else self.cloud).get`, `copy.get`, `dict`, `first_copy`, [library_name](photo_libraries_ui.md#symbol-library_name), `next`, `selected.get`, [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `self.ws.resolve_volume`, `tuple`, `volume.get`.
@@ -448,17 +492,20 @@ def copy_group(self, virtual_id, copy_id=None)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.copy_membership`
 
-Находит копию медиатеки, содержащую выбранный файловый путь. Поля результата: label, is_root, inherited_from, media_library.
+Находит корень виртуального набора или его физическую копию. У неподключённых копий Photos служебная метка не показывается.
 
 ```python
 def copy_membership(self, volume_id, path)
 ```
 
-Прямые выражения вызова: `copy.get`, `dict`, `library.get`.
+Прямые выражения вызова: `any`, `copy.get`, `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), `self.cloud.get`, [self.cloud_name](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_name).
 
 Выражения возврата (ветви, без исполнения):
 
-- `dict(copy, label=f"{copy['number']:02d}-copy", is_root=True, inherited_from=None, media_library=library.get('label') or 'Photos')`
+- `dict(label='00-main', number=0, is_root=True, inherited_from=None, origin_badge='iCloud')`
+- `dict(label='00-main', number=0, is_root=True, inherited_from=None, origin_badge='Photos')`
+- `dict(copy, label=f"{copy['number']:02d}-copy", is_root=True, inherited_from=None, origin_badge='Photos', media_library=library_name(library))`
+- `dict(copy, label=f"{copy['number']:02d}-copy", is_root=True, inherited_from=None, origin_badge='iCloud', media_library=self.cloud_name(copy['source_path']))`
 - `None`
 
 
@@ -510,7 +557,7 @@ def library_details(self, source_id)
 def library_menu(self, library)
 ```
 
-Прямые выражения вызова: `(library.get('sync_schedule') or {}).get`, `bool`, `library.get`, `scan.set_enabled`, [self.connection_menu](photo_libraries_ui.md#symbol-PhotoLibrariesUI.connection_menu), `ui.menu_item`, `ui.separator`.
+Прямые выражения вызова: `(library.get('sync_schedule') or {}).get`, `bool`, `library.get`, `scan.set_enabled`, `ui.menu_item`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -540,13 +587,13 @@ async def name_dialog(self, title, value)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.open_cloud`
 
-Открывает iCloud Drive слева и первую доступную копию справа. Сохраняет доступ к назначению при временной недоступности iCloud.
+Открывает iCloud Drive из списка томов для просмотра его корня. Сохранённые пары открываются из раздела папок.
 
 ```python
 async def open_cloud(self)
 ```
 
-Прямые выражения вызова: [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.open_copy](photo_libraries_ui.md#symbol-PhotoLibrariesUI.open_copy), `ui.notify`.
+Прямые выражения вызова: [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.ws.open_volume`, `ui.notify`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -562,7 +609,7 @@ async def open_cloud(self)
 Открывает виртуальный источник через тот же контроллер, что и обычную пару. При отсутствии назначений открывает только левую панель.
 
 ```python
-async def open_copy(self, virtual_id, copy_id=None)
+async def open_copy(self, virtual_id, copy_id=None, *, source_path=None)
 ```
 
 Прямые выражения вызова: [self.copy_group](photo_libraries_ui.md#symbol-PhotoLibrariesUI.copy_group), `self.ws.open_copy_source`, `self.ws.pair.link`.
@@ -675,7 +722,7 @@ async def refresh(self, *, wait=False)
 
 Присваивания полям `self`: `cloud`, `connection`, `libraries`, `signature`.
 
-Прямые выражения вызова: `bool`, `gather`, `isinstance`, `len`, `library.get`, `pane.preview.refresh_pending`, `pane.update_header`, `photos.get`, `self.note.set_visibility`, [self.refresh_copy_roles](photo_libraries_ui.md#symbol-PhotoLibrariesUI.refresh_copy_roles), `self.refresh_lock.locked`, [self.refresh_pair](photo_libraries_ui.md#symbol-PhotoLibrariesUI.refresh_pair), [self.render](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render), [self.render_signature](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_signature), [self.update_readouts](photo_libraries_ui.md#symbol-PhotoLibrariesUI.update_readouts), `self.ws.error_text`, `self.ws.is_photos`, `self.ws.request`.
+Прямые выражения вызова: `bool`, `gather`, `isinstance`, `library.get`, `note.set_visibility`, `pane.preview.refresh_pending`, `pane.update_header`, `photos.get`, `self.library_note.set_visibility`, [self.refresh_copy_roles](photo_libraries_ui.md#symbol-PhotoLibrariesUI.refresh_copy_roles), `self.refresh_lock.locked`, [self.refresh_pair](photo_libraries_ui.md#symbol-PhotoLibrariesUI.refresh_pair), [self.render](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render), [self.render_signature](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_signature), [self.update_readouts](photo_libraries_ui.md#symbol-PhotoLibrariesUI.update_readouts), `self.ws.copies.update_sidebar_title`, `self.ws.error_text`, `self.ws.is_photos`, `self.ws.render_volumes`, `self.ws.request`.
 
 Перехватываемые типы: `Exception`.
 
@@ -690,7 +737,7 @@ async def refresh(self, *, wait=False)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.refresh_copy_roles`
 
-Обновляет метки копий Photos в уже загруженных деревьях. Обновляет состояние объекта: copy_roles_signature.
+Обновляет метки источников и копий в уже загруженных деревьях. Обновляет состояние объекта: copy_roles_signature.
 
 ```python
 def refresh_copy_roles(self)
@@ -698,7 +745,7 @@ def refresh_copy_roles(self)
 
 Присваивания полям `self`: `copy_roles_signature`.
 
-Прямые выражения вызова: `c.get`, `getattr`, `library.get`, `pane.render`, `self.ws.is_photos`, `tuple`.
+Прямые выражения вызова: `c.get`, `getattr`, `library.get`, `pane.render`, `self.cloud.get`, `self.ws.is_photos`, `tuple`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -753,7 +800,9 @@ async def rename(self, library)
 def render(self)
 ```
 
-Прямые выражения вызова: `branch_summary`, `copy_branches`, `dict`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.cards.clear`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.render_copies](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copies), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line), `ui.label`, `ui.label().classes`.
+Присваивания полям `self`: `batch_note`.
+
+Прямые выражения вызова: `branch_summary`, `copy_branches`, `dict`, `len`, `library.get`, [library_name](photo_libraries_ui.md#symbol-library_name), [schedule_text](photo_libraries_ui.md#symbol-schedule_text), `self.batch_note.set_visibility`, `self.cloud_cards.clear`, [self.cloud_groups](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_groups), `self.cloud_groups().items`, [self.cloud_name](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_name), [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.connection_actions.clear`, [self.connection_menu](photo_libraries_ui.md#symbol-PhotoLibrariesUI.connection_menu), `self.library_cards.clear`, [self.render_copies](photo_libraries_ui.md#symbol-PhotoLibrariesUI.render_copies), `self.rows.clear`, [self.source](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source), `sorted`, `ui.label`, `ui.label().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -770,7 +819,7 @@ def render(self)
 def render_copies(self, virtual_id, branches, on_menu)
 ```
 
-Прямые выражения вызова: `len`, [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line).
+Прямые выражения вызова: `branch_origin`, `disconnected`, `len`, [self.source_line](photo_libraries_ui.md#symbol-PhotoLibrariesUI.source_line).
 
 Выражения возврата (ветви, без исполнения):
 
@@ -856,7 +905,7 @@ def set_readout(elements, text, details)
 Рисует строку медиатеки или облачного источника и раскрываемые копии. Использует общий шаблон боковой колонки и отдельную строку расписания.
 
 ```python
-def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None, summary='')
+def source(self, key, name, on_open, on_menu, *, active, copies, role, icon=None, name_icon=None, schedule='', title=None, summary='')
 ```
 
 Декораторы: `contextmanager`.
@@ -894,7 +943,7 @@ def header(toggle)
 Создаёт строку источника или копии с обновляемым показателем. Возвращает две ссылки для последующего обновления статуса.
 
 ```python
-def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library', depth=0, origin='')
+def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None, icon='photo_library', depth=0, origin='', role='', name_icon=None)
 ```
 
 Прямые выражения вызова: `menu.on`, `on_menu`, `sidebar_line`, `sidebar_menu`, `ui.label`, `ui.label().classes`, `ui.tooltip`.
@@ -984,7 +1033,7 @@ async def unbind_cloud(self, copy)
 def update_readouts(self)
 ```
 
-Прямые выражения вызова: `batch.get`, `batch_note.set_visibility`, `bool`, `copy.get`, `int`, `job.get`, `len`, `library.get`, [library_state](photo_libraries_ui.md#symbol-library_state), [originals_state](photo_libraries_ui.md#symbol-originals_state), [originals_text](photo_libraries_ui.md#symbol-originals_text), [progress_text](photo_libraries_ui.md#symbol-progress_text), `row.get`, `row['copies'].get`, `self.cloud.get`, [self.cloud_copy_status](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_copy_status), [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.connection.get`, `self.rows.get`, [self.set_readout](photo_libraries_ui.md#symbol-PhotoLibrariesUI.set_readout), `self.ws.format_bytes`.
+Прямые выражения вызова: `batch.get`, `batch_note.set_visibility`, `bool`, `copy.get`, `getattr`, `int`, `job.get`, `len`, `library.get`, [library_state](photo_libraries_ui.md#symbol-library_state), [originals_state](photo_libraries_ui.md#symbol-originals_state), [originals_text](photo_libraries_ui.md#symbol-originals_text), [progress_text](photo_libraries_ui.md#symbol-progress_text), `row['copies'].get`, `self.cloud.get`, [self.cloud_copy_status](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_copy_status), [self.cloud_groups](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_groups), `self.cloud_groups().items`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), `self.rows.get`, [self.set_readout](photo_libraries_ui.md#symbol-PhotoLibrariesUI.set_readout), `self.ws.format_bytes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

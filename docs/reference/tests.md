@@ -2180,6 +2180,14 @@ async def test_only_branches_with_differences_expand_and_manual_changes_survive_
 def test_bound_copy_has_its_own_number_and_library_tag_while_photos_is_offline(self)
 ```
 
+<a id="symbol-tests.test_photo_copy_roles.PhotoCopyRoleTests.test_cloud_roles_only_mark_the_bound_scope_and_its_destination"></a>
+
+### `PhotoCopyRoleTests.test_cloud_roles_only_mark_the_bound_scope_and_its_destination`
+
+```python
+def test_cloud_roles_only_mark_the_bound_scope_and_its_destination(self)
+```
+
 <a id="symbol-tests.test_photo_copy_roles.PhotoCopyRoleTests.test_disconnecting_library_copy_removes_its_tags_and_preserves_other_roles"></a>
 
 ### `PhotoCopyRoleTests.test_disconnecting_library_copy_removes_its_tags_and_preserves_other_roles`
@@ -3563,6 +3571,14 @@ def test_unregistered_disk_does_not_use_legacy_share_history(self)
 Photos и iCloud Drive в связанных панелях.
 
 [tests/test_workspace_photos.py](../../tests/test_workspace_photos.py)
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_cloud_volume_opens_browsing_instead_of_a_saved_set"></a>
+
+### `WorkspacePhotosTests.test_cloud_volume_opens_browsing_instead_of_a_saved_set`
+
+```python
+async def test_cloud_volume_opens_browsing_instead_of_a_saved_set(self)
+```
 
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_common_heading_preserves_folder_copy_and_history_captions"></a>
 

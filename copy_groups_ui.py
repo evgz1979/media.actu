@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 
 from nicegui import ui
 
-from copy_panels import disconnected, first_copy
+from copy_panels import branch_origin, branch_summary, copy_branches, disconnected, first_copy
 from media_manager.copies import COPY_KINDS, FOLDER_LABELS, copy_label, inherited_location
 from sidebar_ui import sidebar_branch, sidebar_line
 
@@ -40,8 +40,9 @@ class CopyGroupsUI:
     #: Создаёт боковые секции основных папок и отключённых связей.
     #: Обновляет состояние объекта: disconnected, disconnected_list, list, section.
     def build_sidebar(self):
-        with self.workspace.sidebar_expansion('copy_groups', 'Основные папки · 0', icon='folder_copy') as self.section:
+        with self.workspace.sidebar_expansion('copy_groups', 'Папки · 0', icon='folder_copy') as self.section:
             self.list = ui.column().classes('sidebar-list w-full')
+            self.workspace.photo_libraries.build_cloud_groups()
             with self.workspace.sidebar_expansion('copy_archive', 'Отключённые · 0', icon='link_off') as self.disconnected:
                 self.disconnected_list = ui.column().classes('sidebar-list w-full')
 
@@ -89,29 +90,37 @@ class CopyGroupsUI:
     #: Использует self.disconnected.set_visibility, self.disconnected_list.clear, self.list.clear, self.render_group, sidebar_sections.
     def render_sidebar(self):
         active, offline, count = sidebar_sections(self.groups)
-        self.section.text = f'Основные папки · {len(active)}'
+        self.update_sidebar_title()
         self.list.clear()
         self.disconnected_list.clear()
         self.disconnected.text = f'Отключённые · {count}'
         self.disconnected.set_visibility(bool(count))
         with self.list:
-            if not self.groups:
-                ui.label('Основных папок пока нет').classes('sidebar-empty')
-            elif not active:
-                ui.label('Все папки отключены').classes('sidebar-empty')
             for group, copies in active:
                 self.render_group(group, copies)
         with self.disconnected_list:
             for group, copies in offline:
                 self.render_group(group, copies, archive=True)
 
+    #: Показывает общий счётчик наборов папок с дисков и iCloud.
+    #: Пересчитывается при изменении любой из двух частей списка.
+    def update_sidebar_title(self):
+        active, _, _ = sidebar_sections(self.groups)
+        count = len(active) + len(self.workspace.photo_libraries.cloud_groups())
+        self.section.text = f'Папки · {count}'
+
     #: Показывает заголовок основной папки и раскрываемые строки её копий.
     #: Ключ архивной строки хранится отдельно от ключа подключённого набора.
     def render_group(self, group, copies, *, archive=False):
         key = ('archive', group['id']) if archive else group['id']
-        with sidebar_branch(self.expanded, key, copies, lambda toggle: self.main_row(group, copies, toggle)):
-            for location in copies:
-                self.copy_row(group, location)
+        visible = {copy['id'] for copy in copies}
+        branches = [branch for branch in copy_branches(group['copies'] + group.get('released_copies', []),
+                                                        parent_key='source_location_id')
+                    if branch[-1]['id'] in visible]
+        with sidebar_branch(self.expanded, key, copies, lambda toggle: self.main_row(group, copies, toggle),
+                            summary=branch_summary(branches)):
+            for branch in branches:
+                self.copy_row(group, branch[-1], depth=len(branch) - 1, origin=branch_origin(branch))
 
     #: Формирует компактную строку основной папки и её контекстные действия.
     #: Подробности отслеживания и полный путь доступны в подсказке.
@@ -142,7 +151,8 @@ class CopyGroupsUI:
         tooltip = ' · '.join(detail)
         chosen = bool(member and member['group_id'] == group['id'])
         with sidebar_line(self.location_name(main), lambda: self.open_main(group), tooltip=tooltip, toggle=toggle,
-                          icon='link_off' if offline else 'folder', offline=offline, chosen=chosen) as row:
+                          icon='link_off' if offline else 'folder', offline=offline, chosen=chosen,
+                          role='00-main') as row:
             status = 'Офлайн' if offline else 'Изменено' if group.get('changed_at') else f'{len(copies)} коп.' if copies else ''
             if status:
                 ui.label(status).classes('sidebar-readout truncate').tooltip(tooltip)
@@ -152,7 +162,7 @@ class CopyGroupsUI:
 
     #: Показывает короткий адрес, метку и действия отдельной обычной копии.
     #: Сохраняет историю и управление архивными привязками.
-    def copy_row(self, group, location):
+    def copy_row(self, group, location, *, depth=0, origin=''):
         ws = self.workspace
         panes = getattr(ws, 'panes', [])
         selected = bool(panes and panes[1].volume_id == location['volume_id'] and panes[1].path == location['path'])
@@ -182,7 +192,7 @@ class CopyGroupsUI:
         if location.get('source_location_id'):
             detail = location['source_label'] + ' → ' + detail
         with sidebar_line(f"{location['label']} · {location['volume_name']}", lambda: self.open_copy(group, location),
-                          tooltip=detail, chosen=selected, offline=offline, indented=True) as row:
+                          tooltip=detail, chosen=selected, offline=offline, indented=True, depth=depth, origin=origin) as row:
             if offline:
                 ui.label('Офлайн').classes('sidebar-readout truncate')
             ws.property_menu('Свойства папки', lambda: ws.show_properties(location['volume_id'], dict(location, kind='directory')),

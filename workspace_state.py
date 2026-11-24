@@ -6,8 +6,7 @@ from media_manager.storage import relative_path
 
 STORAGE_KEY = 'media-actu.workspace.v1'
 SIDEBAR_STORAGE_KEY = 'media-actu.sidebar.v1'
-SIDEBAR_DEFAULTS = dict(volumes=False, volume_archive=False, libraries=True,
-                        copy_groups=True, copy_archive=False)
+SIDEBAR_DEFAULTS = dict(volumes=False, volume_archive=False, libraries=True, copy_groups=True, copy_archive=False)
 
 
 #: Восстанавливает только известные булевы настройки раскрытия боковых секций.

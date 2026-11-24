@@ -821,7 +821,7 @@ def route_label(node)
 Выражения возврата (ветви, без исполнения):
 
 - `node['label'] + (f" · {node['volume_name']}" if node.get('volume_name') else '')`
-- `node['label'] + (f" /{node['path']}" if node.get('volume_id') == ICLOUD_VOLUME_ID and node['path'] else '')`
+- `node['label'] + (f" · {node['source_name']}" if node.get('source_name') else '')`
 
 
 <a id="symbol-PairedWorkspace.set_hidden"></a>

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from nicegui import ui
 
-from copy_panels import branch_summary, copy_branches, copy_upstream, first_copy
+from copy_panels import branch_origin, branch_summary, copy_branches, copy_upstream, disconnected, first_copy
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 from sidebar_ui import sidebar_branch, sidebar_line, sidebar_menu
 
@@ -106,22 +106,33 @@ class PhotoLibrariesUI:
         self.busy = False
         self.refresh_lock = Lock()
 
-    #: Находит копию медиатеки, содержащую выбранный файловый путь.
-    #: Поля результата: label, is_root, inherited_from, media_library.
+    #: Находит корень виртуального набора или его физическую копию.
+    #: У неподключённых копий Photos служебная метка не показывается.
     def copy_membership(self, volume_id, path):
+        if volume_id == ICLOUD_VOLUME_ID and any(c['source_path'] == path for c in self.cloud.get('copies', [])):
+            return dict(label='00-main', number=0, is_root=True, inherited_from=None, origin_badge='iCloud')
         for library in self.libraries:
+            if volume_id == f"photos-{library['id']}" and not path:
+                return dict(label='00-main', number=0, is_root=True, inherited_from=None, origin_badge='Photos')
             for copy in library.get('copies', []):
                 if copy.get('connected', True) and copy['volume_id'] == volume_id and copy['path'] == path:
                     return dict(copy, label=f"{copy['number']:02d}-copy", is_root=True,
-                                inherited_from=None, media_library=library.get('label') or 'Photos')
+                                inherited_from=None, origin_badge='Photos', media_library=library_name(library))
+        for copy in self.cloud.get('copies', []):
+            if copy['volume_id'] == volume_id and copy['path'] == path:
+                return dict(copy, label=f"{copy['number']:02d}-copy", is_root=True,
+                            inherited_from=None, origin_badge='iCloud', media_library=self.cloud_name(copy['source_path']))
         return None
 
-    #: Обновляет метки копий Photos в уже загруженных деревьях.
+    #: Обновляет метки источников и копий в уже загруженных деревьях.
     #: Обновляет состояние объекта: copy_roles_signature.
     def refresh_copy_roles(self):
-        signature = tuple((library['id'], library.get('label'),
-                           tuple((c['id'], c['volume_id'], c['path'], c['number'], c.get('connected', True))
-                                 for c in library.get('copies', []))) for library in self.libraries)
+        photo_roles = tuple((library['id'], library.get('label'),
+                             tuple((c['id'], c['volume_id'], c['path'], c['number'], c.get('connected', True))
+                                   for c in library.get('copies', []))) for library in self.libraries)
+        cloud_roles = tuple((c['id'], c['source_path'], c['volume_id'], c['path'], c['number'], c.get('source_link_id'))
+                            for c in self.cloud.get('copies', []))
+        signature = photo_roles, cloud_roles
         if (signature == self.copy_roles_signature or self.ws.context_menu_open
                 or getattr(self.ws, 'editing', False)):
             return
@@ -138,13 +149,43 @@ class PhotoLibrariesUI:
                      mount_path=None, availability='online' if s['active'] else 'offline',
                      mounted=False, identity_status='virtual', library=s) for s in self.libraries]
 
-    #: Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
-    #: Обновляет состояние объекта: cards, note, section.
-    def build(self):
-        with self.ws.sidebar_expansion('libraries', 'Источники', icon='folder_open') as self.section:
-            self.cards = ui.column().classes('sidebar-list w-full')
-            self.note = ui.label().classes('sidebar-note s-error w-full truncate')
-            self.note.set_visibility(False)
+    #: Создаёт отдельный раздел Photos и компактную кнопку подключения в шапке.
+    #: Кнопка доступна и при свёрнутом списке.
+    def build_libraries(self):
+        with ui.element('div').classes('sidebar-library-header w-full'):
+            with self.ws.sidebar_expansion('libraries', 'Медиатеки · 0', icon='photo_library') as self.library_section:
+                self.library_cards = ui.column().classes('sidebar-list w-full')
+                self.library_note = ui.label().classes('sidebar-note s-error w-full truncate')
+                self.library_note.set_visibility(False)
+            with ui.button(icon='add').props(
+                'flat dense round color=green-9 aria-label="Подключить медиатеку Photos"'
+            ).classes('sidebar-add-library') as button:
+                button.tooltip('Подключить медиатеку Photos')
+                with ui.menu() as self.connection_actions:
+                    self.connection_actions.on('before-show', lambda: setattr(self.ws, 'context_menu_open', True))
+                    self.connection_actions.on('hide', lambda: setattr(self.ws, 'context_menu_open', False))
+                    self.connection_menu()
+
+    #: Создаёт место для облачных наборов в общем списке папок.
+    #: Общий статус пакета и ошибки остаются рядом с этими наборами.
+    def build_cloud_groups(self):
+        self.cloud_cards = ui.column().classes('sidebar-list w-full')
+        self.cloud_note = ui.label().classes('sidebar-note s-error w-full truncate')
+        self.cloud_note.set_visibility(False)
+
+    #: Группирует только реально привязанные папки по точному пути в iCloud.
+    #: Для вложенных областей создаются отдельные записи.
+    def cloud_groups(self):
+        groups = {}
+        for copy in self.cloud.get('copies', []):
+            groups.setdefault(copy['source_path'], []).append(copy)
+        return groups
+
+    #: Возвращает короткое видимое имя точного облачного корня.
+    #: Пустой путь означает привязку всего iCloud Drive.
+    @staticmethod
+    def cloud_name(path):
+        return PurePosixPath(path).name if path else 'iCloud Drive'
 
     #: Обновляет Photos и iCloud независимо, сохраняя раскрытие копий и открытое меню.
     #: После сохранения связи ждёт предыдущий опрос и запрашивает актуальные данные.
@@ -162,18 +203,21 @@ class PhotoLibrariesUI:
                 with self.ws.client:
                     if self.ws.client.is_deleted:
                         return
-                    errors = [self.ws.error_text(result) for result in (photos, cloud) if isinstance(result, Exception)]
                     if isinstance(photos, dict):
                         self.libraries, self.connection = photos['libraries'], photos.get('connection', {})
                     if isinstance(cloud, dict):
                         self.cloud = cloud
-                    self.note.text = errors[0] if errors else ''
-                    self.note.set_visibility(bool(errors))
-                    self.section.text = f'Источники · {len(self.libraries) + bool(self.cloud)}'
+                    for note, result in ((self.library_note, photos), (self.cloud_note, cloud)):
+                        note.text = self.ws.error_text(result) if isinstance(result, Exception) else ''
+                        note.set_visibility(bool(note.text))
                     signature = self.render_signature()
                     if signature != self.signature and not self.ws.context_menu_open:
+                        volume_changed = not self.signature or signature[2] != self.signature[2]
                         self.signature = signature
                         self.render()
+                        self.ws.copies.update_sidebar_title()
+                        if volume_changed:
+                            self.ws.render_volumes()
                         for pane in self.ws.panes:
                             if self.ws.is_photos(pane.display_volume_id) or pane.display_volume_id == ICLOUD_VOLUME_ID:
                                 pane.path_signature = None
@@ -188,8 +232,8 @@ class PhotoLibrariesUI:
                                 await pane.preview.refresh_pending(library.get('thumbnail_done', 0))
             except Exception as error:
                 if not self.ws.client.is_deleted:
-                    self.note.text = self.ws.error_text(error)
-                    self.note.set_visibility(True)
+                    self.library_note.text = self.ws.error_text(error)
+                    self.library_note.set_visibility(True)
 
     #: Отслеживает только изменения состава строк и доступности команд меню.
     #: Числовой прогресс и подробности обновляются на существующих элементах UI.
@@ -199,7 +243,7 @@ class PhotoLibrariesUI:
                         tuple((c['id'], c['volume_name'], c['path'], c['number'], c.get('source_link_id'),
                                c.get('source_label'), c['availability'], self.originals_running(c))
                               for c in library.get('copies', []))) for library in self.libraries)
-        cloud = tuple((c['id'], c['number'], c['volume_name'], c['active'], c['availability'], c.get('source_link_id'))
+        cloud = tuple((c['id'], c['source_path'], c['path'], c['number'], c['volume_name'], c['active'], c['availability'], c.get('source_link_id'))
                       for c in self.cloud.get('copies', []))
         return photos, cloud, self.cloud.get('volume'), self.connection.get('state')
 
@@ -210,20 +254,23 @@ class PhotoLibrariesUI:
 
     #: Представляет Photos или выбранную папку iCloud в формате общей связанной пары.
     #: Выбирает указанную копию или первую доступную по номеру.
-    def copy_group(self, virtual_id, copy_id=None):
+    def copy_group(self, virtual_id, copy_id=None, *, source_path=None):
         volume = self.ws.resolve_volume(virtual_id)
         if not volume:
             return None, None
         library = volume.get('library')
         copies = [dict(copy, label=f"{copy['number']:02d}-copy")
                   for copy in (library if library else self.cloud).get('copies', [])]
+        if not library and source_path is not None:
+            copies = [copy for copy in copies if copy['source_path'] == source_path]
         selected = next((copy for copy in copies if copy['id'] == copy_id), None) if copy_id else first_copy(copies)
-        origin = selected.get('source_path', '') if selected else ''
+        origin = selected.get('source_path', '') if selected else source_path or ''
         if not library:
-            copies = [copy for copy in copies if copy.get('source_path', '') == origin]
+            copies = [copy for copy in copies if copy['source_path'] == origin]
+        name = library_name(library) if library else ('iCloud Drive' + (f' /{origin}' if origin else ''))
         main = dict(id=virtual_id, volume_id=virtual_id, path=origin, availability=volume['availability'],
-                    label=library_name(library) if library else 'iCloud Drive')
-        signature = (main['label'], origin, main['availability'], tuple(
+                    label='00-main', number=0, source_name=name)
+        signature = (name, origin, main['availability'], tuple(
             (copy['id'], copy['number'], copy['volume_name'], copy['availability'], copy.get('source_link_id'),
              self.originals_running(copy) if library else copy['active'])
             for copy in copies))
@@ -231,12 +278,12 @@ class PhotoLibrariesUI:
 
     #: Открывает виртуальный источник через тот же контроллер, что и обычную пару.
     #: При отсутствии назначений открывает только левую панель.
-    async def open_copy(self, virtual_id, copy_id=None):
-        group, selected = self.copy_group(virtual_id, copy_id)
+    async def open_copy(self, virtual_id, copy_id=None, *, source_path=None):
+        group, selected = self.copy_group(virtual_id, copy_id, source_path=source_path)
         if selected:
             await self.ws.pair.link(group, selected)
         elif group and not copy_id:
-            await self.ws.open_copy_source(virtual_id)
+            await self.ws.open_copy_source(virtual_id, path=group['main']['path'])
 
     #: Синхронизирует открытую виртуальную пару с актуальными привязками и статусами.
     #: Размыкает просмотр при удалении связи или её непосредственного источника.
@@ -264,9 +311,9 @@ class PhotoLibrariesUI:
     #: Создаёт строку источника или копии с обновляемым показателем.
     #: Возвращает две ссылки для последующего обновления статуса.
     def source_line(self, name, on_open, on_menu, *, offline=False, copy=False, path=None, toggle=None,
-                    icon='photo_library', depth=0, origin=''):
+                    icon='photo_library', depth=0, origin='', role='', name_icon=None):
         with sidebar_line(name, on_open, tooltip=path, icon=None if copy else icon, offline=offline,
-                          indented=copy, toggle=toggle, depth=depth, origin=origin) as row:
+                          indented=copy, toggle=toggle, depth=depth, origin=origin, role=role, name_icon=name_icon) as row:
             status = ui.label().classes('sidebar-readout truncate')
             with status:
                 detail = ui.tooltip()
@@ -279,12 +326,13 @@ class PhotoLibrariesUI:
     #: Рисует строку медиатеки или облачного источника и раскрываемые копии.
     #: Использует общий шаблон боковой колонки и отдельную строку расписания.
     @contextmanager
-    def source(self, key, name, on_open, on_menu, *, active, copies, schedule='', title=None, summary=''):
+    def source(self, key, name, on_open, on_menu, *, active, copies, role, icon=None, name_icon=None,
+               schedule='', title=None, summary=''):
         #: Создаёт строку источника со значком либо переключателем его копий.
         #: Возвращает ссылки на текущий статус.
         def header(toggle):
             status = self.source_line(name, on_open, on_menu, offline=not active, path=title,
-                                      toggle=toggle, icon='cloud' if key == ICLOUD_VOLUME_ID else 'photo_library')
+                                      toggle=toggle, icon=icon, role=role, name_icon=name_icon)
             if schedule:
                 ui.label(schedule).classes('sidebar-note')
             return status
@@ -304,8 +352,11 @@ class PhotoLibrariesUI:
     def connection_menu(self):
         if self.connection.get('state') == 'no_access':
             ui.menu_item('Разрешить доступ Photos', on_click=self.authorize)
-        ui.menu_item('Подключить текущую медиатеку', on_click=self.connect)
-        ui.menu_item('Добавить текущую медиатеку', on_click=self.add)
+        if not self.libraries or self.connection.get('state') == 'unregistered':
+            ui.menu_item('Подключить медиатеку Photos…', on_click=self.add)
+        else:
+            ui.menu_item('Подключить медиатеку Photos', on_click=self.connect)
+            ui.menu_item('Добавить другую медиатеку…', on_click=self.add)
 
     #: Заполняет меню выбранной медиатеки и её настроек.
     #: Использует self.connection_menu и существующие команды Photos.
@@ -321,8 +372,6 @@ class PhotoLibrariesUI:
         scan = ui.menu_item('Обновить каталог', on_click=lambda: self.scan(source_id))
         scan.set_enabled(bool(library['active']))
         ui.menu_item('Добавить копию…', on_click=lambda: self.bind(library))
-        ui.separator()
-        self.connection_menu()
 
     #: Заполняет меню копии Photos командами передачи и связей.
     #: Использует originals_running для выбора команды передачи.
@@ -343,9 +392,14 @@ class PhotoLibrariesUI:
     #: Перерисовывает компактные заголовки и строки копий Photos и iCloud Drive.
     #: Сохраняет команды на кнопках меню и правом клике по строке.
     def render(self):
-        self.cards.clear()
+        self.library_section.text = f'Медиатеки · {len(self.libraries)}'
+        self.connection_actions.clear()
+        with self.connection_actions:
+            self.connection_menu()
+        self.library_cards.clear()
+        self.cloud_cards.clear()
         self.rows.clear()
-        with self.cards:
+        with self.library_cards:
             for library in self.libraries:
                 source_id = library['id']
                 copies = library.get('copies', [])
@@ -353,21 +407,24 @@ class PhotoLibrariesUI:
                 title = library.get('label') or 'Photos'
                 with self.source(source_id, library_name(library), lambda sid=source_id: self.open_copy(f'photos-{sid}'),
                                  lambda s=library: self.library_menu(s), active=library['active'],
-                                 copies=copies, schedule=schedule_text(library), title=title,
+                                 copies=copies, role='00-main · Photos', icon='photo_library',
+                                 schedule=schedule_text(library), title=title,
                                  summary=branch_summary(branches)) as status:
                     self.rows[source_id] = dict(status=status, copies=self.render_copies(
                         f'photos-{source_id}', branches, lambda c, s=library: self.photo_copy_menu(s, c)))
-            if not self.libraries:
-                self.rows['photos'] = dict(status=self.source_line('Photos', None, self.connection_menu))
-            if self.cloud:
-                copies = self.cloud['copies']
+        with self.cloud_cards:
+            for path, copies in sorted(self.cloud_groups().items(), key=lambda group: group[0].casefold()):
+                key = (ICLOUD_VOLUME_ID, path)
                 branches = copy_branches(copies, parent_key='source_link_id')
-                with self.source(ICLOUD_VOLUME_ID, 'iCloud Drive', self.open_cloud, self.cloud_menu,
-                                 active=self.cloud_volume()['availability'] == 'online', copies=copies,
+                with self.source(key, self.cloud_name(path), lambda p=path: self.open_copy(ICLOUD_VOLUME_ID, source_path=p),
+                                 lambda p=path: self.cloud_menu(p), active=self.cloud_volume()['availability'] == 'online',
+                                 copies=copies, role='00-main', name_icon='cloud',
+                                 title=f'iCloud Drive /{path}',
                                  summary=branch_summary(branches)) as status:
-                    self.rows[ICLOUD_VOLUME_ID] = dict(status=status, copies=self.render_copies(
+                    self.rows[key] = dict(status=status, copies=self.render_copies(
                         ICLOUD_VOLUME_ID, branches, self.cloud_copy_menu))
-                self.rows[ICLOUD_VOLUME_ID]['batch'] = ui.label().classes('sidebar-note truncate')
+            self.batch_note = ui.label().classes('sidebar-note truncate')
+            self.batch_note.set_visibility(False)
 
     #: Рисует общие строки копий в порядке фактических источников.
     #: Для зависимой копии добавляет отступ и подпись непосредственного источника.
@@ -375,15 +432,11 @@ class PhotoLibrariesUI:
         rows = {}
         for branch in branches:
             copy = branch[-1]
-            depth = len(branch) - 1
-            origin = ''
-            if depth:
-                parent = branch[-2]
-                origin = f"из {parent['number']:02d}-copy" if 'number' in parent else 'Источник недоступен'
             rows[copy['id']] = self.source_line(
                 f"{copy['number']:02d}-copy · {copy['volume_name']}",
                 lambda c=copy: self.open_copy(virtual_id, c['id']), lambda c=copy: on_menu(c),
-                path=f"{copy['volume_name']} /{copy['path']}", copy=True, depth=depth, origin=origin)
+                path=f"{copy['volume_name']} /{copy['path']}", offline=disconnected(copy),
+                copy=True, depth=len(branch) - 1, origin=branch_origin(branch))
         return rows
 
     #: Применяет краткую подпись и подробную подсказку к существующей строке.
@@ -397,9 +450,6 @@ class PhotoLibrariesUI:
     #: Обновляет компактный статус источников и копий без перерисовки строк.
     #: Использует полные подписи прогресса в подсказках.
     def update_readouts(self):
-        if row := self.rows.get('photos'):
-            self.set_readout(row['status'], 'Доступ' if self.connection.get('state') == 'no_access' else '',
-                             self.connection.get('error') or 'Настройки Photos')
         for library in self.libraries:
             if row := self.rows.get(library['id']):
                 done = int(library.get('thumbnail_done') or 0)
@@ -419,20 +469,22 @@ class PhotoLibrariesUI:
                         text = ('Офлайн' if copy['availability'] != 'online' else '✓' if state == 'completed'
                                 else '⚠' if state in ('failed', 'completed_with_errors') else f'{done / total:.0%}' if total else '—')
                         self.set_readout(elements, text, originals_text(copy) + ' · ' + originals_state(copy))
-        if row := self.rows.get(ICLOUD_VOLUME_ID):
-            copies = self.cloud['copies']
+        for path, copies in self.cloud_groups().items():
+            row = self.rows.get((ICLOUD_VOLUME_ID, path))
+            if not row:
+                continue
             online = self.cloud_volume()['availability'] == 'online'
             text = f'{len(copies)} коп.' if online else 'Офлайн'
-            self.set_readout(row['status'], text, 'iCloud Drive на M4' if online else 'iCloud Drive недоступен на M4')
-            if batch_note := row.get('batch'):
-                batch = self.cloud.get('batch') or {}
-                batch_note.set_visibility(bool(batch.get('files')))
-                if batch.get('files'):
-                    batch_note.text = f"Пакет · {batch['files']} · {self.ws.format_bytes(batch['bytes'])}"
+            self.set_readout(row['status'], text, f'iCloud Drive /{path}' if online else 'iCloud Drive недоступен на M4')
             for copy in copies:
                 if elements := row['copies'].get(copy['id']):
                     text = self.cloud_copy_status(copy)
                     self.set_readout(elements, text, copy['message'] or f"{copy['done']} / {copy['total']} файлов")
+        if batch_note := getattr(self, 'batch_note', None):
+            batch = self.cloud.get('batch') or {}
+            batch_note.set_visibility(bool(batch.get('files')))
+            if batch.get('files'):
+                batch_note.text = f"Пакет iCloud · {batch['files']} · {self.ws.format_bytes(batch['bytes'])}"
 
     #: Показывает прогресс и состояние превью в подробностях медиатеки.
     #: Использует progress_text, library_state.
@@ -451,20 +503,18 @@ class PhotoLibrariesUI:
             ui.button('Закрыть', on_click=dialog.close).props('flat no-caps')
         dialog.open()
 
-    #: Открывает iCloud Drive слева и первую доступную копию справа.
-    #: Сохраняет доступ к назначению при временной недоступности iCloud.
+    #: Открывает iCloud Drive из списка томов для просмотра его корня.
+    #: Сохранённые пары открываются из раздела папок.
     async def open_cloud(self):
-        if self.cloud_volume()['availability'] != 'online' and not self.cloud['copies']:
+        if self.cloud_volume()['availability'] != 'online':
             ui.notify('iCloud Drive недоступен на M4', type='warning')
             return
-        await self.open_copy(ICLOUD_VOLUME_ID)
+        await self.ws.open_volume(ICLOUD_VOLUME_ID)
 
-    #: Показывает корень iCloud Drive и команду добавления копии.
-    #: Команды доступны при подключении iCloud на M4.
-    def cloud_menu(self):
-        root = ui.menu_item('Открыть корень iCloud Drive', on_click=lambda: self.ws.open_copy_source(ICLOUD_VOLUME_ID))
-        bind = ui.menu_item('Добавить копию…', on_click=self.bind_cloud)
-        root.set_enabled(self.cloud_volume()['availability'] == 'online')
+    #: Добавляет копию точной облачной области из её меню.
+    #: В меню тома пустой путь означает весь iCloud Drive.
+    def cloud_menu(self, path=''):
+        bind = ui.menu_item('Добавить копию…', on_click=lambda: self.ws.copy_setup.open(ICLOUD_VOLUME_ID, path))
         bind.set_enabled(self.cloud_volume()['availability'] == 'online')
 
     #: Подписывает состояние передачи iCloud Drive для компактной строки.
@@ -538,16 +588,6 @@ class PhotoLibrariesUI:
                 ui.button('Отвязать копию', on_click=lambda: dialog.submit(True)).props('outline no-caps color=red-8')
         if await dialog:
             await self.action('DELETE', f"/api/icloud/copies/{copy['id']}")
-
-    #: Начинает выбор назначения для выбранной папки либо всего iCloud Drive.
-    #: Асинхронно ожидает: self.ws.copy_setup.open.
-    async def bind_cloud(self):
-        active = self.ws.active_index
-        index = next((i for i in (active, 1 - active) if self.ws.panes[i].volume_id == ICLOUD_VOLUME_ID
-                      and self.ws.panes[i].view_mode == 'tree'), None)
-        pane = self.ws.panes[index] if index is not None else None
-        path = pane.path if pane and pane.kind == 'directory' else ''
-        await self.ws.copy_setup.open(ICLOUD_VOLUME_ID, path, index=index)
 
     #: Показывает состояние копии и постраничный журнал iCloud Drive.
     #: Отображает причину и дату каждой запланированной повторной попытки.

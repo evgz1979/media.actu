@@ -32,6 +32,20 @@ class PhotoCopyRoleTests(unittest.TestCase):
             with self.subTest(volume=volume, path=path):
                 self.assertIsNone(folder_membership(self.ws, volume, path))
 
+    #: Проверяет общие роли виртуального корня и физической копии облачного набора.
+    #: Другие облачные папки и весь том не получают метку чужого набора.
+    def test_cloud_roles_only_mark_the_bound_scope_and_its_destination(self):
+        self.libraries.cloud = dict(copies=[dict(id='cloud', source_path='Работа/Зигзаг',
+                                                volume_id='disk', path='Backup/Зигзаг', number=1)])
+        cloud = folder_membership(self.ws, 'icloud-drive', 'Работа/Зигзаг')
+        self.assertEqual((cloud['label'], cloud['origin_badge']), ('00-main', 'iCloud'))
+        target = folder_membership(self.ws, 'disk', 'Backup/Зигзаг')
+        self.assertEqual((target['label'], target['origin_badge']), ('01-copy', 'iCloud'))
+        photos = folder_membership(self.ws, 'photos-5', '')
+        self.assertEqual((photos['label'], photos['origin_badge']), ('00-main', 'Photos'))
+        self.assertIsNone(folder_membership(self.ws, 'icloud-drive', ''))
+        self.assertIsNone(folder_membership(self.ws, 'icloud-drive', 'Работа'))
+
     def test_disconnecting_library_copy_removes_its_tags_and_preserves_other_roles(self):
         self.libraries.libraries[0]['copies'][0]['connected'] = 0
         self.assertIsNone(folder_membership(self.ws, 'disk', 'Apple/evgz'))

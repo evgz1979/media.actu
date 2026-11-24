@@ -110,12 +110,12 @@ def update()
 Создаёт компактную строку с общими отступами и подсказкой полного названия. В контексте строки размещаются статус и необязательное меню действий.
 
 ```python
-def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggle=None, chosen=False, offline=False, indented=False, depth=0, origin='')
+def sidebar_line(name, on_open, *, tooltip=None, icon=None, icon_color='', toggle=None, chosen=False, offline=False, indented=False, depth=0, origin='', role='', name_icon=None)
 ```
 
 Декораторы: `contextmanager`.
 
-Прямые выражения вызова: `' '.join`, `button.tooltip`, `line.classes`, `line.classes('copy-dependent').style`, `min`, `toggle`, `ui.button`, `ui.button(name, color=None, on_click=on_open).props`, `ui.button(name, color=None, on_click=on_open).props('flat dense no-caps align=left').classes`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('span').classes`, `ui.icon`, `ui.icon('subdirectory_arrow_right', size='11px').classes`, `ui.icon(icon, size='13px').classes`, `ui.label`, `ui.label(origin).classes`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: `' '.join`, `button.tooltip`, `line.classes`, `line.classes('copy-dependent').style`, `min`, `toggle`, `ui.button`, `ui.button(name, icon=name_icon, color=None, on_click=on_open).props`, `ui.button(name, icon=name_icon, color=None, on_click=on_open).props('flat dense no-caps align=left').classes`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('span').classes`, `ui.icon`, `ui.icon('subdirectory_arrow_right', size='11px').classes`, `ui.icon(icon, size='13px').classes`, `ui.label`, `ui.label(origin).classes`, `ui.label(role).classes`, `ui.row`, `ui.row().classes`.
 
 Передаёт управление через `yield`; освобождение ресурса описано в теле контекстного менеджера.
 

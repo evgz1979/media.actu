@@ -235,7 +235,7 @@ async def save(self, source, target, kind)
 async def show_saved(self, source, target, result)
 ```
 
-Прямые выражения вызова: `all`, `copies.changed`, `copies.expanded.add`, `copies.open_copy`, `copies.section.open`, `libraries.expanded.add`, `libraries.open_copy`, `libraries.refresh`, `libraries.section.open`, `next`, `target.items`.
+Прямые выражения вызова: `all`, `copies.changed`, `copies.expanded.add`, `copies.open_copy`, `copies.section.open`, `libraries.expanded.add`, `libraries.open_copy`, `libraries.refresh`, `next`, `section.open`, `target.items`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

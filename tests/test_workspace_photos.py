@@ -46,7 +46,7 @@ class WorkspacePhotosTests(unittest.IsolatedAsyncioTestCase):
         copy = self.copy(1, 'disk', source_path='Документы', state='running', active=True,
                          done=3, total=9, waiting=2, conflicts=0)
         ws.photo_libraries.cloud = dict(volume=dict(id='icloud-drive', availability='online'), copies=[copy])
-        await ws.photo_libraries.open_cloud()
+        await ws.photo_libraries.open_copy('icloud-drive', source_path='Документы')
         self.assertEqual(ws.pair.transfer_progress(), ('Копируем', 3, 9, True))
         copy.update(done=4, waiting=5)
         await ws.photo_libraries.refresh_pair()
@@ -83,14 +83,26 @@ class WorkspacePhotosTests(unittest.IsolatedAsyncioTestCase):
     async def test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offline(self):
         ws = self.workspace()
         ws.photo_libraries.cloud = dict(volume=dict(id='icloud-drive', availability='online'), copies=[
-            self.copy(2, 'other', 'Archive', source_path='', availability='offline'),
+            self.copy(1, 'other', 'Archive', id='other-copy', source_path='', availability='offline'),
             self.copy(1, 'saved', 'Backups', source_path='Документы/Медиа', availability='offline'),
         ])
-        await ws.photo_libraries.open_cloud()
+        await ws.photo_libraries.open_copy('icloud-drive', source_path='Документы/Медиа')
         self.assertTrue(ws.pair.active)
         ws.panes[0].show_volume.assert_awaited_once_with('icloud-drive', 'Документы/Медиа', activate=False)
         ws.panes[1].show_volume.assert_awaited_once_with('saved', 'Backups', activate=False)
         self.assertEqual([copy['id'] for copy in ws.pair.group['copies']], ['copy-1'])
+        self.assertEqual(ws.pair.scopes['left']['label'], '00-main')
+        self.assertEqual(ws.pair.route_label(ws.pair.scopes['left']), '00-main · iCloud Drive /Документы/Медиа')
+
+    #: Проверяет, что вход в том открывает просмотр всего iCloud Drive.
+    #: Существующая связанная копия не меняет выбор корня.
+    async def test_cloud_volume_opens_browsing_instead_of_a_saved_set(self):
+        ws = self.workspace()
+        ws.photo_libraries.cloud = dict(volume=dict(id='icloud-drive', availability='online'),
+                                        copies=[self.copy(1, 'disk', source_path='Документы')])
+        await ws.photo_libraries.open_cloud()
+        ws.open_volume.assert_awaited_once_with('icloud-drive')
+        self.assertFalse(ws.pair.active)
 
     #: Проверяет общий формат заголовков действующей и архивной пар.
     #: Сохраняет ранее показанные роли обычных папок.

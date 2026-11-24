@@ -16,6 +16,7 @@
 ## Оглавление определений
 
 - [_copy_ancestry](#symbol-_copy_ancestry) — Поднимается от выбранной копии к корню по сохранённым ссылкам.
+- [branch_origin](#symbol-branch_origin) — Подписывает непосредственный источник строки общего дерева копий.
 - [branch_summary](#symbol-branch_summary) — Подписывает самый длинный маршрут для свёрнутой строки источника.
 - [copy_branches](#symbol-copy_branches) — Возвращает путь до каждой копии в порядке дерева, начиная с первого назначения.
 - [copy_heading](#symbol-copy_heading) — Формирует подпись источника, действующей копии или архивного назначения.
@@ -43,6 +44,27 @@ def _copy_ancestry(root, by_id, target, parent_key)
 - `(list(reversed(nodes)), cycle)`
 
 
+<a id="symbol-branch_origin"></a>
+
+## `branch_origin`
+
+[copy_panels.py](../../copy_panels.py) · `branch_origin`
+
+Подписывает непосредственный источник строки общего дерева копий. Для прямой копии подпись не нужна.
+
+```python
+def branch_origin(branch)
+```
+
+Прямые выражения вызова: `len`, `parent.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `''`
+- `parent['label']`
+- `f'из {label}'`
+
+
 <a id="symbol-branch_summary"></a>
 
 ## `branch_summary`
@@ -55,7 +77,7 @@ def _copy_ancestry(root, by_id, target, parent_key)
 def branch_summary(branches)
 ```
 
-Прямые выражения вызова: `' → '.join`, `any`, `len`, `max`.
+Прямые выражения вызова: `' → '.join`, `any`, `len`, `max`, `node.get`.
 
 Выражения возврата (ветви, без исполнения):
 

@@ -45,6 +45,7 @@
 - [CopyGroupsUI.renumber](#symbol-CopyGroupsUI.renumber) — Показывает и подтверждает рассчитанные изменения номеров копий.
 - [CopyGroupsUI.set_connection](#symbol-CopyGroupsUI.set_connection) — Подключает или отключает набор либо отдельную копию через API.
 - [CopyGroupsUI.set_folder_settings](#symbol-CopyGroupsUI.set_folder_settings) — Сохраняет настройки набора и обновляет связанные сведения UI.
+- [CopyGroupsUI.update_sidebar_title](#symbol-CopyGroupsUI.update_sidebar_title) — Показывает общий счётчик наборов папок с дисков и iCloud.
 - [sidebar_sections](#symbol-sidebar_sections) — Разделяет наборы и копии на подключённые и архивные секции.
 
 <a id="symbol-CopyGroupsUI"></a>
@@ -60,7 +61,7 @@
 
 Состояние, присваиваемое конструктором: `control_signature`, `controls`, `expanded`, `groups`, `workspace`.
 
-Именованные методы: `__init__`, `build_sidebar`, `build_controls`, `location_name`, `location_path`, `membership`, `main_group`, `refresh`, `render_sidebar`, `render_group`, `main_row`, `copy_row`, `folder_menu`, `set_folder_settings`, `acknowledge_changes`, `set_connection`, `render_controls`, `context_actions`, `changed`, `register_main`, `open_main`, `open_copy`, `choose_source`, `release_number`, `edit_kind`, `confirm_remove`, `renumber`, `remove_group`, `remove_copy`.
+Именованные методы: `__init__`, `build_sidebar`, `build_controls`, `location_name`, `location_path`, `membership`, `main_group`, `refresh`, `render_sidebar`, `update_sidebar_title`, `render_group`, `main_row`, `copy_row`, `folder_menu`, `set_folder_settings`, `acknowledge_changes`, `set_connection`, `render_controls`, `context_actions`, `changed`, `register_main`, `open_main`, `open_copy`, `choose_source`, `release_number`, `edit_kind`, `confirm_remove`, `renumber`, `remove_group`, `remove_copy`.
 
 <a id="symbol-CopyGroupsUI.__init__"></a>
 
@@ -133,7 +134,7 @@ def build_sidebar(self)
 
 Присваивания полям `self`: `disconnected`, `disconnected_list`, `list`, `section`.
 
-Прямые выражения вызова: `self.workspace.sidebar_expansion`, `ui.column`, `ui.column().classes`.
+Прямые выражения вызова: `self.workspace.photo_libraries.build_cloud_groups`, `self.workspace.sidebar_expansion`, `ui.column`, `ui.column().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -222,7 +223,7 @@ def context_actions(self, volume_id, entry, *, index=None)
 Показывает короткий адрес, метку и действия отдельной обычной копии. Сохраняет историю и управление архивными привязками.
 
 ```python
-def copy_row(self, group, location)
+def copy_row(self, group, location, *, depth=0, origin='')
 ```
 
 Прямые выражения вызова: `actions.append`, `actions.extend`, `actions.insert`, `bool`, `disconnected`, `getattr`, `group.get`, `location.get`, [self.location_path](copy_groups_ui.md#symbol-CopyGroupsUI.location_path), `sidebar_line`, `ui.label`, `ui.label('Офлайн').classes`, `ws.property_menu`.
@@ -532,7 +533,7 @@ def render_controls(self)
 def render_group(self, group, copies, *, archive=False)
 ```
 
-Прямые выражения вызова: [self.copy_row](copy_groups_ui.md#symbol-CopyGroupsUI.copy_row), `sidebar_branch`.
+Прямые выражения вызова: `branch_origin`, `branch_summary`, `copy_branches`, `group.get`, `len`, [self.copy_row](copy_groups_ui.md#symbol-CopyGroupsUI.copy_row), `sidebar_branch`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -549,7 +550,7 @@ def render_group(self, group, copies, *, archive=False)
 def render_sidebar(self)
 ```
 
-Прямые выражения вызова: `bool`, `len`, `self.disconnected.set_visibility`, `self.disconnected_list.clear`, `self.list.clear`, [self.render_group](copy_groups_ui.md#symbol-CopyGroupsUI.render_group), [sidebar_sections](copy_groups_ui.md#symbol-sidebar_sections), `ui.label`, `ui.label('Все папки отключены').classes`, `ui.label('Основных папок пока нет').classes`.
+Прямые выражения вызова: `bool`, `self.disconnected.set_visibility`, `self.disconnected_list.clear`, `self.list.clear`, [self.render_group](copy_groups_ui.md#symbol-CopyGroupsUI.render_group), [self.update_sidebar_title](copy_groups_ui.md#symbol-CopyGroupsUI.update_sidebar_title), [sidebar_sections](copy_groups_ui.md#symbol-sidebar_sections).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -613,6 +614,23 @@ async def set_folder_settings(self, group, **settings)
 Прямые выражения вызова: [self.refresh](copy_groups_ui.md#symbol-CopyGroupsUI.refresh), `ws.notice`, `ws.request`.
 
 Перехватываемые типы: `Exception`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-CopyGroupsUI.update_sidebar_title"></a>
+
+## `CopyGroupsUI.update_sidebar_title`
+
+[copy_groups_ui.py](../../copy_groups_ui.py) · `CopyGroupsUI.update_sidebar_title`
+
+Показывает общий счётчик наборов папок с дисков и iCloud. Пересчитывается при изменении любой из двух частей списка.
+
+```python
+def update_sidebar_title(self)
+```
+
+Прямые выражения вызова: `len`, `self.workspace.photo_libraries.cloud_groups`, [sidebar_sections](copy_groups_ui.md#symbol-sidebar_sections).
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

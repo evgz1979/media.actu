@@ -325,8 +325,10 @@ class CopySetupUI:
             await copies.open_copy(result, copy)
         else:
             libraries = self.ws.photo_libraries
-            libraries.expanded.add(source['library']['id'] if source['kind'] == 'photos' else ICLOUD_VOLUME_ID)
+            key = source['library']['id'] if source['kind'] == 'photos' else (ICLOUD_VOLUME_ID, source['path'])
+            libraries.expanded.add(key)
             libraries.signature = None
             await libraries.refresh(wait=True)
-            libraries.section.open()
+            section = libraries.library_section if source['kind'] == 'photos' else self.ws.copies.section
+            section.open()
             await libraries.open_copy(source['volume_id'], result['id'])

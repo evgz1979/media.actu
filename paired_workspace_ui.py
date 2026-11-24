@@ -155,7 +155,7 @@ class PairedWorkspace:
     def route_label(node):
         if node.get('number'):
             return node['label'] + (f" · {node['volume_name']}" if node.get('volume_name') else '')
-        return node['label'] + (f" /{node['path']}" if node.get('volume_id') == ICLOUD_VOLUME_ID and node['path'] else '')
+        return node['label'] + (f" · {node['source_name']}" if node.get('source_name') else '')
 
     #: Показывает маршрут над стыком панелей и выделяет открытый переход.
     #: Плашки копий переключают пару, остальные назначения видны в меню.

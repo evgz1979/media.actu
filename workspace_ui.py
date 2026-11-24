@@ -186,12 +186,12 @@ def archived(volume):
     return not volume.get('mounted') and (volume['availability'] == 'offline' or volume.get('identity_status') == 'legacy')
 
 
-#: Определяет принадлежность пути обычной копии или копии медиатеки.
+#: Определяет принадлежность пути обычному или виртуальному набору.
 #: Использует libraries.copy_membership, workspace.copies.membership.
 def folder_membership(workspace, volume_id, path):
     libraries = getattr(workspace, 'photo_libraries', None)
-    photo_copy = libraries.copy_membership(volume_id, path) if libraries else None
-    return photo_copy or workspace.copies.membership(volume_id, path)
+    virtual_role = libraries.copy_membership(volume_id, path) if libraries else None
+    return virtual_role or workspace.copies.membership(volume_id, path)
 
 
 #: Управляет деревом, выбором, навигацией и режимом превью одной панели.
@@ -492,7 +492,9 @@ class BrowserPane:
         if report:
             self.heading.text = 'Источник' if self.index == 0 else 'Совпадения'
         else:
-            self.heading.text = self.title + ' панель'
+            membership = folder_membership(self.workspace, self.volume_id, self.path) if self.kind == 'directory' else None
+            origin = membership.get('origin_badge') if membership and membership['number'] == 0 else None
+            self.heading.text = f'00-main · {origin}' if origin else self.title + ' панель'
         self.volume_select.set_enabled(not bool(report))
         self.volume_select.set_visibility(not (report and self.index == 1))
         self.navigation.set_visibility(True)
@@ -941,7 +943,7 @@ class BrowserPane:
                 membership = folder_membership(self.workspace, self.volume_id, entry['path'])
                 tags = entry.get('metadata', {}).get('tags', [])
                 labels = labels or bool(membership or tags)
-                extra_tags = max(extra_tags, len(tags) + bool((membership or {}).get('media_library')))
+                extra_tags = max(extra_tags, len(tags) + bool((membership or {}).get('origin_badge')))
         self.container.style(f'--folder-name-width:{220 + 65 * extra_tags}px')
         self.container.classes(add='folder-labels' if labels else '', remove='' if labels else 'folder-labels')
         self.update_header()
@@ -1022,11 +1024,15 @@ class BrowserPane:
                                 name_button.props['data-folder-key'] = folder_key
                             membership = folder_membership(self.workspace, self.volume_id, entry['path']) if directory else None
                             if membership:
+                                badge = membership.get('origin_badge')
+                                if badge == 'iCloud':
+                                    icon = ui.icon('cloud', size='13px').classes('s-tree-role').style('color:#497695')
+                                    icon.props('role=img aria-hidden=false aria-label="iCloud"').tooltip('iCloud Drive')
                                 ui.label(membership['label']).classes('s-tree-role copy-label' + (' main' if membership['number'] == 0 else ''))
                                 if membership.get('source_location_id') or membership.get('source_link_id'):
                                     ui.label('← ' + membership.get('source_label','копия')).classes('s-tree-role copy-label')
-                                if membership.get('media_library'):
-                                    ui.label('медиатека').classes('s-tree-role library-role').tooltip(membership['media_library'])
+                                if badge and badge != 'iCloud':
+                                    ui.label(badge).classes('s-tree-role library-role').tooltip(membership.get('media_library', badge))
                             if directory:
                                 for tag in entry.get('metadata', {}).get('tags', []):
                                     if tag in FOLDER_TAGS:
@@ -1109,7 +1115,7 @@ class StorageWorkspace:
                     self.volume_list = ui.column().classes('sidebar-list w-full')
                     with self.sidebar_expansion('volume_archive', 'Отключённые', icon='link_off') as self.archive:
                         self.archive_list = ui.column().classes('sidebar-list w-full')
-                self.photo_libraries.build()
+                self.photo_libraries.build_libraries()
                 self.copies.build_sidebar()
             with ui.element('div').classes('commander-trees') as self.trees:
                 self.panes = [BrowserPane(self, index) for index in range(2)]
@@ -1572,9 +1578,10 @@ class StorageWorkspace:
         self.archive_list.clear()
         active = [v for v in self.volumes if not archived(v)]
         offline = [v for v in self.volumes if archived(v)]
+        cloud = self.photo_libraries.cloud_volume()
         online = sum(v['availability'] == 'online' for v in self.volumes)
         self.overview.text = f'Томов: {len(self.volumes)} · подключено: {online} · отключено: {len(offline)}'
-        self.volumes_section.text = f'Тома · {len(active)}'
+        self.volumes_section.text = f'Тома · {len(active) + bool(cloud)}'
         self.archive.text = f'Отключённые · {len(offline)}'
         self.archive.set_visibility(bool(offline))
         selected = self.panes[self.active_index].display_volume_id if getattr(self, 'panes', []) else None
@@ -1617,9 +1624,18 @@ class StorageWorkspace:
                         self.property_menu('Свойства диска', lambda v=volume: self.show_properties(v['id']),
                                            volume_id=volume['id'], extra_content=volume_actions, folder=True, row=row)
         with self.volume_list:
-            if not active:
+            if not active and not cloud:
                 ui.label('Нет активных томов.' if self.volumes else 'Пока нет сохранённых томов.').classes('sidebar-empty')
             groups(active)
+            if cloud:
+                online = cloud['availability'] == 'online'
+                with sidebar_line('iCloud Drive', self.photo_libraries.open_cloud, icon='cloud',
+                                  tooltip='Корень iCloud Drive', offline=not online,
+                                  chosen=selected == ICLOUD_VOLUME_ID) as row:
+                    if not online:
+                        ui.label('Офлайн').classes('sidebar-readout truncate')
+                    with sidebar_menu(row):
+                        self.photo_libraries.cloud_menu()
         with self.archive_list:
             groups(offline)
 
@@ -2094,8 +2110,8 @@ class StorageWorkspace:
                 ui.label(membership['label']).classes('copy-label' + (' main' if membership['number'] == 0 else ''))
                 if membership.get('source_location_id') or membership.get('source_link_id'):
                     ui.label('Источник: ' + membership.get('source_label','копия')).classes('s-muted')
-                if membership.get('media_library'):
-                    ui.label('медиатека').classes('s-tag').tooltip(membership['media_library'])
+                if badge := membership.get('origin_badge'):
+                    ui.label(badge).classes('s-tag').tooltip(membership.get('media_library', badge))
                 if not membership['is_root']:
                     ui.label('Унаследовано от /' + membership['path']).classes('s-path s-muted')
                 if membership.get('marker_state'):
@@ -2141,9 +2157,10 @@ class StorageWorkspace:
             with ui.dialog() as dialog, ui.card().classes('w-[420px] max-w-full p-5 gap-3'):
                 ui.label('Метки папки').classes('text-lg font-semibold')
                 ui.label(PurePosixPath(path).name if path else data['volume']['name']).classes('s-path break-words')
-                if membership and membership.get('media_library'):
-                    ui.label('медиатека · ' + membership['media_library']).classes('copy-folder-tag')
-                    ui.label('Метка «медиатека» задаётся привязкой к Photos.').classes('s-note')
+                if membership and membership.get('origin_badge'):
+                    badge = membership['origin_badge']
+                    ui.label(f"{badge} · {membership.get('media_library', badge)}").classes('copy-folder-tag')
+                    ui.label('Служебная метка задаётся привязкой копии.').classes('s-note')
                 controls = {tag: ui.checkbox(title, value=tag in selected) for tag, title in FOLDER_TAGS.items()}
                 ui.label('Можно выбрать несколько. Метки относятся только к этой папке.').classes('s-note')
                 with ui.row().classes('w-full justify-end'):

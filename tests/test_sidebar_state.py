@@ -29,8 +29,7 @@ class SidebarStateTests(unittest.TestCase):
             storage = FilePersistentDict(file)
             storage.initialize_sync()
             ws = self.workspace(storage)
-            chosen = dict(volumes=True, volume_archive=True, libraries=False,
-                          copy_groups=False, copy_archive=True)
+            chosen = dict(volumes=True, volume_archive=True, libraries=False, copy_groups=False, copy_archive=True)
             for key, value in chosen.items():
                 self.expansion(ws, key).set_value(value)
 
@@ -52,12 +51,12 @@ class SidebarStateTests(unittest.TestCase):
         storage = {}
         first, second = self.workspace(storage), self.workspace(storage)
         first_section = self.expansion(first, 'volumes')
-        second_section = self.expansion(second, 'libraries')
+        second_section = self.expansion(second, 'copy_groups')
         first_section.open()
         second_section.close()
         page = self.workspace(storage)
         self.assertTrue(self.expansion(page, 'volumes').value)
-        self.assertFalse(self.expansion(page, 'libraries').value)
+        self.assertFalse(self.expansion(page, 'copy_groups').value)
 
     def test_invalid_preferences_do_not_expand_or_hide_unrelated_sections(self):
         value = normalize_sidebar(dict(volumes='false', libraries=0, copy_groups=False,

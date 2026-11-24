@@ -83,9 +83,22 @@ def copy_branches(copies, *, parent_key):
 def branch_summary(branches):
     chains = [branch for branch in branches if len(branch) > 1]
     longest = max(chains, key=len, default=())
-    summary = ' → '.join(f"{node['number']:02d}-copy" if 'number' in node else '…' for node in longest)
+    summary = ' → '.join((node.get('label') or f"{node['number']:02d}-copy") if 'number' in node else '…'
+                         for node in longest)
     shown = {node['id'] for node in longest if 'id' in node}
     return summary + (' · …' if any(branch[-1]['id'] not in shown for branch in chains) else '')
+
+
+#: Подписывает непосредственный источник строки общего дерева копий.
+#: Для прямой копии подпись не нужна.
+def branch_origin(branch):
+    if len(branch) < 2:
+        return ''
+    parent = branch[-2]
+    if 'number' not in parent:
+        return parent['label']
+    label = parent.get('label') or f"{parent['number']:02d}-copy"
+    return f'из {label}'
 
 
 #: Формирует подпись источника, действующей копии или архивного назначения.
