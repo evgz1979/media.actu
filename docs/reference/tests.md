@@ -2084,6 +2084,14 @@ async def test_properties_and_decisions_remain_separate_menu_actions(self)
 def test_expanding_one_folder_reveals_only_its_differing_files(self)
 ```
 
+<a id="symbol-tests.test_paired_workspace.PairedWorkspaceTests.test_folder_copy_route_uses_current_operation"></a>
+
+### `PairedWorkspaceTests.test_folder_copy_route_uses_current_operation`
+
+```python
+def test_folder_copy_route_uses_current_operation(self)
+```
+
 <a id="symbol-tests.test_paired_workspace.PairedWorkspaceTests.test_fully_matching_report_keeps_root_folders_collapsed"></a>
 
 ### `PairedWorkspaceTests.test_fully_matching_report_keeps_root_folders_collapsed`
@@ -3562,6 +3570,14 @@ async def test_icloud_opens_the_bound_source_path_even_when_all_copies_are_offli
 
 ```python
 async def test_icloud_pair_restores_without_using_folder_comparison_api(self)
+```
+
+<a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_icloud_route_uses_live_counts_and_stops_moving_while_waiting"></a>
+
+### `WorkspacePhotosTests.test_icloud_route_uses_live_counts_and_stops_moving_while_waiting`
+
+```python
+async def test_icloud_route_uses_live_counts_and_stops_moving_while_waiting(self)
 ```
 
 <a id="symbol-tests.test_workspace_photos.WorkspacePhotosTests.test_opening_a_chained_photos_copy_uses_its_actual_source"></a>

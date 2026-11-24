@@ -60,8 +60,10 @@
 - [PairedWorkspace.stop_copy](#symbol-PairedWorkspace.stop_copy) — Запрашивает остановку активного копирования отсутствующих элементов.
 - [PairedWorkspace.toggle_differences](#symbol-PairedWorkspace.toggle_differences) — Переключает фильтр различий и обновляет набор загружаемых строк.
 - [PairedWorkspace.toggle_root_files](#symbol-PairedWorkspace.toggle_root_files) — Переключает показ файлов непосредственно в текущем корне пары.
+- [PairedWorkspace.transfer_progress](#symbol-PairedWorkspace.transfer_progress) — Приводит состояния выбранного назначения к общему прогрессу маршрута.
 - [PairedWorkspace.unlink](#symbol-PairedWorkspace.unlink) — Размыкает панели и восстанавливает независимый просмотр.
 - [PairedWorkspace.update_header](#symbol-PairedWorkspace.update_header) — Обновляет путь и границы связанной стороны панели.
+- [PairedWorkspace.update_route_progress](#symbol-PairedWorkspace.update_route_progress) — Обновляет прогресс без пересоздания кнопок маршрута и меню.
 - [PairedWorkspace.visible_rows](#symbol-PairedWorkspace.visible_rows) — Отбирает строки с учётом корня, раскрытия, скрытых файлов и различий.
 
 ## Константы и значения по умолчанию
@@ -84,9 +86,9 @@
 Базовые классы: `object`.
 
 
-Состояние, присваиваемое конструктором: `active`, `by_path`, `closed`, `copy_dialog_open`, `copy_id`, `copy_operation`, `differences_only`, `generation`, `group`, `history_only`, `loaded_job`, `pending_start`, `pending_view`, `rail_signature`, `report`, `root`, `root_files_open`, `rows`, `saved`, `saved_active`, `scopes`, `selected`, `show_hidden`, `structure_at`, `views`, `ws`.
+Состояние, присваиваемое конструктором: `active`, `by_path`, `closed`, `copy_dialog_open`, `copy_id`, `copy_operation`, `differences_only`, `generation`, `group`, `history_only`, `loaded_job`, `pending_start`, `pending_view`, `rail_signature`, `report`, `root`, `root_files_open`, `route_signature`, `rows`, `saved`, `saved_active`, `scopes`, `selected`, `show_hidden`, `structure_at`, `views`, `ws`.
 
-Именованные методы: `__init__`, `copy_running`, `report_title`, `build`, `route_label`, `render_route`, `render_rail`, `link`, `unlink`, `update_header`, `relative`, `navigate_path`, `visible_rows`, `configure_view`, `render_tree`, `redraw`, `choose`, `navigate`, `on_select`, `on_open`, `on_toggle`, `collapse_all`, `toggle_root_files`, `toggle_differences`, `set_hidden`, `start`, `apply`, `restore_view`, `load_rows`, `poll`, `apply_copy_operation`, `stop_copy`, `copy_paths`, `copy_item_list`, `prepare_copy`, `copy_details`, `stop`, `resume`, `details`, `on_menu_state`, `on_context`, `decide`, `history`.
+Именованные методы: `__init__`, `copy_running`, `report_title`, `build`, `route_label`, `render_route`, `transfer_progress`, `update_route_progress`, `render_rail`, `link`, `unlink`, `update_header`, `relative`, `navigate_path`, `visible_rows`, `configure_view`, `render_tree`, `redraw`, `choose`, `navigate`, `on_select`, `on_open`, `on_toggle`, `collapse_all`, `toggle_root_files`, `toggle_differences`, `set_hidden`, `start`, `apply`, `restore_view`, `load_rows`, `poll`, `apply_copy_operation`, `stop_copy`, `copy_paths`, `copy_item_list`, `prepare_copy`, `copy_details`, `stop`, `resume`, `details`, `on_menu_state`, `on_context`, `decide`, `history`.
 
 <a id="symbol-PairedWorkspace.__init__"></a>
 
@@ -100,7 +102,7 @@
 def __init__(self, workspace)
 ```
 
-Присваивания полям `self`: `active`, `by_path`, `closed`, `copy_dialog_open`, `copy_id`, `copy_operation`, `differences_only`, `generation`, `group`, `history_only`, `loaded_job`, `pending_start`, `pending_view`, `rail_signature`, `report`, `root`, `root_files_open`, `rows`, `saved`, `saved_active`, `scopes`, `selected`, `show_hidden`, `structure_at`, `views`, `ws`.
+Присваивания полям `self`: `active`, `by_path`, `closed`, `copy_dialog_open`, `copy_id`, `copy_operation`, `differences_only`, `generation`, `group`, `history_only`, `loaded_job`, `pending_start`, `pending_view`, `rail_signature`, `report`, `root`, `root_files_open`, `route_signature`, `rows`, `saved`, `saved_active`, `scopes`, `selected`, `show_hidden`, `structure_at`, `views`, `ws`.
 
 Прямые выражения вызова: `set`.
 
@@ -157,9 +159,9 @@ async def apply_copy_operation(self, operation)
 def build(self)
 ```
 
-Присваивания полям `self`: `rail`, `route_view`.
+Присваивания полям `self`: `rail`, `route_nodes`, `route_progress`, `route_view`, `transfer_count`, `transfer_state`, `transfer_track`.
 
-Прямые выражения вызова: [self.render_rail](paired_workspace_ui.md#symbol-PairedWorkspace.render_rail), `ui.add_css`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pair-route').props`, `ui.timer`.
+Прямые выражения вызова: [self.render_rail](paired_workspace_ui.md#symbol-PairedWorkspace.render_rail), `self.route_progress.set_visibility`, `ui.add_css`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pair-route').props`, `ui.label`, `ui.label().props`, `ui.linear_progress`, `ui.linear_progress(value=0, size='5px', show_value=False).props`, `ui.linear_progress(value=0, size='5px', show_value=False).props('color=green-8 aria-label="Прогресс копирования"').classes`, `ui.row`, `ui.row().classes`, `ui.timer`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -691,9 +693,9 @@ def relative(self, index, path)
 def render_rail(self)
 ```
 
-Присваивания полям `self`: `rail_signature`.
+Присваивания полям `self`: `rail_signature`, `route_signature`.
 
-Прямые выражения вызова: `(self.copy_operation or {}).get`, `(self.report or {}).get`, `bool`, `button.set_enabled`, `copy.set_enabled`, `files.set_enabled`, `folders.set_enabled`, `hasattr`, `max`, `min`, `next`, `self.group.get`, `self.rail.clear`, `self.rail.set_visibility`, [self.render_route](paired_workspace_ui.md#symbol-PairedWorkspace.render_route), `self.report.get`, `self.report.get('counts', {}).get`, `self.route_view.set_visibility`, `self.ws.photo_libraries.pair_controls`, `self.ws.trees.classes`, `stop.set_enabled`, `str`, `tuple`, `ui.button`, `ui.button('Далее', icon='play_arrow', on_click=self.resume).props`, `ui.button('Два дерева', icon='account_tree', on_click=lambda: preview.set_mode('tree')).props`, `ui.button('Закрыть', icon='link_off', on_click=self.unlink).props`, `ui.button('История', icon='history', on_click=self.history).props`, `ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props`, `ui.button('Копия', icon='assignment', on_click=self.copy_details).props`, `ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props`, `ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark aria-label="Разомкнуть панели"').classes`, `ui.button('Скопировать', icon='east', on_click=self.prepare_copy).props`, `ui.button('Сменить стороны', icon='swap_horiz', on_click=lambda: self.ws.panes[1 - preview_index].set_mode('preview')).props`, `ui.button('Стоп', icon='pause', on_click=self.stop).props`, `ui.button('Стоп', icon='pause', on_click=self.stop_copy).props`, `ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props`, `ui.button(icon='more_horiz').props`, `ui.icon`, `ui.icon('east' if preview_index == 1 else 'west', size='19px').classes`, `ui.icon('east' if preview_index == 1 else 'west', size='19px').classes('pair-connection preview-connection').props`, `ui.icon('link', size='19px').classes`, `ui.icon('link', size='19px').classes('pair-connection').props`, `ui.label`, `ui.label('Копируем →').classes`, `ui.label('Превью\nсправа' if preview_index == 1 else 'Превью\nслева').classes`, `ui.label('Превью\nсправа' if preview_index == 1 else 'Превью\nслева').classes('pair-rail-state').style`, `ui.label('Прежняя\nпривязка').classes`, `ui.label('Прежняя\nпривязка').classes('pair-rail-state').style`, `ui.label(f"{self.report['checked_files']}/{total}").classes`, `ui.label(phase + '\n' + state).classes`, `ui.label(phase + '\n' + state).classes('pair-rail-state').style`, `ui.label(str(operation['copied_files']) + '/' + str(operation['total_files'])).classes`, `ui.label(str(self.report['indexed_directories']) + '\nпапок').classes`, `ui.label(str(self.report['indexed_directories']) + '\nпапок').classes('pair-rail-state').style`, `ui.linear_progress`, `ui.linear_progress(value=min(1, fraction)).props`, `ui.linear_progress(value=min(1, fraction)).props('color=green-8').classes`, `ui.linear_progress(value=progress).props`, `ui.linear_progress(value=progress).props('color=green-8' + ('' if total else ' indeterminate')).classes`, `ui.menu`, `ui.menu_item`, `ui.separator`.
+Прямые выражения вызова: `(self.copy_operation or {}).get`, `(self.report or {}).get`, `bool`, `button.set_enabled`, `copy.set_enabled`, `files.set_enabled`, `folders.set_enabled`, `hasattr`, `next`, `self.group.get`, `self.rail.clear`, `self.rail.set_visibility`, [self.render_route](paired_workspace_ui.md#symbol-PairedWorkspace.render_route), `self.report.get`, `self.report.get('counts', {}).get`, `self.route_view.set_visibility`, [self.update_route_progress](paired_workspace_ui.md#symbol-PairedWorkspace.update_route_progress), `self.ws.photo_libraries.pair_controls`, `self.ws.trees.classes`, `stop.set_enabled`, `str`, `tuple`, `ui.button`, `ui.button('Далее', icon='play_arrow', on_click=self.resume).props`, `ui.button('Два дерева', icon='account_tree', on_click=lambda: preview.set_mode('tree')).props`, `ui.button('Закрыть', icon='link_off', on_click=self.unlink).props`, `ui.button('История', icon='history', on_click=self.history).props`, `ui.button('Итоги', icon='format_list_bulleted', on_click=self.details).props`, `ui.button('Копия', icon='assignment', on_click=self.copy_details).props`, `ui.button('Отчёт', icon='history', on_click=self.ws.legacy_dialog.open).props`, `ui.button('Папки', icon='folder', on_click=lambda: self.start('folders')).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.unlink).props('flat no-caps color=grey-7 aria-label="Разомкнуть панели"').classes`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props`, `ui.button('Разомкнуть панели', icon='link_off', on_click=self.ws.browse).props('flat no-caps color=dark aria-label="Разомкнуть панели"').classes`, `ui.button('Скопировать', icon='east', on_click=self.prepare_copy).props`, `ui.button('Сменить стороны', icon='swap_horiz', on_click=lambda: self.ws.panes[1 - preview_index].set_mode('preview')).props`, `ui.button('Стоп', icon='pause', on_click=self.stop).props`, `ui.button('Стоп', icon='pause', on_click=self.stop_copy).props`, `ui.button('Файлы', icon='fact_check', on_click=lambda: self.start('files')).props`, `ui.button(icon='more_horiz').props`, `ui.icon`, `ui.icon('east' if preview_index == 1 else 'west', size='19px').classes`, `ui.icon('east' if preview_index == 1 else 'west', size='19px').classes('pair-connection preview-connection').props`, `ui.icon('link', size='19px').classes`, `ui.icon('link', size='19px').classes('pair-connection').props`, `ui.label`, `ui.label('Превью\nсправа' if preview_index == 1 else 'Превью\nслева').classes`, `ui.label('Превью\nсправа' if preview_index == 1 else 'Превью\nслева').classes('pair-rail-state').style`, `ui.label('Прежняя\nпривязка').classes`, `ui.label('Прежняя\nпривязка').classes('pair-rail-state').style`, `ui.label(f"{self.report['checked_files']}/{total}").classes`, `ui.label(phase + '\n' + state).classes`, `ui.label(phase + '\n' + state).classes('pair-rail-state').style`, `ui.label(str(self.report['indexed_directories']) + '\nпапок').classes`, `ui.label(str(self.report['indexed_directories']) + '\nпапок').classes('pair-rail-state').style`, `ui.linear_progress`, `ui.linear_progress(value=progress).props`, `ui.linear_progress(value=progress).props('color=green-8' + ('' if total else ' indeterminate')).classes`, `ui.menu`, `ui.menu_item`, `ui.separator`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -712,7 +714,7 @@ def render_rail(self)
 def render_route(self)
 ```
 
-Прямые выражения вызова: `button.tooltip`, `copy_route`, `disconnected`, `enumerate`, `group.get`, `len`, `node.get`, `route[index + 1].get`, [self.route_label](paired_workspace_ui.md#symbol-PairedWorkspace.route_label), `self.route_view.clear`, `ui.button`, `ui.button(icon='more_horiz').props`, `ui.button(icon='more_horiz').props('flat dense aria-label="Другие копии"').classes`, `ui.button(label, on_click=lambda c=node: self.link(self.group, c)).props`, `ui.button(label, on_click=lambda c=node: self.link(self.group, c)).props('flat dense no-caps').classes`, `ui.icon`, `ui.icon('east', size='14px').classes`, `ui.label`, `ui.label(label).classes`, `ui.label(label).classes('pair-route-node destination' + state).props`, `ui.menu`, `ui.menu_item`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: `button.tooltip`, `copy_route`, `disconnected`, `enumerate`, `group.get`, `len`, `node.get`, `route[index + 1].get`, [self.route_label](paired_workspace_ui.md#symbol-PairedWorkspace.route_label), `self.route_nodes.clear`, `ui.button`, `ui.button(icon='more_horiz').props`, `ui.button(icon='more_horiz').props('flat dense aria-label="Другие копии"').classes`, `ui.button(label, on_click=lambda c=node: self.link(self.group, c)).props`, `ui.button(label, on_click=lambda c=node: self.link(self.group, c)).props('flat dense no-caps').classes`, `ui.icon`, `ui.icon('east', size='14px').classes`, `ui.label`, `ui.label(label).classes`, `ui.label(label).classes('pair-route-node destination' + state).props`, `ui.menu`, `ui.menu_item`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -940,6 +942,31 @@ def toggle_root_files(self)
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
+<a id="symbol-PairedWorkspace.transfer_progress"></a>
+
+## `PairedWorkspace.transfer_progress`
+
+[paired_workspace_ui.py](../../paired_workspace_ui.py) · `PairedWorkspace.transfer_progress`
+
+Приводит состояния выбранного назначения к общему прогрессу маршрута. Возвращает подпись, число готовых файлов, известное общее число и признак передачи.
+
+```python
+def transfer_progress(self)
+```
+
+Прямые выражения вызова: `copy.get`, `job.get`, `self.group.get`, `self.scopes['right'].get`, `{'manifest': 'Читаем список оригиналов', 'inventory': 'Проверяем файлы', 'saving': 'Копируем', 'pausing': 'Останавливаемся', 'paused': 'Пауза', 'scheduled': job.get('message') or 'В очереди', 'waiting_primary': 'Ждём копию-источник'}.get`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `('Пауза', done, total, False)`
+- `None`
+- `('Ждём ' + copy['source_label'], done, total, False)`
+- `(label, done, total, False)`
+- `(label, done, total, remaining > 0)`
+- `(label, done, total, state == 'saving')`
+- `('Копируем' if moving else 'Останавливаемся', operation['copied_files'], operation['total_files'], moving)`
+
+
 <a id="symbol-PairedWorkspace.unlink"></a>
 
 ## `PairedWorkspace.unlink`
@@ -976,6 +1003,25 @@ def update_header(self, pane)
 Прямые выражения вызова: `bool`, `copy_heading`, `pane.location.set_visibility`, `pane.navigation.set_visibility`, `pane.render_path`, `pane.result_filter.set_visibility`, `pane.toolbar.set_visibility`, `pane.volume_select.set_enabled`, `pane.volume_select.set_visibility`, `row.get`, `self.by_path.get`, [self.report_title](paired_workspace_ui.md#symbol-PairedWorkspace.report_title), `self.ws.capacity_text`, `self.ws.format_date`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
+
+<a id="symbol-PairedWorkspace.update_route_progress"></a>
+
+## `PairedWorkspace.update_route_progress`
+
+[paired_workspace_ui.py](../../paired_workspace_ui.py) · `PairedWorkspace.update_route_progress`
+
+Обновляет прогресс без пересоздания кнопок маршрута и меню. При ожидании счётчик и заливка сохраняются, а движение останавливается.
+
+```python
+def update_route_progress(self, routed)
+```
+
+Прямые выражения вызова: `f'{done:,} / {total:,} файлов'.replace`, `max`, `min`, `self.group.get`, `self.route_progress.set_visibility`, `self.route_view.classes`, [self.transfer_progress](paired_workspace_ui.md#symbol-PairedWorkspace.transfer_progress), `self.transfer_track.classes`, `self.transfer_track.set_value`.
+
+Выражения возврата (ветви, без исполнения):
+
+- `None`
 
 
 <a id="symbol-PairedWorkspace.visible_rows"></a>

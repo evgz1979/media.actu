@@ -434,7 +434,7 @@ def connection_menu(self)
 def copy_group(self, virtual_id, copy_id=None)
 ```
 
-Прямые выражения вызова: `(copy.get('originals') or {}).get`, `(library if library else self.cloud).get`, `copy.get`, `dict`, `first_copy`, [library_name](photo_libraries_ui.md#symbol-library_name), `next`, `selected.get`, [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `self.ws.resolve_volume`, `tuple`, `volume.get`.
+Прямые выражения вызова: `(library if library else self.cloud).get`, `copy.get`, `dict`, `first_copy`, [library_name](photo_libraries_ui.md#symbol-library_name), `next`, `selected.get`, [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `self.ws.resolve_volume`, `tuple`, `volume.get`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -639,7 +639,7 @@ def originals_running(copy)
 def pair_controls(self, virtual_id, copy)
 ```
 
-Прямые выражения вызова: `bool`, `button.set_enabled`, `copy.get`, `menu`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `self.ws.resolve_volume`, `ui.button`, `ui.button('Журнал', icon='receipt_long', on_click=details).props`, `ui.button('Пауза' if running else 'Копировать', icon='pause' if running else 'east', on_click=launch).props`, `ui.button(icon='more_horiz').props`, `ui.label`, `ui.label('Ждёт ' + copy['source_label']).classes`, `ui.menu`.
+Прямые выражения вызова: `bool`, `button.set_enabled`, `copy.get`, `menu`, [self.cloud_volume](photo_libraries_ui.md#symbol-PhotoLibrariesUI.cloud_volume), [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `self.ws.resolve_volume`, `ui.button`, `ui.button('Журнал', icon='receipt_long', on_click=details).props`, `ui.button('Пауза' if running else 'Копировать', icon='pause' if running else 'east', on_click=launch).props`, `ui.button(icon='more_horiz').props`, `ui.menu`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

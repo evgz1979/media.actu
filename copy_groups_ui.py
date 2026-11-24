@@ -278,14 +278,16 @@ class CopyGroupsUI:
         browse_only = virtual_pair or any(getattr(p, 'view_mode', 'tree') == 'preview' or (p.volume or {}).get('kind') in ('photos', 'icloud')
                                           for p in getattr(ws, 'panes', ()))
         choosing_copy = bool(getattr(getattr(ws, 'copy_setup', None), 'draft', None))
-        self.controls.set_visibility(not bool(ws.report) and not history_only and not browse_only and not choosing_copy)
         if ws.report or history_only or browse_only or choosing_copy:
+            self.controls.set_visibility(False)
             return
         left = ws.panes[0]
         group = self.main_group()
         member = self.membership(left.volume_id, left.path)
-        source = ws.copy_setup.source(left.volume_id, left.path, left.kind)
-        signature = (left.volume_id, left.path, left.kind, bool(source), (member or {}).get('id'),
+        self.controls.set_visibility(bool(group or member))
+        if not group and not member:
+            return
+        signature = (left.volume_id, left.path, (member or {}).get('id'),
                      (group or {}).get('id'), (group or {}).get('connected'), (group or {}).get('numbering_changes'))
         if signature == self.control_signature:
             return
@@ -302,17 +304,9 @@ class CopyGroupsUI:
                     ui.button('Упорядочить номера копий', on_click=lambda: self.renumber(group)).props(
                         'outline dense no-caps color=green-9').classes('w-full')
                     return
-            if source:
-                volume_id, path = left.volume_id, left.path
-                if not group:
-                    ui.label(PurePosixPath(path).name).classes('text-xs s-muted break-words')
-                ui.button('Добавить копию', icon='add', on_click=lambda: ws.copy_setup.open(volume_id, path, index=0)).props(
-                    'outline dense no-caps color=green-9').classes('w-full')
-            elif member and not group:
+            if member and not group:
                 parent = next(g for g in self.groups if g['id'] == member['group_id'])
                 ui.button('К основной папке', on_click=lambda: self.open_main(parent)).props('flat dense no-caps color=green-9')
-            else:
-                ui.label('Выбери папку для копирования.').classes('text-xs s-muted')
 
     #: Предоставляет команды учёта для контекстного меню выбранной папки.
     #: Использует self.membership.

@@ -39,6 +39,20 @@ class WorkspacePhotosTests(unittest.IsolatedAsyncioTestCase):
         return {**dict(id=f'copy-{number}', number=number, volume_id=disk, volume_name=disk, path=path,
                        availability='online', active=False, state='idle'), **fields}
 
+    #: Проверяет переход от передачи к ожиданию в одной и той же открытой паре.
+    #: Свежие счётчики отображаются без изменения маршрута или заголовков.
+    async def test_icloud_route_uses_live_counts_and_stops_moving_while_waiting(self):
+        ws = self.workspace()
+        copy = self.copy(1, 'disk', source_path='Документы', state='running', active=True,
+                         done=3, total=9, waiting=2, conflicts=0)
+        ws.photo_libraries.cloud = dict(volume=dict(id='icloud-drive', availability='online'), copies=[copy])
+        await ws.photo_libraries.open_cloud()
+        self.assertEqual(ws.pair.transfer_progress(), ('Копируем', 3, 9, True))
+        copy.update(done=4, waiting=5)
+        await ws.photo_libraries.refresh_pair()
+        self.assertEqual(ws.pair.transfer_progress(), ('Ждём iCloud', 4, 9, False))
+        self.assertEqual(ws.pair.generation, 1)
+
     #: Проверяет настоящее открытие пары с первой доступной копией Photos.
     #: Подтверждает возврат к двум деревьям из превью.
     async def test_opening_photos_selects_the_first_available_copy_and_restores_the_destination_tree(self):

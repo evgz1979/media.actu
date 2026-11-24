@@ -41,7 +41,7 @@
 | [media_manager/watcher.py](media_manager--watcher.md) | Повторное сканирование источников | 2 / 8 |
 | [network_ui.py](network_ui.md) | Диалог NAS | 0 / 8 |
 | [paired_tree.py](paired_tree.md) | Python-обёртка Vue-дерева | 1 / 2 |
-| [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 47 |
+| [paired_workspace_ui.py](paired_workspace_ui.md) | UI связанных пар | 1 / 49 |
 | [photo_libraries_ui.py](photo_libraries_ui.md) | UI источников Photos и iCloud Drive | 1 / 57 |
 | [scripts/build_documentation.py](scripts--build_documentation.md) | Генератор смысловых справочников | 3 / 44 |
 | [sidebar_ui.py](sidebar_ui.md) | Строки и меню боковой колонки | 0 / 6 |
@@ -49,7 +49,7 @@
 | [storage_ui.py](storage_ui.md) | Общие элементы и регистрация UI | 0 / 2 |
 | [ui.py](ui.md) | Вход в NiceGUI и HTTP-клиент | 0 / 6 |
 | [workspace_state.py](workspace_state.md) | Состояние браузерной вкладки | 0 / 5 |
-| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 104 |
+| [workspace_ui.py](workspace_ui.md) | Рабочее пространство и панели | 2 / 103 |
 
 - [Нативные определения](native.md)
 - [Тестовые сценарии](tests.md)

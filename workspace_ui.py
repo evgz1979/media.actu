@@ -244,9 +244,6 @@ class BrowserPane:
                         'aria-label="Том слева"' if index == 0 else 'aria-label="Том справа"').classes('pane-volume')
                     self.path_bar = ui.element('nav').classes('pane-path').props(
                         'aria-label="Путь левой панели"' if index == 0 else 'aria-label="Путь правой панели"')
-                    self.copy_button = ui.button('Копия', icon='add', on_click=self.add_copy).props(
-                        'flat dense no-caps color=green-9 aria-label="Добавить копию"').classes('pane-add-copy')
-                    self.copy_button.set_visibility(False)
                 self.folder_size = ui.label().classes('pane-folder-size').props('aria-live=polite')
             with ui.row().classes('s-tree-toolbar w-full items-center justify-between no-wrap') as self.toolbar:
                 self.snapshot_label = ui.label('Просмотр папок').classes('s-muted text-xs')
@@ -291,14 +288,6 @@ class BrowserPane:
             return None
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return {'volume_id': self.volume_id, 'path': path}
-
-    #: Начинает выбор назначения копии для текущей папки или медиатеки.
-    #: Асинхронно ожидает: self.workspace.copy_setup.open.
-    async def add_copy(self):
-        if self.view_mode == 'tree' and not self.comparison_open() and self.workspace.copy_setup.source(
-            self.volume_id, self.path, self.kind
-        ):
-            await self.workspace.copy_setup.open(self.volume_id, self.path, index=self.index)
 
     #: Обрабатывает актуальное изменение выбранного тома, отбрасывая устаревшие события.
     #: Асинхронно ожидает: self.preview.show, self.workspace.open_volume.
@@ -490,9 +479,6 @@ class BrowserPane:
     #: Обновляет состояние объекта: path_signature.
     def update_header(self):
         self.update_volume_select(self.display_volume_id)
-        if button := getattr(self, 'copy_button', None):
-            button.set_visibility(self.view_mode == 'tree' and not self.comparison_open() and bool(
-                self.workspace.copy_setup.source(self.volume_id, self.path, self.kind)))
         if self.view_mode == 'preview':
             self.preview.update_header()
             return

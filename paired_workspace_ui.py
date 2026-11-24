@@ -30,8 +30,18 @@ PAIR_CSS = '''
 .commander-trees.pair-routed > .commander-pane, .commander-trees.pair-routed > .pair-rail { grid-row:2; }
 .commander-trees.pair-routed > .commander-pane { height:auto; min-height:0; }
 .commander-trees.pair-routed .s-panel-head { padding-top:13px; }
-.pair-route { grid-column:1 / -1; grid-row:1; justify-self:center; min-width:0; max-width:100%; position:relative; z-index:2; margin-bottom:-5px; }
-.pair-route-body { justify-content:center; max-width:100%; padding:2px 5px; gap:2px; background:#f1f5ef; border:1px solid #c0d0bd; border-radius:12px; color:#4f624c; }
+.pair-route { grid-column:1 / -1; grid-row:1; justify-self:center; min-width:0; max-width:100%; position:relative;
+    z-index:2; margin-bottom:-5px; background:#f1f5ef; border:1px solid #c0d0bd; border-radius:12px; color:#4f624c; }
+.pair-route.with-progress { width:min(100%,clamp(252px,52%,530px)); }
+.pair-route-body { justify-content:center; max-width:100%; padding:2px 5px; gap:2px; }
+.pair-route-progress { padding:0 10px 6px; }
+.pair-route-progress-caption { justify-content:center; width:100%; gap:2px 9px; margin-bottom:3px;
+    font-size:10px; line-height:13px; text-align:center; color:#435a40; overflow-wrap:anywhere; }
+.pair-route-track { border-radius:4px; overflow:hidden; }
+.pair-route-track.transferring::after { content:''; position:absolute; inset:0 0 0 -45%; width:45%;
+    background:linear-gradient(90deg,transparent,#7cba72,transparent); animation:pair-route-flow 2.2s linear infinite; }
+@keyframes pair-route-flow { to { transform:translateX(325%); } }
+@media(prefers-reduced-motion:reduce) { .pair-route-track.transferring::after { animation:none; } }
 .pair-route-node { padding:3px 6px; font-size:11px; line-height:15px; max-width:100%; overflow-wrap:anywhere; border-radius:7px; }
 .pair-route-node.q-btn { min-height:23px; text-align:center; }
 .pair-route-node.current { background:#d9ebd5; color:#24582c; font-weight:650; }
@@ -99,6 +109,7 @@ class PairedWorkspace:
         self.saved = None
         self.saved_active = 0
         self.rail_signature = None
+        self.route_signature = None
         self.loaded_job = None
         self.root_files_open = False
         self.copy_operation = None
@@ -126,6 +137,15 @@ class PairedWorkspace:
         ui.add_css(PAIR_CSS)
         self.rail = ui.column().classes('pair-rail')
         self.route_view = ui.element('div').classes('pair-route').props('role="group" aria-label="Маршрут копирования"')
+        with self.route_view:
+            self.route_nodes = ui.row().classes('pair-route-body items-center')
+            with ui.element('div').classes('pair-route-progress') as self.route_progress:
+                with ui.row().classes('pair-route-progress-caption'):
+                    self.transfer_state = ui.label().props('role=status')
+                    self.transfer_count = ui.label()
+                self.transfer_track = ui.linear_progress(value=0, size='5px', show_value=False).props(
+                    'color=green-8 aria-label="Прогресс копирования"').classes('pair-route-track')
+        self.route_progress.set_visibility(False)
         self.render_rail()
         ui.timer(1.5, self.poll)
 
@@ -140,14 +160,14 @@ class PairedWorkspace:
     #: Показывает маршрут над стыком панелей и выделяет открытый переход.
     #: Плашки копий переключают пару, остальные назначения видны в меню.
     def render_route(self):
-        self.route_view.clear()
+        self.route_nodes.clear()
         if not self.active or not self.group or self.history_only:
             return
         group = self.group
         route = copy_route(group['main'], group['copies'], self.scopes['right'], parent_key=group.get('parent_key', 'source_location_id'))
         route_ids = {node.get('id') for node in route}
         alternatives = [copy for copy in group['copies'] if copy['id'] not in route_ids]
-        with self.route_view, ui.row().classes('pair-route-body items-center'):
+        with self.route_nodes:
             for index, node in enumerate(route):
                 target = index > 0 and node.get('id') == self.copy_id
                 current = target or node is self.scopes['left'] or (index + 1 < len(route) and route[index + 1].get('id') == self.copy_id)
@@ -169,6 +189,66 @@ class PairedWorkspace:
                         for copy in alternatives:
                             ui.menu_item(self.route_label(copy), on_click=lambda c=copy: self.link(self.group, c))
 
+    #: Приводит состояния выбранного назначения к общему прогрессу маршрута.
+    #: Возвращает подпись, число готовых файлов, известное общее число и признак передачи.
+    def transfer_progress(self):
+        virtual_id = self.group.get('virtual_id')
+        if virtual_id == ICLOUD_VOLUME_ID:
+            copy = self.scopes['right']
+            state = copy['state']
+            done, total = copy['done'], copy['total']
+            if state == 'paused':
+                return 'Пауза', done, total, False
+            if not copy['active']:
+                return None
+            if state == 'waiting_source':
+                return 'Ждём ' + copy['source_label'], done, total, False
+            waiting = copy['waiting']
+            remaining = total - done - copy['conflicts']
+            if state == 'waiting' or (0 < remaining <= waiting):
+                label = copy.get('message') or ('Ждём повтора' if copy.get('source_link_id') else 'Ждём iCloud')
+                return label, done, total, False
+            label = 'Копируем' if remaining > 0 else ('Завершаем' if total else 'Читаем папки')
+            return label, done, total, remaining > 0
+        if virtual_id:
+            job = self.scopes['right'].get('originals') or {}
+            state = job.get('state')
+            label = {'manifest': 'Читаем список оригиналов', 'inventory': 'Проверяем файлы',
+                     'saving': 'Копируем', 'pausing': 'Останавливаемся', 'paused': 'Пауза',
+                     'scheduled': job.get('message') or 'В очереди', 'waiting_primary': 'Ждём копию-источник'}.get(state)
+            if not label:
+                return None
+            done = job.get('done_resources', job.get('done_assets', 0))
+            total = job.get('total_resources', job.get('total_assets', 0))
+            return label, done, total, state == 'saving'
+        if self.copy_running:
+            operation = self.copy_operation
+            moving = operation['state'] == 'running'
+            return ('Копируем' if moving else 'Останавливаемся'), operation['copied_files'], operation['total_files'], moving
+        return None
+
+    #: Обновляет прогресс без пересоздания кнопок маршрута и меню.
+    #: При ожидании счётчик и заливка сохраняются, а движение останавливается.
+    def update_route_progress(self, routed):
+        progress = self.transfer_progress() if routed else None
+        self.route_progress.set_visibility(progress is not None)
+        if not progress:
+            self.route_view.classes(remove='with-progress')
+            return
+        self.route_view.classes(add='with-progress')
+        label, done, total, moving = progress
+        self.transfer_state.text = label
+        self.transfer_count.text = f'{done:,} / {total:,} файлов'.replace(',', ' ') if total else ''
+        fraction = done / total if total else 0
+        if self.copy_running and not self.group.get('virtual_id'):
+            operation = self.copy_operation
+            if operation['total_bytes']:
+                fraction = operation['copied_bytes'] / operation['total_bytes']
+            elif not total:
+                fraction = operation['checked_items'] / max(1, operation['total_directories'])
+        self.transfer_track.set_value(min(1, fraction))
+        self.transfer_track.classes(add='transferring' if moving else '', remove='' if moving else 'transferring')
+
     #: Обновляет команды, прогресс и состояние центральной панели пары.
     #: Обновляет состояние объекта: rail_signature.
     def render_rail(self):
@@ -183,6 +263,11 @@ class PairedWorkspace:
         self.ws.trees.classes(add='preview-linked' if preview is not None else '', remove='' if preview is not None else 'preview-linked')
         self.rail.set_visibility(linked)
         self.route_view.set_visibility(routed)
+        self.update_route_progress(routed)
+        route_signature = (self.generation, self.group.get('signature')) if routed else None
+        if route_signature != self.route_signature:
+            self.route_signature = route_signature
+            self.render_route()
         if not linked:
             return
         signature = (self.active, (self.report or {}).get('state'), (self.report or {}).get('mode'),
@@ -195,7 +280,6 @@ class PairedWorkspace:
         if signature == self.rail_signature:
             return
         self.rail_signature = signature
-        self.render_route()
         self.rail.clear()
         with self.rail:
             if preview is not None:
@@ -235,11 +319,6 @@ class PairedWorkspace:
                     copy.set_enabled(not self.copy_running and not self.copy_dialog_open)
             if self.copy_running:
                 operation = self.copy_operation
-                ui.label('Копируем →').classes('pair-rail-state')
-                total = operation['total_bytes']
-                fraction = operation['copied_bytes'] / total if total else operation['checked_items'] / max(1, operation['total_directories'])
-                ui.linear_progress(value=min(1, fraction)).props('color=green-8').classes('w-full')
-                ui.label(str(operation['copied_files']) + '/' + str(operation['total_files'])).classes('pair-rail-state')
                 stop = ui.button('Стоп', icon='pause', on_click=self.stop_copy).props('flat no-caps color=dark aria-label="Остановить копирование"')
                 stop.set_enabled(operation['state'] == 'running')
             if self.report and not self.copy_running:

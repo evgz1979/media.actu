@@ -9,9 +9,6 @@ from media_manager.icloud_copies import ICLOUD_VOLUME_ID
 
 
 COPY_SETUP_CSS = """
-.pane-add-copy.q-btn { flex-shrink:0; padding:1px 6px; font-size:11px; min-height:27px; }
-.pane-add-copy .q-btn__content { flex-wrap:nowrap; }
-.pane-add-copy .q-icon { font-size:15px; margin-right:3px; }
 .commander-trees.copy-configuring { --copy-width:clamp(154px,24%,205px);
     grid-template-columns:minmax(0,1fr) var(--copy-width) minmax(0,1fr); gap:7px; }
 .commander-trees.copy-configuring.copy-configuring-chain { --copy-width:clamp(190px,31%,285px); }

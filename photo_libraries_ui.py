@@ -225,7 +225,7 @@ class PhotoLibrariesUI:
                     label=library_name(library) if library else 'iCloud Drive')
         signature = (main['label'], origin, main['availability'], tuple(
             (copy['id'], copy['number'], copy['volume_name'], copy['availability'], copy.get('source_link_id'),
-             self.originals_running(copy) if library else copy['active'], (copy.get('originals') or {}).get('state') if library else copy['state'])
+             self.originals_running(copy) if library else copy['active'])
             for copy in copies))
         return dict(main=main, copies=copies, parent_key='source_link_id', virtual_id=virtual_id, signature=signature), selected
 
@@ -253,9 +253,10 @@ class PhotoLibrariesUI:
                for side, scope in (('left', source), ('right', selected))):
             await pair.link(group, selected)
             return
-        if pair.group['signature'] != group['signature']:
-            pair.group = group
-            pair.scopes = dict(left=source, right=selected)
+        structure_changed = pair.group['signature'] != group['signature']
+        pair.group = group
+        pair.scopes = dict(left=source, right=selected)
+        if structure_changed:
             for pane in self.ws.panes:
                 pane.update_header()
         pair.render_rail()
@@ -510,8 +511,6 @@ class PhotoLibrariesUI:
             details = lambda: self.cloud_details(copy['id'])
             menu = lambda: self.cloud_copy_menu(copy)
             online = bool(copy.get('source_link_id') or self.cloud_volume()['availability'] == 'online')
-            if copy['state'] == 'waiting_source':
-                ui.label('Ждёт ' + copy['source_label']).classes('pair-rail-state')
         else:
             library = self.ws.resolve_volume(virtual_id)['library']
             running = self.originals_running(copy)

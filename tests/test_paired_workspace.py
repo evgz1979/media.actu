@@ -10,6 +10,16 @@ from workspace_ui import BrowserPane, StorageWorkspace
 
 
 class PairedWorkspaceTests(unittest.TestCase):
+    #: Проверяет подпись и направление движения для копирования обычных папок.
+    #: При остановке число готовых файлов сохраняется без анимации.
+    def test_folder_copy_route_uses_current_operation(self):
+        pair = PairedWorkspace(None)
+        pair.group = {}
+        pair.copy_operation = dict(state='running', copied_files=4, total_files=9)
+        self.assertEqual(pair.transfer_progress(), ('Копируем', 4, 9, True))
+        pair.copy_operation['state'] = 'stopping'
+        self.assertEqual(pair.transfer_progress(), ('Останавливаемся', 4, 9, False))
+
     def workspace(self):
         workspace = PairedWorkspace(None)
         workspace.report = {'mode': 'files'}
