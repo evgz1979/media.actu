@@ -1636,6 +1636,14 @@ def test_cloud_download_is_kept_when_the_published_copy_was_replaced(self)
 def test_cloud_reserve_defers_before_download(self)
 ```
 
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_due_cloud_requests_are_checked_before_the_capacity_queue"></a>
+
+### `ICloudCopiesTests.test_due_cloud_requests_are_checked_before_the_capacity_queue`
+
+```python
+def test_due_cloud_requests_are_checked_before_the_capacity_queue(self)
+```
+
 <a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_existing_database_gains_source_link_without_changing_direct_copy"></a>
 
 ### `ICloudCopiesTests.test_existing_database_gains_source_link_without_changing_direct_copy`

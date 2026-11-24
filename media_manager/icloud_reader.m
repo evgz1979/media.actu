@@ -36,7 +36,8 @@ static int changeResidency(int parent, const char *name, BOOL download, BOOL ret
     NSURL *folder = [NSURL fileURLWithFileSystemRepresentation:directory isDirectory:YES relativeToURL:nil];
     NSURL *url = [NSURL fileURLWithFileSystemRepresentation:name isDirectory:NO relativeToURL:folder];
     NSFileManager *manager = NSFileManager.defaultManager;
-    NSArray *keys = download ? @[NSURLUbiquitousItemIsDownloadingKey, NSURLUbiquitousItemDownloadRequestedKey]
+    NSArray *keys = download ? @[NSURLUbiquitousItemIsDownloadingKey, NSURLUbiquitousItemDownloadRequestedKey,
+            NSURLUbiquitousItemDownloadingErrorKey]
         : @[NSURLIsUbiquitousItemKey, NSURLIsPurgeableKey, NSURLUbiquitousItemIsUploadedKey,
             NSURLUbiquitousItemIsUploadingKey, NSURLUbiquitousItemHasUnresolvedConflictsKey];
     NSError *error = nil;
@@ -48,12 +49,32 @@ static int changeResidency(int parent, const char *name, BOOL download, BOOL ret
         return 76;
     }
     if (download) {
-        if (!(current.st_flags & SF_DATALESS) || [values[NSURLUbiquitousItemIsDownloadingKey] boolValue]
-                || (!retry && [values[NSURLUbiquitousItemDownloadRequestedKey] boolValue])) {
-            fputs("Файл уже локальный или загружается macOS", stderr);
+        if (!(current.st_flags & SF_DATALESS)) {
+            fputs("Файл уже загружен на M4", stderr);
             return 76;
         }
-        if ([manager startDownloadingUbiquitousItemAtURL:url error:&error]) return 0;
+        if ([values[NSURLUbiquitousItemIsDownloadingKey] boolValue]) {
+            fputs("macOS загружает файл", stderr);
+            return 76;
+        }
+        NSError *downloadError = values[NSURLUbiquitousItemDownloadingErrorKey];
+        if (!retry && [values[NSURLUbiquitousItemDownloadRequestedKey] boolValue]) {
+            if (downloadError) {
+                fprintf(stderr, "macOS ожидает загрузки после ошибки (%s %ld): %s", downloadError.domain.UTF8String,
+                    (long)downloadError.code, downloadError.localizedDescription.UTF8String);
+            } else {
+                fputs("Запрос на загрузку уже в очереди macOS", stderr);
+            }
+            return 76;
+        }
+        if ([manager startDownloadingUbiquitousItemAtURL:url error:&error]) {
+            if (downloadError) {
+                fprintf(stderr, "Повтор после ошибки macOS (%s %ld): %s", downloadError.domain.UTF8String,
+                    (long)downloadError.code, downloadError.localizedDescription.UTF8String);
+            }
+            return 0;
+        }
+        error = error ?: downloadError;
     } else {
         if (current.st_flags & SF_DATALESS) return 0;
         if (![values[NSURLIsUbiquitousItemKey] boolValue] || ![values[NSURLIsPurgeableKey] boolValue]
@@ -69,7 +90,11 @@ static int changeResidency(int parent, const char *name, BOOL download, BOOL ret
             return 75;
         }
     }
-    fprintf(stderr, "%s", error.localizedDescription.UTF8String ?: "macOS отклонила действие iCloud");
+    if (error) {
+        fprintf(stderr, "%s (%s %ld)", error.localizedDescription.UTF8String, error.domain.UTF8String, (long)error.code);
+    } else {
+        fputs("macOS отклонила действие iCloud", stderr);
+    }
     return 75;
 }
 

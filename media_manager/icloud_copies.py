@@ -31,7 +31,11 @@ CLOUD_IN_PROGRESS = ('reserved', 'requested', 'external', 'copying', 'evict_pend
 #: Откладывает путь, пока iCloud работает или освободится место в пакете.
 #: Пауза ожидания не увеличивает интервал обработки обычных ошибок.
 class CloudPending(OSError):
-    pass
+    #: Передаёт причину ожидания и задержку до допустимой повторной проверки.
+    #: Нулевая задержка передаёт управление проверке вместимости в очереди.
+    def __init__(self, message, *, delay=5):
+        super().__init__(message)
+        self.delay = delay
 
 
 #: Читает системный признак отсутствующего содержимого из метаданных файла.
@@ -124,9 +128,10 @@ class ICloudReader:
         seconds, nanos = divmod(mtime, 10**9)
         result = subprocess.run([self.command(), str(parent), name, operation, *map(str, (device, inode, size, seconds, nanos))],
                                 pass_fds=(parent,), capture_output=True, text=True, timeout=15)
+        detail = result.stderr.strip()
         if result.returncode == 0:
-            return True, ''
-        message = result.stderr.strip() or 'macOS отклонила действие iCloud'
+            return True, detail
+        message = detail or 'macOS отклонила действие iCloud'
         if result.returncode == 76:
             return False, message
         raise OSError(message)
@@ -220,7 +225,7 @@ class ICloudCopies:
     def _batch_usage(db):
         marks = ','.join('?' for _ in CLOUD_IN_PROGRESS)
         row = db.execute(f'''SELECT COUNT(*) AS files, COALESCE(SUM(cloud_bytes),0) AS bytes
-                            FROM icloud_copy_items WHERE cloud_phase IN ({marks})''', CLOUD_IN_PROGRESS).fetchone()
+                            FROM icloud_copy_items WHERE cloud_phase != '' AND cloud_phase IN ({marks})''', CLOUD_IN_PROGRESS).fetchone()
         return dict(row)
 
     #: Привязывает папку назначения к облачной области или её сохранённой копии.
@@ -284,7 +289,7 @@ class ICloudCopies:
                     COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,
                     COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,
                     COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,
-                    MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt
+                    MIN(i.retry_at) FILTER (WHERE i.state='retry' AND i.retry_at>0) AS next_attempt
                 FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id
                 LEFT JOIN icloud_copy_items i ON c.id=i.copy_id
                 GROUP BY c.id ORDER BY c.number
@@ -338,13 +343,15 @@ class ICloudCopies:
     #: Читает SQLite-таблицы: icloud_copy_items.
     def journal(self, copy_id, offset=0, limit=100):
         copy = self._copy(copy_id)
+        marks = ','.join('?' for _ in CLOUD_IN_PROGRESS)
         with self.storage.connect() as db:
-            rows = db.execute("""
+            rows = db.execute(f"""
                 SELECT path,kind,state,attempts,retry_at,message,updated_at,cloud_phase,cloud_bytes,cloud_message FROM icloud_copy_items
                 WHERE copy_id=? AND (state!='pending' OR cloud_phase!='')
-                ORDER BY CASE state WHEN 'retry' THEN 0 WHEN 'conflict' THEN 1 ELSE 2 END, updated_at DESC, path
+                ORDER BY CASE WHEN cloud_phase IN ({marks}) THEN 0 WHEN state='retry' THEN 1
+                              WHEN state='conflict' THEN 2 ELSE 3 END, updated_at DESC, path
                 LIMIT ? OFFSET ?
-            """, (copy_id, limit + 1, offset)).fetchall()
+            """, (copy_id, *CLOUD_IN_PROGRESS, limit + 1, offset)).fetchall()
         return dict(state=copy['state'], message=copy['message'], items=[dict(row) for row in rows[:limit]],
                     more=len(rows) > limit)
 
@@ -453,17 +460,23 @@ class ICloudCopies:
             """, (row['id'], now(), row['source_link_id']))
             self._update_copy(db, row['id'], state='running', message='')
 
-    #: Выбирает следующий доступный элемент, затем вычисляет состояние ожидающих привязок.
-    #: Изменяет SQLite-таблицу icloud_copies.
+    #: Сначала проверяет занятые места пакета и откладывает известные заявки без места.
+    #: Учитывает общий лимит файлов и байтов, затем обновляет состояние привязок.
     def _next(self):
         current = time.time()
+        marks = ','.join('?' for _ in CLOUD_IN_PROGRESS)
         with self.storage.connect() as db:
             self._queue_ready_sources(db)
-            item = db.execute("""
+            batch = self._batch_usage(db)
+            item = db.execute(f"""
                 SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id
                 WHERE c.active=1 AND c.retry_at<=? AND (i.state IN ('pending','retry') OR i.cloud_phase='evict_pending') AND i.retry_at<=?
-                ORDER BY (i.cloud_phase='evict_pending') DESC, c.updated_at, i.retry_at, i.path LIMIT 1
-            """, (current, current)).fetchone()
+                  AND (i.cloud_phase!='waiting_space' OR (? AND (?=0 OR i.cloud_bytes<=?)))
+                ORDER BY CASE WHEN i.cloud_phase='evict_pending' THEN 0
+                              WHEN i.cloud_phase IN ({marks}) THEN 1 ELSE 2 END,
+                         c.updated_at, i.retry_at, i.path LIMIT 1
+            """, (current, current, batch['files'] < CLOUD_BATCH_FILES, batch['files'],
+                  CLOUD_BATCH_BYTES - batch['bytes'], *CLOUD_IN_PROGRESS)).fetchone()
             if item:
                 return dict(item)
             for row in db.execute("""
@@ -565,7 +578,8 @@ class ICloudCopies:
                 state, message = self._transfer(item, copy, source_volume, target_volume)
             self._update_item(item, state=state, message=message, retry_at=0)
         except CloudPending as pending:
-            self._update_item(item, state='retry', retry_at=time.time() + 5, message=str(pending))
+            retry_at = time.time() + pending.delay if pending.delay else 0
+            self._update_item(item, state='retry', retry_at=retry_at, message=str(pending))
         except (OSError, subprocess.SubprocessError) as error:
             attempts = item['attempts'] + 1
             delay = min(900, 15 * 2 ** min(attempts - 1, 6))
@@ -636,10 +650,10 @@ class ICloudCopies:
             self._check(item['copy_id'])
             batch = self._batch_usage(db)
             size = source.st_size
-            if free_bytes(original) < CLOUD_DISK_RESERVE + batch['bytes'] + size:
-                message = 'На диске M4 недостаточно места с учётом резерва'
-            elif batch['files'] >= CLOUD_BATCH_FILES or (batch['files'] and batch['bytes'] + size > CLOUD_BATCH_BYTES):
-                message = 'Ожидает места в пакете загрузки'
+            if batch['files'] >= CLOUD_BATCH_FILES or (batch['files'] and batch['bytes'] + size > CLOUD_BATCH_BYTES):
+                pending = CloudPending('Ожидает места в пакете загрузки', delay=0)
+            elif free_bytes(original) < CLOUD_DISK_RESERVE + batch['bytes'] + size:
+                pending = CloudPending('На диске M4 недостаточно места с учётом резерва', delay=30)
             else:
                 db.execute("""UPDATE icloud_copy_items
                               SET cloud_phase='reserved',cloud_bytes=?,cloud_version=?,cloud_message=?,updated_at=?
@@ -647,8 +661,8 @@ class ICloudCopies:
                            (size, json.dumps(version), 'Зарезервировано место для загрузки', now(),
                             item['copy_id'], item['path']))
                 return
-        self._update_item(item, cloud_phase='waiting_space', cloud_bytes=size, cloud_version=None, cloud_message=message)
-        raise CloudPending(message)
+        self._update_item(item, cloud_phase='waiting_space', cloud_bytes=size, cloud_version=None, cloud_message=str(pending))
+        raise pending
 
     #: Управляет явной загрузкой отсутствующего облачного файла и записывает её владельца.
     #: Уже локальный файл доступен сразу; после перезапуска сохраняется прежняя заявка.

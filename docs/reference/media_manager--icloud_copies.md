@@ -16,6 +16,7 @@
 ## Оглавление определений
 
 - [CloudPending](#symbol-CloudPending) — Откладывает путь, пока iCloud работает или освободится место в пакете.
+- [CloudPending.__init__](#symbol-CloudPending.__init__) — Передаёт причину ожидания и задержку до допустимой повторной проверки.
 - [ICloudCopies](#symbol-ICloudCopies) — Хранит привязки папок iCloud Drive, очередь передачи и результат каждого пути.
 - [ICloudCopies.__init__](#symbol-ICloudCopies.__init__) — Инициализирует постоянную очередь и параметры фонового исполнителя.
 - [ICloudCopies._batch_local_bytes](#symbol-ICloudCopies._batch_local_bytes) — Суммирует реально выделенные блоки файлов текущего пакета по метаданным.
@@ -25,7 +26,7 @@
 - [ICloudCopies._copy](#symbol-ICloudCopies._copy) — Возвращает привязку и проверяет её наличие в базе.
 - [ICloudCopies._evict_download](#symbol-ICloudCopies._evict_download) — Освобождает загрузку приложения после проверки обеих версий файла.
 - [ICloudCopies._finish_item](#symbol-ICloudCopies._finish_item) — Освобождает текущий путь и завершает привязку сразу после последнего элемента.
-- [ICloudCopies._next](#symbol-ICloudCopies._next) — Выбирает следующий доступный элемент, затем вычисляет состояние ожидающих привязок.
+- [ICloudCopies._next](#symbol-ICloudCopies._next) — Сначала проверяет занятые места пакета и откладывает известные заявки без места.
 - [ICloudCopies._prepare_download](#symbol-ICloudCopies._prepare_download) — Управляет явной загрузкой отсутствующего облачного файла и записывает её владельца.
 - [ICloudCopies._process](#symbol-ICloudCopies._process) — Выполняет одну попытку, фиксируя временный сбой тома или выбранного пути.
 - [ICloudCopies._publish](#symbol-ICloudCopies._publish) — Публикует временный путь атомарно, где это поддерживает файловая система.
@@ -120,7 +121,28 @@
 Базовые классы: `OSError`.
 
 
-Именованные методы: собственных методов нет.
+Состояние, присваиваемое конструктором: `delay`.
+
+Именованные методы: `__init__`.
+
+<a id="symbol-CloudPending.__init__"></a>
+
+## `CloudPending.__init__`
+
+[media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `CloudPending.__init__`
+
+Передаёт причину ожидания и задержку до допустимой повторной проверки. Нулевая задержка передаёт управление проверке вместимости в очереди.
+
+```python
+def __init__(self, message, *, delay=5)
+```
+
+Присваивания полям `self`: `delay`.
+
+Прямые выражения вызова: `super`, `super().__init__`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
+
 
 <a id="symbol-ICloudCopies"></a>
 
@@ -198,7 +220,7 @@ def _batch_usage(db)
 
 SQLite: чтение `icloud_copy_items`; запись/DDL не найдена. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `','.join`, `db.execute`, `db.execute(f'SELECT COUNT(*) AS files, COALESCE(SUM(cloud_bytes),0) AS bytes\n                            FROM icloud_copy_items WHERE cloud_phase IN ({marks})', CLOUD_IN_PROGRESS).fetchone`, `dict`.
+Прямые выражения вызова: `','.join`, `db.execute`, `db.execute(f"SELECT COUNT(*) AS files, COALESCE(SUM(cloud_bytes),0) AS bytes\n                            FROM icloud_copy_items WHERE cloud_phase != '' AND cloud_phase IN ({marks})", CLOUD_IN_PROGRESS).fetchone`, `dict`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -318,7 +340,7 @@ SQLite: чтение `icloud_copy_items`; запись/DDL `icloud_copies`. См
 
 [media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._next`
 
-Выбирает следующий доступный элемент, затем вычисляет состояние ожидающих привязок. Изменяет SQLite-таблицу icloud_copies.
+Сначала проверяет занятые места пакета и откладывает известные заявки без места. Учитывает общий лимит файлов и байтов, затем обновляет состояние привязок.
 
 ```python
 def _next(self)
@@ -326,7 +348,7 @@ def _next(self)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `db.execute`, `db.execute("\n                SELECT c.id,COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='pending' OR i.cloud_phase='evict_pending') AS pending,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts\n                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id\n                WHERE c.active=1 AND c.state!='waiting_source' AND c.retry_at<=? GROUP BY c.id\n            ", (current,)).fetchall`, `db.execute("\n                SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                WHERE c.active=1 AND c.retry_at<=? AND (i.state IN ('pending','retry') OR i.cloud_phase='evict_pending') AND i.retry_at<=?\n                ORDER BY (i.cloud_phase='evict_pending') DESC, c.updated_at, i.retry_at, i.path LIMIT 1\n            ", (current, current)).fetchone`, `dict`, [self._queue_ready_sources](media_manager--icloud_copies.md#symbol-ICloudCopies._queue_ready_sources), [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self.storage.connect`, `time.time`.
+Прямые выражения вызова: `','.join`, `db.execute`, `db.execute("\n                SELECT c.id,COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='pending' OR i.cloud_phase='evict_pending') AS pending,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts\n                FROM icloud_copies c LEFT JOIN icloud_copy_items i ON i.copy_id=c.id\n                WHERE c.active=1 AND c.state!='waiting_source' AND c.retry_at<=? GROUP BY c.id\n            ", (current,)).fetchall`, `db.execute(f"\n                SELECT i.* FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                WHERE c.active=1 AND c.retry_at<=? AND (i.state IN ('pending','retry') OR i.cloud_phase='evict_pending') AND i.retry_at<=?\n                  AND (i.cloud_phase!='waiting_space' OR (? AND (?=0 OR i.cloud_bytes<=?)))\n                ORDER BY CASE WHEN i.cloud_phase='evict_pending' THEN 0\n                              WHEN i.cloud_phase IN ({marks}) THEN 1 ELSE 2 END,\n                         c.updated_at, i.retry_at, i.path LIMIT 1\n            ", (current, current, batch['files'] < CLOUD_BATCH_FILES, batch['files'], CLOUD_BATCH_BYTES - batch['bytes'], *CLOUD_IN_PROGRESS)).fetchone`, `dict`, [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self._queue_ready_sources](media_manager--icloud_copies.md#symbol-ICloudCopies._queue_ready_sources), [self._update_copy](media_manager--icloud_copies.md#symbol-ICloudCopies._update_copy), `self.storage.connect`, `time.time`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -464,11 +486,11 @@ def _reserve_download(self, item, original, source, version)
 
 SQLite: чтение не найдено; запись/DDL `icloud_copy_items`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: [CloudPending](media_manager--icloud_copies.md#symbol-CloudPending), `db.execute`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), `json.dumps`, `now`, [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self._check](media_manager--icloud_copies.md#symbol-ICloudCopies._check), [self._update_item](media_manager--icloud_copies.md#symbol-ICloudCopies._update_item), `self.storage.connect`.
+Прямые выражения вызова: [CloudPending](media_manager--icloud_copies.md#symbol-CloudPending), `db.execute`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), `json.dumps`, `now`, [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self._check](media_manager--icloud_copies.md#symbol-ICloudCopies._check), [self._update_item](media_manager--icloud_copies.md#symbol-ICloudCopies._update_item), `self.storage.connect`, `str`.
 
 Явные `raise`:
 
-- `CloudPending(message)`
+- `pending`
 
 Выражения возврата (ветви, без исполнения):
 
@@ -823,7 +845,7 @@ def journal(self, copy_id, offset=0, limit=100)
 
 SQLite: чтение `icloud_copy_items`; запись/DDL не найдена. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `db.execute`, `db.execute("\n                SELECT path,kind,state,attempts,retry_at,message,updated_at,cloud_phase,cloud_bytes,cloud_message FROM icloud_copy_items\n                WHERE copy_id=? AND (state!='pending' OR cloud_phase!='')\n                ORDER BY CASE state WHEN 'retry' THEN 0 WHEN 'conflict' THEN 1 ELSE 2 END, updated_at DESC, path\n                LIMIT ? OFFSET ?\n            ", (copy_id, limit + 1, offset)).fetchall`, `dict`, `len`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), `self.storage.connect`.
+Прямые выражения вызова: `','.join`, `db.execute`, `db.execute(f"\n                SELECT path,kind,state,attempts,retry_at,message,updated_at,cloud_phase,cloud_bytes,cloud_message FROM icloud_copy_items\n                WHERE copy_id=? AND (state!='pending' OR cloud_phase!='')\n                ORDER BY CASE WHEN cloud_phase IN ({marks}) THEN 0 WHEN state='retry' THEN 1\n                              WHEN state='conflict' THEN 2 ELSE 3 END, updated_at DESC, path\n                LIMIT ? OFFSET ?\n            ", (copy_id, *CLOUD_IN_PROGRESS, limit + 1, offset)).fetchall`, `dict`, `len`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), `self.storage.connect`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -844,7 +866,7 @@ def list(self)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL не найдена. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `','.join`, `batch.update`, `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,\n                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,\n                    COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry') AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id\n                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `db.execute(f'SELECT c.source_path,i.path,i.cloud_phase,i.cloud_version\n                                      FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                                      WHERE i.cloud_phase IN ({marks})', CLOUD_IN_PROGRESS).fetchall`, `dict`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), `open_readonly`, [self._batch_local_bytes](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_local_bytes), [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `self.storage.refresh`, `sum`, `volume.get`, `volumes.get`.
+Прямые выражения вызова: `','.join`, `batch.update`, `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,\n                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,\n                    COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry' AND i.retry_at>0) AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id\n                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `db.execute(f'SELECT c.source_path,i.path,i.cloud_phase,i.cloud_version\n                                      FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                                      WHERE i.cloud_phase IN ({marks})', CLOUD_IN_PROGRESS).fetchall`, `dict`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), `open_readonly`, [self._batch_local_bytes](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_local_bytes), [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `self.storage.refresh`, `sum`, `volume.get`, `volumes.get`.
 
 Перехватываемые типы: `OSError`.
 
@@ -1042,7 +1064,7 @@ def residency(self, parent, name, operation, version)
 
 Выражения возврата (ветви, без исполнения):
 
-- `(True, '')`
+- `(True, detail)`
 - `(False, message)`
 
 

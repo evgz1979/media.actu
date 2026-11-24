@@ -261,6 +261,32 @@ class ICloudCopiesTests(unittest.TestCase):
         self.assertEqual((status['evicted'], status['evicted_bytes']), (1, 3))
         self.assertIn('Локальная загрузка освобождена', [item['cloud_message'] for item in self.copies.journal(copy_id)['items']])
 
+    #: Проверяет приоритет существующей заявки над более старой ожидающей строкой.
+    #: При заполненном пакете ожидающая строка просыпается только после освобождения места.
+    def test_due_cloud_requests_are_checked_before_the_capacity_queue(self):
+        for name in ('first', 'second'):
+            (self.source / name).write_bytes(b'cloud')
+        self.reader.residency = Mock(return_value=(True, ''))
+        copy_id = self.copies.bind('', 'disk', 'Backup')['id']
+        self.copies.start_copy(copy_id)
+        with (patch('media_manager.icloud_copies.cloud_dataless', return_value=True) as dataless,
+              patch('media_manager.icloud_copies.free_bytes', return_value=4 * 1024**3),
+              patch('media_manager.icloud_copies.CLOUD_BATCH_FILES', 1)):
+            self.read_pending()
+            self.assertIsNone(self.copies._next())
+            journal = self.copies.journal(copy_id, limit=2)['items']
+            self.assertEqual([(item['path'], item['cloud_phase']) for item in journal],
+                             [('first', 'requested'), ('second', 'waiting_space')])
+            self.assertEqual(journal[1]['retry_at'], 0)
+            with self.storage.connect() as db:
+                db.execute("UPDATE icloud_copy_items SET retry_at=1 WHERE path='first'")
+            with patch('media_manager.icloud_copies.CLOUD_BATCH_FILES', 2):
+                self.assertEqual(self.copies._next()['path'], 'first')
+            dataless.return_value = False
+            self.read_pending()
+        self.assertEqual(self.reader.calls, ['first', 'second'])
+        self.assertEqual(self.copies.list()['copies'][0]['done'], 2)
+
     #: Проверяет резерв системного диска перед загрузкой и повтор после освобождения места.
     #: Гарантирует отсутствие запроса к macOS, пока под файл не хватает места.
     def test_cloud_reserve_defers_before_download(self):
