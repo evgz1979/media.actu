@@ -1,4 +1,4 @@
-"""One destination picker for folder, Photos and iCloud Drive copy bindings."""
+"""Create copy bindings from the two workspace trees."""
 from pathlib import PurePosixPath
 
 from nicegui import ui
@@ -6,138 +6,94 @@ from nicegui import ui
 from copy_panels import copy_route
 from media_manager.copies import COPY_KINDS
 from media_manager.icloud_copies import ICLOUD_VOLUME_ID
-from media_manager.storage import relative_path
 
 
 COPY_SETUP_CSS = """
 .pane-add-copy.q-btn { flex-shrink:0; padding:1px 6px; font-size:11px; min-height:27px; }
 .pane-add-copy .q-btn__content { flex-wrap:nowrap; }
 .pane-add-copy .q-icon { font-size:15px; margin-right:3px; }
-.copy-setup.q-card { width:min(550px,calc(100vw - 28px)); padding:18px; gap:10px; }
-.copy-setup-path { padding:6px 8px; background:#edf4eb; border-radius:4px; color:#36563e; }
-.copy-setup-folders { max-height:min(34vh,255px); min-height:50px; overflow-y:auto; border:1px solid #dfe6dc; border-radius:4px; }
-.copy-setup-folders .q-btn { justify-content:flex-start; min-height:27px; padding:2px 7px; font-size:12px; }
-.copy-setup-folders .q-btn__content { flex-wrap:nowrap; justify-content:flex-start; text-align:left; }
-.copy-setup-folders .q-icon { font-size:15px; margin-right:5px; }
+.commander-trees.copy-configuring { --copy-width:clamp(154px,24%,205px);
+    grid-template-columns:minmax(0,1fr) var(--copy-width) minmax(0,1fr); gap:7px; }
+.commander-trees.copy-configuring.copy-configuring-chain { --copy-width:clamp(190px,31%,285px); }
+.commander-trees.copy-configuring > .commander-pane:nth-child(2) { grid-column:3; grid-row:1; }
+.commander-trees.copy-configuring > .commander-pane { border-color:#b0c4a7; }
+.commander-trees.copy-configuring > .active-pane { border-color:#75986c; }
+.copy-setup-panel { grid-column:2; grid-row:1; align-self:start; min-width:0; gap:7px; padding:9px;
+    background:#f5f8f3; border:1px solid #cad8c5; border-radius:9px; color:#344734; }
+.copy-setup-label { font-size:10px; color:#597157; font-weight:650; }
+.copy-setup-address { font-size:12px; line-height:1.4; overflow-wrap:anywhere; }
+.copy-setup-target { width:100%; background:#e7f0e4; border-radius:4px; padding:4px 5px; }
+.copy-setup-panel .q-btn { width:100%; text-align:center; font-size:11px; min-height:28px; padding:3px 5px; }
+.copy-setup-panel .q-field__label, .copy-setup-panel .q-field__native { font-size:11px; }
+@media(max-width:900px) {
+ .commander-trees.copy-configuring, .commander-trees.copy-configuring.copy-configuring-chain {
+    grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:auto minmax(0,1fr); }
+ .commander-trees.copy-configuring > .commander-pane:first-child { grid-row:2; }
+ .commander-trees.copy-configuring > .commander-pane:nth-child(2) { grid-column:2; grid-row:2; }
+ .copy-setup-panel { grid-column:1 / -1; }
+}
 """
 
 
 #: Формирует читаемый путь по короткому имени тома и пути внутри него.
-#: Возвращает имя тома для корня.
+#: Для корневой папки возвращает имя тома.
 def scope_title(volume, path):
     name = volume.get('display_name') or volume['name']
     return f'{name} /{path}' if path else name
 
 
-#: Определяет подключённый том, пригодный для выбора папки копии.
-#: Проверяет сохранённую идентичность и доступность.
+#: Определяет подключённый том, пригодный для назначения копии.
+#: Проверяет доступность и сохранённую идентичность тома.
 def copy_volume(volume):
     return bool(volume and volume['kind'] not in ('photos', 'icloud') and volume['availability'] == 'online'
                 and volume.get('identity_status') not in ('unverified', 'legacy'))
 
 
-#: Показывает адрес и предыдущие звенья выбранной копии Photos или iCloud.
-#: Недоступное звено отображается отдельной подписью в маршруте.
-def copy_origin_route(label, copies, link_id):
+#: Показывает адрес и предыдущие звенья выбранной копии.
+#: Использует фактические связи, включая отсутствующий источник.
+def copy_origin_route(label, copies, link_id, *, parent_key='source_link_id', root_id=None):
     if not link_id:
         return label
-    copies = [dict(c, label=f"{c['number']:02d}-copy · {c['volume_name']}") for c in copies]
+    copies = [dict(copy, label=f"{copy.get('label') or f'{copy['number']:02d}-copy'} · {copy['volume_name']}")
+              for copy in copies]
     target = next((copy for copy in copies if copy['id'] == link_id), None)
     if not target:
         return 'Недоступный источник'
-    route = copy_route(dict(id=None, label=label), copies, target, parent_key='source_link_id', downstream=False)
+    route = copy_route(dict(id=root_id, label=label), copies, target, parent_key=parent_key, downstream=False)
     return ' → '.join(node['label'] for node in route)
 
 
-#: Показывает текущий путь и дочерние папки для выбора источника или назначения.
-#: Передаёт изменения адреса и доступности диалогу, который принимает выбор.
-class CopyFolderPicker:
-    #: Создаёт общие элементы навигации, списка папок и сообщения об ошибке.
-    #: Принимает разрешённые тома и обработчик изменения выбора.
-    def __init__(self, workspace, volumes, changed, *, up_label):
-        self.ws = workspace
-        self.volumes = volumes
-        self.changed = changed
-        self.volume_id = None
-        self.path = ''
-        self.ready = self.locked = False
-        self.generation = 0
-        with ui.row().classes('w-full gap-2 items-center no-wrap'):
-            self.back = ui.button(icon='arrow_upward', on_click=self.parent).props(
-                f'flat dense size=sm aria-label="{up_label}"')
-            self.address = ui.label().classes('text-xs break-all')
-        self.folders = ui.column().classes('copy-setup-folders w-full gap-0')
-        self.problem = ui.label().classes('s-error text-xs break-words')
-        self.problem.set_visibility(False)
-        self.back.disable()
-
-    #: Блокирует навигацию и отменяет применение запоздалого ответа при закрытии.
-    #: Обновляет доступность перехода в родительскую папку.
-    def set_locked(self, locked):
-        self.locked = locked
-        self.back.set_enabled(bool(self.path) and not locked)
-        if locked:
-            self.generation += 1
-
-    #: Открывает родительскую папку на текущем томе.
-    #: Оставляет корень верхней границей выбора.
-    async def parent(self):
-        if self.path:
-            await self.navigate(self.volume_id, relative_path(str(PurePosixPath(self.path).parent)))
-
-    #: Загружает список вложенных папок без чтения файлов и отмечает проверенный адрес.
-    #: Игнорирует ответ, если пользователь перешёл дальше или закрыл диалог.
-    async def navigate(self, volume_id, path=''):
-        if self.locked or volume_id not in self.volumes:
-            return
-        self.generation += 1
-        revision = self.generation
-        self.volume_id, self.path, self.ready = volume_id, path, False
-        self.address.text = scope_title(self.volumes[volume_id], path)
-        self.back.set_enabled(bool(path))
-        self.problem.set_visibility(False)
-        self.changed()
-        self.folders.clear()
-        with self.folders:
-            ui.spinner(size='18px').classes('m-2')
-        try:
-            data = await self.ws.read_directory(volume_id, path, refresh=True)
-            if revision != self.generation:
-                return
-            if data.get('cached') or data.get('error'):
-                raise ValueError(data.get('error') or 'Папка сейчас недоступна.')
-        except Exception as error:
-            if revision == self.generation:
-                self.folders.clear()
-                self.problem.text = self.ws.error_text(error)
-                self.problem.set_visibility(True)
-                with self.folders:
-                    ui.button('Повторить', icon='refresh', on_click=lambda: self.navigate(volume_id, path)).props(
-                        'flat dense no-caps color=dark').classes('w-full')
-            return
-        self.folders.clear()
-        entries = [item for item in data['entries'] if item['kind'] == 'directory']
-        with self.folders:
-            for item in entries:
-                ui.button(item['name'], icon='folder', on_click=lambda p=item['path']: self.navigate(volume_id, p)).props(
-                    'flat dense no-caps color=dark').classes('w-full')
-            if not entries:
-                ui.label('Вложенных папок нет').classes('sidebar-empty')
-        self.ready = True
-        self.changed()
-
-
-#: Управляет общим диалогом «Из → Куда» и обновляет созданные связи.
-#: Зависимость конструктора: workspace.
+#: Управляет выбором готовой папки назначения в правом дереве.
+#: Держит источник и тип копии до явного сохранения или отмены.
 class CopySetupUI:
-    #: Сохраняет рабочее пространство и состояние диалога.
-    #: Обновляет состояние объекта: ws, opened.
+    #: Инициализирует состояние выбора и защищает создание от двойного нажатия.
+    #: Состояние черновика хранится только на открытой странице.
     def __init__(self, workspace):
         self.ws = workspace
-        self.opened = False
+        self.draft = None
+        self.opening = self.saving = False
+        self.previous = None
+        self.destination_key = None
 
-    #: Определяет допустимый источник из дерева, бокового списка или панели операций.
-    #: Для корня привязанной копии iCloud предлагает продолжить её цепочку.
+    #: Размещает путь, тип и подтверждение в отдельной центральной колонке.
+    #: Обе панели остаются обычными деревьями во время выбора.
+    def build(self):
+        with ui.column().classes('copy-setup-panel').props('role="group" aria-label="Добавление копии"') as self.panel:
+            ui.label('Из').classes('copy-setup-label')
+            self.origin = ui.label().classes('copy-setup-address')
+            ui.icon('south', size='16px').classes('text-green-9')
+            ui.label('Куда').classes('copy-setup-label')
+            self.destination = ui.label().classes('copy-setup-address copy-setup-target')
+            self.kind = ui.select(COPY_KINDS, value='copy', label='Тип копии').props(
+                'dense outlined options-dense').classes('w-full')
+            self.problem = ui.label().classes('s-error text-xs break-words')
+            self.problem.set_visibility(False)
+            self.confirm = ui.button('Связать как копию', on_click=self.submit).props('unelevated dense no-caps color=green-9')
+            self.cancel_button = ui.button('Отмена', on_click=self.cancel).props('flat dense no-caps color=dark')
+        self.panel.set_visibility(False)
+
+    #: Определяет выбранный источник и его роль в цепочке.
+    #: Для физических копий проверяет точный корень привязки.
     def source(self, volume_id, path, entry_kind='directory'):
         volume = self.ws.resolve_volume(volume_id)
         if not volume:
@@ -151,286 +107,229 @@ class CopySetupUI:
         if not path or not copy_volume(volume):
             return None
         libraries = getattr(self.ws, 'photo_libraries', None)
-        cloud_copies = libraries.cloud.get('copies', []) if libraries else []
-        upstream = next((copy for copy in cloud_copies if (copy['volume_id'], copy['path']) == (volume_id, path)), None)
-        if upstream:
-            return dict(kind='icloud', volume_id=ICLOUD_VOLUME_ID, path=upstream['source_path'], source_link_id=upstream['id'])
+        if libraries:
+            for copy in libraries.cloud.get('copies', []):
+                if (copy['volume_id'], copy['path']) == (volume_id, path):
+                    return dict(kind='icloud', volume_id=ICLOUD_VOLUME_ID, path=copy['source_path'], source_link_id=copy['id'])
+            for library in libraries.libraries:
+                for copy in library.get('copies', []):
+                    if (copy['volume_id'], copy['path']) == (volume_id, path) and copy.get('connected', True):
+                        return dict(kind='photos', volume_id=f"photos-{library['id']}", path='',
+                                    library=library, source_link_id=copy['id'])
         member = self.ws.copies.membership(volume_id, path)
-        if member and (member['number'] != 0 or not member['is_root']):
+        if member and not member['is_root']:
             return None
-        return dict(kind='folder', volume_id=volume_id, path=path)
+        source = dict(kind='folder', volume_id=volume_id, path=path)
+        if member and member['number']:
+            source.update(source_location_id=member['id'], group_id=member['group_id'])
+        return source
 
-    #: Выбирает доступную папку из панели напротив источника как быстрый вариант назначения.
-    #: Поддерживает вызов из любого дерева и из боковой колонки.
-    def suggested(self, source, index):
-        if index is None:
-            active = self.ws.active_index
-            index = next((i for i in (active, 1 - active)
-                          if self.ws.panes[i].display_volume_id == source['volume_id']), 0)
-        scope = self.ws.panes[1 - index].scope()
-        if (scope and scope['path'] and copy_volume(self.ws.resolve_volume(scope['volume_id']))
-                and (scope['volume_id'], scope['path']) != (source['volume_id'], source['path'])):
-            return scope
-        return None
+    #: Подписывает полный маршрут от корня до выбранного источника.
+    #: Для прямого источника показывает полный путь выбранной папки.
+    def describe(self, source):
+        volume = self.ws.resolve_volume(source['volume_id'])
+        label = scope_title(volume, source['path'])
+        link_id = source.get('source_link_id')
+        if library := source.get('library'):
+            return copy_origin_route(label, library.get('copies', []), link_id)
+        if link_id:
+            return copy_origin_route(label, self.ws.photo_libraries.cloud.get('copies', []), link_id)
+        if location := source.get('source_location_id'):
+            group = next((group for group in self.ws.copies.groups if group['id'] == source['group_id']), None)
+            if group:
+                main = group['main']
+                main_volume = self.ws.resolve_volume(main['volume_id']) or dict(name=main['volume_name'])
+                root = scope_title(main_volume, main['path'])
+                return copy_origin_route(root, group['copies'], location, parent_key='source_location_id', root_id=main['id'])
+        return label
 
-    #: Открывает диалог, обновляет боковой список и показывает созданную пару.
-    #: Выбирает именно сохранённое назначение, даже если у источника уже есть копии.
+    #: Выбирает правую папку, если том доступен и пути не пересекаются.
+    #: Путь хранится вместе с ID тома, а файл и корень тома непригодны как назначение.
+    def target(self):
+        pane = self.ws.panes[1]
+        if pane.view_mode != 'tree' or pane.kind != 'directory' or not pane.path or not copy_volume(pane.volume):
+            return None
+        origin, path = self.draft['anchor']
+        if pane.volume_id == origin:
+            left, right = PurePosixPath(path), PurePosixPath(pane.path)
+            if left.is_relative_to(right) or right.is_relative_to(left):
+                return None
+        return dict(volume_id=pane.volume_id, path=pane.path)
+
+    #: Отображает выбранное назначение и доступность подтверждения без пересборки деревьев.
+    #: Закрывает устаревший черновик при выборе другой области слева.
+    def refresh(self):
+        if not self.draft or self.opening or self.saving:
+            return
+        left = self.ws.panes[0]
+        if (left.volume_id, left.path) != self.draft['anchor'] or left.kind != 'directory':
+            self.clear()
+            return
+        target = self.target()
+        key = (target['volume_id'], target['path']) if target else None
+        if key != self.destination_key:
+            self.problem.set_visibility(False)
+        self.destination_key = key
+        self.destination.text = scope_title(self.ws.panes[1].volume, target['path']) if target else 'Выбери папку справа'
+        if target and target['volume_id'] != self.draft['suggested_volume']:
+            self.draft['suggested_volume'] = target['volume_id']
+            kind = self.draft['preferred_kind'] or ('cold' if self.ws.panes[1].volume.get('removable') else 'copy')
+            self.kind.set_value(kind)
+        self.confirm.set_enabled(target is not None)
+
+    #: Переводит рабочее пространство в выбор назначения между двумя деревьями.
+    #: Открытая правая папка подставляется сразу, а предыдущая связанная пара доступна после отмены.
     async def open(self, volume_id, path='', *, index=None, preferred_kind=None):
-        if self.opened:
+        if self.opening or self.saving:
             return
         source = self.source(volume_id, path)
         if not source:
-            ui.notify('Выбери медиатеку, папку iCloud Drive или основную папку набора.', type='info')
+            ui.notify('Выбери папку-источник, медиатеку или подключённую копию.', type='info')
             return
-        volumes = {volume['id']: volume for volume in self.ws.volumes if copy_volume(volume)}
-        if not volumes:
-            ui.notify('Подключи подтверждённый том для копии.', type='warning')
-            return
-        self.opened = True
-        was_editing = self.ws.editing
-        self.ws.editing = True
+        ws = self.ws
+        anchor = (volume_id, '' if ws.is_photos(volume_id) else path)
+        panes = ws.panes
+        if index is None:
+            active = ws.active_index
+            order = (active, 1 - active)
+            index = next((i for i in order if (panes[i].volume_id, panes[i].path) == anchor),
+                         next((i for i in order if panes[i].volume_id == volume_id), 0))
+        previous = self.previous
+        active_pair = ws.pair.active
+        report = ws.report or (ws.pair.report if active_pair else None)
+        if previous is None and (active_pair or report or any(pane.view_mode == 'preview' for pane in panes)):
+            previous = ws.workspace_snapshot()
+        self.clear()
+        self.opening = True
         try:
-            saved = await self.destination(source, volumes, self.suggested(source, index), preferred_kind)
-            if saved is None:
-                return
-            result, target = saved
-            ui.notify('Связь копии сохранена', type='positive')
-            if source['kind'] == 'folder':
-                self.ws.copies.expanded.add(result['id'])
-                await self.ws.copies.changed()
-                self.ws.copies.section.open()
-                copy = next(c for c in result['copies'] if all(c[key] == value for key, value in target.items()))
-                await self.ws.copies.open_copy(result, copy)
-            else:
-                libraries = self.ws.photo_libraries
-                libraries.expanded.add(source['library']['id'] if source['kind'] == 'photos' else ICLOUD_VOLUME_ID)
-                libraries.signature = None
-                await libraries.refresh(wait=True)
-                libraries.section.open()
-                await libraries.open_copy(source['volume_id'], result['id'])
+            other = panes[1 - index].save_browse_state()
+            if active_pair:
+                await ws.pair.unlink(stop_work=False)
+            if ws.report:
+                await ws.browse()
+            for pane in panes:
+                if pane.view_mode == 'preview':
+                    await pane.set_mode('tree')
+            if (index == 1 or active_pair or report) and other['volume_id']:
+                if report:
+                    folder = other['path'] if other['kind'] == 'directory' else other['root_path']
+                    await panes[1].show_volume(other['volume_id'], folder, activate=False)
+                else:
+                    panes[1].restore_browse_state(other)
+            if (panes[0].volume_id, panes[0].path) != anchor or panes[0].kind != 'directory':
+                await panes[0].show_volume(*anchor, activate=False)
+            self.previous = previous
+            self.draft = dict(source=source, anchor=anchor, preferred_kind=preferred_kind, suggested_volume=None)
+            chain = bool(source.get('source_location_id') or source.get('source_link_id'))
+            origin = self.describe(source)
+            self.origin.text = f'{origin} /{anchor[1]}' if chain else origin
+            self.kind.set_visibility(source['kind'] == 'folder')
+            self.kind.set_value(preferred_kind or 'copy')
+            self.panel.set_visibility(True)
+            ws.trees.classes(add='copy-configuring')
+            ws.trees.classes(add='copy-configuring-chain' if chain else '',
+                             remove='' if chain else 'copy-configuring-chain')
+            for pane in panes:
+                pane.mode_switch.disable()
+            ws.set_active(1)
+            panes[1].focus_tree()
         except Exception as error:
-            self.ws.notice(error)
+            self.clear()
+            ws.notice(error)
         finally:
-            self.opened = False
-            self.ws.editing = was_editing
+            self.opening = False
+            ws.update_scopes()
 
-    #: Сохраняет настроенную связь через API соответствующего источника.
-    #: Для iCloud сохраняет выбранный путь и предыдущее звено цепочки.
-    async def save(self, source, target, kind, upstream):
+    #: Убирает редактор и возвращает обычные команды панелей.
+    #: Используется также при переходе к другой паре.
+    def clear(self):
+        if not self.draft:
+            return
+        self.draft = self.previous = self.destination_key = None
+        self.problem.set_visibility(False)
+        self.panel.set_visibility(False)
+        self.ws.trees.classes(remove='copy-configuring copy-configuring-chain')
+        for pane in self.ws.panes:
+            pane.mode_switch.enable()
+
+    #: Отменяет выбор и возвращает прежний отчёт или связанную пару, если они были открыты.
+    #: Независимая навигация по двум деревьям сохраняется.
+    async def cancel(self):
+        if self.saving or self.opening or not self.draft:
+            return
+        previous = self.previous
+        self.clear()
+        if previous:
+            self.opening = True
+            try:
+                await self.ws.restore_workspace(previous)
+            except Exception as error:
+                self.ws.notice(error)
+            finally:
+                self.opening = False
+        self.ws.update_scopes()
+
+    #: Проверяет выбранную папку и сохраняет связь, затем показывает созданную пару.
+    #: Файловая операция может быть запущена отдельно из открытой пары.
+    async def submit(self):
+        if not self.draft or self.saving or not (target := self.target()):
+            return
+        source = self.draft['source']
+        kind = self.kind.value
+        self.saving = True
+        saved = False
+        self.problem.set_visibility(False)
+        self.confirm.disable()
+        self.cancel_button.disable()
+        self.kind.disable()
+        try:
+            listing = await self.ws.read_directory(target['volume_id'], target['path'], refresh=True)
+            if listing.get('cached') or listing.get('error'):
+                raise ValueError(listing.get('error') or 'Папка назначения сейчас недоступна.')
+            result = await self.save(source, target, kind)
+            saved = True
+            self.clear()
+            ui.notify('Связь копии сохранена', type='positive')
+            await self.show_saved(source, target, result)
+        except Exception as error:
+            if saved or not self.draft:
+                self.ws.notice(error)
+            else:
+                self.problem.text = self.ws.error_text(error)
+                self.problem.set_visibility(True)
+        finally:
+            self.saving = False
+            self.cancel_button.enable()
+            self.kind.enable()
+            self.ws.update_scopes()
+
+    #: Сохраняет связь через API выбранного источника.
+    #: Для цепочки передаёт постоянный ID предыдущего звена.
+    async def save(self, source, target, kind):
         if source['kind'] == 'folder':
             origin = {key: source[key] for key in ('volume_id', 'path')}
-            return await self.ws.request('POST', '/api/storage/folder-copy-bindings',
-                                         json=dict(source=origin, destination=dict(target, kind=kind)))
+            return await self.ws.request('POST', '/api/storage/folder-copy-bindings', json=dict(
+                source=origin, destination=dict(target, kind=kind), source_location_id=source.get('source_location_id')))
         if source['kind'] == 'photos':
             return await self.ws.request('POST', f"/api/photos/libraries/{source['library']['id']}/copies",
-                                         json=dict(target, source_link_id=upstream or None))
+                                         json=dict(target, source_link_id=source.get('source_link_id')))
         return await self.ws.request('POST', '/api/icloud/copies',
-                                     json=dict(target, source_path=source['path'],
-                                               source_link_id=upstream if upstream != ICLOUD_VOLUME_ID else None))
+                                     json=dict(target, source_path=source['path'], source_link_id=source.get('source_link_id')))
 
-    #: Позволяет выбрать вложенную папку iCloud Drive по её точному адресу.
-    #: Возвращает подтверждённый путь или None после отмены.
-    async def choose_cloud_folder(self, volume, path):
-        #: Разрешает выбор после подтверждённого чтения конкретной вложенной папки.
-        #: Корень выбирается отдельной командой в основном диалоге.
-        def changed():
-            choose.set_enabled(picker.ready and bool(picker.path))
-
-        with ui.dialog().props('persistent') as dialog, ui.card().classes('copy-setup'):
-            ui.label('Выбрать папку iCloud Drive').classes('text-lg font-semibold')
-            picker = CopyFolderPicker(self.ws, {ICLOUD_VOLUME_ID: volume}, changed, up_label='На уровень выше в iCloud Drive')
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
-                choose = ui.button('Выбрать эту папку', on_click=lambda: dialog.submit(picker.path)
-                                   if picker.ready and picker.path else None).props('unelevated no-caps color=green-9')
-            choose.disable()
-            ui.timer(.01, lambda: picker.navigate(ICLOUD_VOLUME_ID, path), once=True)
-        try:
-            return await dialog
-        finally:
-            picker.set_locked(True)
-            dialog.delete()
-
-    #: Показывает источник, маршрут и выбор папки назначения в одном диалоге.
-    #: Сохраняет окно открытым при ошибке чтения или отказе Core.
-    async def destination(self, source, volumes, suggestion, preferred_kind):
-        source_volume = self.ws.resolve_volume(source['volume_id'])
-        library = source.get('library')
-        state = dict(kind_volume=None, saving=False, selecting_source=False)
-        cloud_kind = source['kind'] == 'icloud'
-        cloud_online = cloud_kind and source_volume['availability'] == 'online'
-        source_path = source['path']
-        if cloud_kind and not source_path and not source.get('source_link_id'):
-            source_path = None
-        folder_kind = source['kind'] == 'folder'
-        all_copies = library['copies'] if library else self.ws.photo_libraries.cloud.get('copies', []) if cloud_kind else []
-        all_copies = sorted(all_copies, key=lambda copy: copy['number'])
-        direct = next((copy for copy in all_copies if not copy.get('source_link_id')), None)
-        choices = {copy['id']: f"{copy['number']:02d}-copy · {copy['volume_name']}" +
-                   (' · офлайн' if copy['availability'] != 'online' else '') for copy in all_copies}
-
-        #: Предлагает копии той же области iCloud Drive и прямой источник при доступности.
-        #: Показывает только подключённые копии для новой привязки.
-        def cloud_choices():
-            options = {ICLOUD_VOLUME_ID: 'Напрямую из iCloud Drive'} if cloud_online else {}
-            options.update((copy['id'], choices[copy['id']]) for copy in all_copies
-                           if copy['source_path'] == source_path and copy['availability'] == 'online')
-            return options
-
-        #: Проверяет оба адреса и состояние диалога перед сохранением связи.
-        #: Для iCloud отличает отсутствие выбора от явно выбранного корня.
-        def can_save():
-            return (source_path is not None and (cloud_online or not cloud_kind or bool(upstream and upstream.value))
-                    and picker.ready and bool(picker.path)
-                    and (picker.volume_id, picker.path) != (source['volume_id'], source_path)
-                    and not (state['saving'] or state['selecting_source']))
-
-        #: Подписывает выбранную область и обновляет доступность сохранения.
-        #: Пустой путь iCloud показывает как весь облачный диск.
-        def change_source(path):
-            nonlocal source_path
-            if state['saving'] or state['selecting_source']:
-                return
-            source_path = path
-            if upstream:
-                options = cloud_choices()
-                selected = upstream.value if upstream.value in options else next(iter(options), None)
-                upstream.set_options(options, value=selected)
-                upstream.set_visibility(len(options) > 1 or not cloud_online)
-            update_origin()
-            problem.set_visibility(False)
-            confirm.set_enabled(can_save())
-
-        #: Открывает выбор папки и применяет только подтверждённый адрес.
-        #: После отмены сохраняет прежнюю область.
-        async def browse_source():
-            if state['saving'] or state['selecting_source']:
-                return
-            state['selecting_source'] = True
-            confirm.disable()
-            try:
-                selected = await self.choose_cloud_folder(source_volume, source_path or '')
-            finally:
-                state['selecting_source'] = False
-                confirm.set_enabled(can_save())
-            if selected is not None:
-                change_source(selected)
-
-        with ui.dialog().props('persistent') as dialog, ui.card().classes('copy-setup'):
-            ui.label('Добавить копию').classes('text-lg font-semibold')
-            ui.label('Из').classes('text-xs font-semibold s-muted')
-            origin = ui.label().classes('copy-setup-path w-full break-all')
-            upstream = None
-            if library and all_copies:
-                upstream = ui.select(choices, value=(direct or all_copies[0])['id'],
-                                     label='Копировать из').props('dense outlined options-dense').classes('w-full')
-            if cloud_kind and all_copies:
-                options = cloud_choices()
-                initial = source.get('source_link_id') or (ICLOUD_VOLUME_ID if cloud_online else None)
-                if initial not in options:
-                    initial = next(iter(options), None)
-                upstream = ui.select(options, value=initial, label='Копировать из').props(
-                    'dense outlined options-dense').classes('w-full')
-                upstream.set_visibility(len(options) > 1 or not cloud_online)
-            source_button = cloud_root = None
-            if cloud_online:
-                with ui.row().classes('w-full gap-2 items-center'):
-                    source_button = ui.button('Выбрать папку…', icon='folder_open', on_click=browse_source).props(
-                        'flat dense no-caps color=green-9')
-                    cloud_root = ui.button('Весь iCloud Drive', on_click=lambda: change_source('')).props(
-                        'flat dense no-caps color=dark')
-
-            #: Показывает фактический путь передачи и выбранную область iCloud.
-            #: Использует общий маршрут для промежуточных звеньев Photos и iCloud.
-            def update_origin():
-                if library:
-                    origin.text = copy_origin_route(library.get('label') or 'Photos', all_copies, upstream.value if upstream else None)
-                elif cloud_kind and source_path is None:
-                    origin.text = 'Выбери папку iCloud Drive'
-                elif cloud_kind:
-                    link_id = upstream.value if upstream and upstream.value != ICLOUD_VOLUME_ID else None
-                    label = scope_title(source_volume, source_path) if source_path or link_id else 'Весь iCloud Drive'
-                    origin.text = copy_origin_route(label, all_copies, link_id)
-                else:
-                    origin.text = scope_title(source_volume, source_path)
-
-            #: Обновляет маршрут и доступность сохранения после выбора предыдущего звена.
-            #: Вызывается только после построения всех элементов формы.
-            def change_upstream():
-                update_origin()
-                confirm.set_enabled(can_save())
-
-            update_origin()
-            ui.label('Куда').classes('text-xs font-semibold s-muted')
-            with ui.row().classes('w-full gap-2 items-center no-wrap'):
-                selector = ui.select({i: scope_title(v, '') for i, v in volumes.items()},
-                                     label='Том назначения').props('dense outlined options-dense').classes('grow min-w-0')
-                shortcut = None
-                if suggestion:
-                    shortcut = ui.button('Из соседней панели', on_click=lambda: picker.navigate(**suggestion)).props(
-                        'flat dense no-caps color=green-9').classes('text-xs shrink-0')
-                    shortcut.tooltip(scope_title(volumes[suggestion['volume_id']], suggestion['path']))
-            #: Согласует выбранный том, предложенный тип копии и доступность сохранения.
-            #: Сбрасывает ошибку сохранения, когда меняется назначение.
-            def update_destination():
-                volume_id = picker.volume_id
-                if kind and preferred_kind is None and state['kind_volume'] != volume_id:
-                    kind.set_value('cold' if volumes[volume_id].get('removable') else 'copy')
-                    state['kind_volume'] = volume_id
-                selector.set_value(volume_id)
-                problem.set_visibility(False)
-                confirm.set_enabled(can_save())
-
-            picker = CopyFolderPicker(self.ws, volumes, update_destination, up_label='На уровень выше')
-            kind = ui.select(COPY_KINDS, value=preferred_kind or 'copy', label='Тип копии').props(
-                'dense outlined options-dense').classes('w-full') if folder_kind else None
-            problem = ui.label().classes('s-error text-xs break-words')
-            problem.set_visibility(False)
-
-            #: Обрабатывает выбор тома только для актуального значения поля.
-            #: Асинхронно ожидает: picker.navigate.
-            async def change_volume(event):
-                if event.value == selector.value and event.value != picker.volume_id:
-                    await picker.navigate(event.value)
-
-            #: Отправляет подтверждённую связь и оставляет поля доступными для исправления ошибки.
-            #: Асинхронно ожидает: self.save.
-            async def submit():
-                if not can_save():
-                    return
-                state['saving'] = True
-                problem.set_visibility(False)
-                controls = [control for control in (selector, shortcut, kind, upstream, source_button, cloud_root, cancel, confirm) if control]
-                picker.set_locked(True)
-                for control in controls:
-                    control.disable()
-                try:
-                    target = dict(volume_id=picker.volume_id, path=picker.path)
-                    result = await self.save(dict(source, path=source_path), target, kind.value if kind else None,
-                                             upstream.value if upstream else None)
-                except Exception as error:
-                    problem.text = self.ws.error_text(error)
-                    problem.set_visibility(True)
-                else:
-                    dialog.submit((result, target))
-                finally:
-                    state['saving'] = False
-                    for control in controls:
-                        control.enable()
-                    picker.set_locked(False)
-                    confirm.set_enabled(can_save())
-
-            selector.on_value_change(change_volume)
-            with ui.row().classes('w-full justify-end gap-2'):
-                cancel = ui.button('Отмена', on_click=lambda: dialog.submit(None)).props('flat no-caps color=dark')
-                confirm = ui.button('Сохранить связь', on_click=submit).props('unelevated no-caps color=green-9')
-            confirm.disable()
-            if upstream:
-                upstream.on_value_change(change_upstream)
-            first = suggestion['volume_id'] if suggestion else next(iter(volumes))
-            ui.timer(.01, lambda: picker.navigate(first), once=True)
-        try:
-            return await dialog
-        finally:
-            picker.set_locked(True)
-            dialog.delete()
+    #: Обновляет боковую колонку и открывает именно сохранённое назначение.
+    #: Нужная копия выбирается по адресу или ID из результата Core.
+    async def show_saved(self, source, target, result):
+        if source['kind'] == 'folder':
+            copies = self.ws.copies
+            copies.expanded.add(result['id'])
+            await copies.changed()
+            copies.section.open()
+            copy = next(c for c in result['copies'] if all(c[key] == value for key, value in target.items()))
+            await copies.open_copy(result, copy)
+        else:
+            libraries = self.ws.photo_libraries
+            libraries.expanded.add(source['library']['id'] if source['kind'] == 'photos' else ICLOUD_VOLUME_ID)
+            libraries.signature = None
+            await libraries.refresh(wait=True)
+            libraries.section.open()
+            await libraries.open_copy(source['volume_id'], result['id'])

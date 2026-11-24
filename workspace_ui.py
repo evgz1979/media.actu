@@ -292,7 +292,7 @@ class BrowserPane:
         path = self.path if self.kind == 'directory' else relative_path(str(PurePosixPath(self.path).parent))
         return {'volume_id': self.volume_id, 'path': path}
 
-    #: Открывает общий диалог копии для текущей папки или медиатеки.
+    #: Начинает выбор назначения копии для текущей папки или медиатеки.
     #: Асинхронно ожидает: self.workspace.copy_setup.open.
     async def add_copy(self):
         if self.view_mode == 'tree' and not self.comparison_open() and self.workspace.copy_setup.source(
@@ -1013,11 +1013,16 @@ class BrowserPane:
                             if entry.get('media_id'):
                                 with ui.context_menu():
                                     ui.menu_item('Открыть в Photos', on_click=lambda e=entry: self.workspace.open_photo(e['media_id']))
-                        elif self.volume_id != ICLOUD_VOLUME_ID:
+                        elif self.volume_id == ICLOUD_VOLUME_ID:
+                            if directory:
+                                with ui.context_menu():
+                                    ui.menu_item('Добавить копию…', on_click=lambda e=entry: self.workspace.copy_setup.open(
+                                        self.volume_id, e['path'], index=self.index))
+                        else:
                             self.workspace.property_menu('Свойства', lambda e=entry: self.workspace.show_properties(self.volume_id, e),
                                                          volume_id=self.volume_id, path=entry['path'],
                                                          folder=directory,
-                                                         extra=self.workspace.copies.context_actions(self.volume_id, entry))
+                                                         extra=self.workspace.copies.context_actions(self.volume_id, entry, index=self.index))
                         with ui.row().classes('s-name-cell').style(f'padding-left:{4 + depth * 14}px'):
                             if directory:
                                 ui.button(icon='expand_more' if entry['path'] in self.expanded else 'chevron_right',
@@ -1126,6 +1131,7 @@ class StorageWorkspace:
                 with self.link_badge:
                     ui.icon('link', size='19px')
                 self.pair.build()
+                self.copy_setup.build()
             self.build_operations()
         self.set_active(0)
         self.render_progress()
@@ -1666,6 +1672,9 @@ class StorageWorkspace:
     #: Пересчитывает выбранные области и доступность действий сверки и копирования.
     #: Использует ', '.join, labels.append, next, pane.scope, scope_label.
     def update_scopes(self):
+        setup = getattr(self, 'copy_setup', None)
+        if setup and getattr(setup, 'draft', None):
+            setup.refresh()
         self.persist_workspace()
         self.copies.render_sidebar()
         self.copies.render_controls()
@@ -1694,7 +1703,7 @@ class StorageWorkspace:
                 labels.append('Выбери том и папку')
         self.scopes_label.text = 'Слева: ' + labels[0] + '\nСправа: ' + labels[1]
         running = self.report and self.report['state'] in ('running', 'pausing')
-        self.start_button.set_enabled(bool(valid and not running))
+        self.start_button.set_enabled(bool(valid and not running and not getattr(setup, 'draft', None)))
 
     #: Инициализирует рабочее пространство и применяет параметры старой ссылки либо снимок вкладки.
     #: Обновляет состояние объекта: job_id, report, state_ready.
@@ -1792,6 +1801,9 @@ class StorageWorkspace:
     #: Показывает общую сверку в панелях и обновляет связанные элементы управления.
     #: Обновляет состояние объекта: browse_active, browse_state, job_id, last_marker, match_generation, report.
     async def apply_report(self, report):
+        setup = getattr(self, 'copy_setup', None)
+        if setup and getattr(setup, 'draft', None):
+            setup.clear()
         if self.pair.active:
             await self.pair.unlink()
         self.legacy_dialog.close()

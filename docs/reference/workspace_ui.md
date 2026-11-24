@@ -18,7 +18,7 @@
 - [BrowserPane](#symbol-BrowserPane) — Управляет деревом, выбором, навигацией и режимом превью одной панели.
 - [BrowserPane.__init__](#symbol-BrowserPane.__init__) — Инициализирует BrowserPane и его рабочее состояние.
 - [BrowserPane.activate_heading](#symbol-BrowserPane.activate_heading) — Делает панель активной и возвращает клавиатурный фокус дереву.
-- [BrowserPane.add_copy](#symbol-BrowserPane.add_copy) — Открывает общий диалог копии для текущей папки или медиатеки.
+- [BrowserPane.add_copy](#symbol-BrowserPane.add_copy) — Начинает выбор назначения копии для текущей папки или медиатеки.
 - [BrowserPane.change_filter](#symbol-BrowserPane.change_filter) — Меняет фильтр статусов сохранённого дерева и перезагружает результат.
 - [BrowserPane.comparison_open](#symbol-BrowserPane.comparison_open) — Проверяет наличие открытого результата общей или парной сверки.
 - [BrowserPane.display_volume_id](#symbol-BrowserPane.display_volume_id) — Возвращает ID тома, фактически показанного деревом или превью.
@@ -220,7 +220,7 @@ def activate_heading(self)
 
 [workspace_ui.py](../../workspace_ui.py) · `BrowserPane.add_copy`
 
-Открывает общий диалог копии для текущей папки или медиатеки. Асинхронно ожидает: self.workspace.copy_setup.open.
+Начинает выбор назначения копии для текущей папки или медиатеки. Асинхронно ожидает: self.workspace.copy_setup.open.
 
 ```python
 async def add_copy(self)
@@ -907,7 +907,7 @@ def __init__(self, request, format_bytes, format_date, core_url='http://127.0.0.
 
 Присваивания полям `self`: `active_index`, `archive`, `archive_list`, `browse_active`, `browse_state`, `client`, `context_menu_open`, `copies`, `copy_setup`, `core_url`, `current_matches`, `directory_sizes`, `editing`, `format_bytes`, `format_date`, `job_id`, `last_marker`, `layout`, `link_badge`, `match_generation`, `overview`, `pair`, `panes`, `photo_libraries`, `refresh_button`, `report`, `request`, `sidebar_state`, `sidebar_storage`, `size_force`, `size_open_scopes`, `size_requested`, `sizes_polling`, `state_payload`, `state_ready`, `trees`, `volume_list`, `volumes`, `volumes_section`.
 
-Прямые выражения вызова: [BrowserPane](workspace_ui.md#symbol-BrowserPane), `CopyGroupsUI`, `CopySetupUI`, `PairedWorkspace`, `PhotoLibrariesUI`, `normalize_sidebar`, `range`, [self.build_operations](workspace_ui.md#symbol-StorageWorkspace.build_operations), `self.copies.build_sidebar`, `self.pair.build`, `self.photo_libraries.build`, [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), [self.sidebar_expansion](workspace_ui.md#symbol-StorageWorkspace.sidebar_expansion), `self.sidebar_storage.get`, `set`, `ui.add_css`, `ui.add_head_html`, `ui.button`, `ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props`, `ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pane-link').props`, `ui.icon`, `ui.label`, `ui.label('media.actu').classes`, `ui.label('Загрузка томов M4…').classes`, `ui.row`, `ui.row().classes`.
+Прямые выражения вызова: [BrowserPane](workspace_ui.md#symbol-BrowserPane), `CopyGroupsUI`, `CopySetupUI`, `PairedWorkspace`, `PhotoLibrariesUI`, `normalize_sidebar`, `range`, [self.build_operations](workspace_ui.md#symbol-StorageWorkspace.build_operations), `self.copies.build_sidebar`, `self.copy_setup.build`, `self.pair.build`, `self.photo_libraries.build`, [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), [self.sidebar_expansion](workspace_ui.md#symbol-StorageWorkspace.sidebar_expansion), `self.sidebar_storage.get`, `set`, `ui.add_css`, `ui.add_head_html`, `ui.button`, `ui.button('Найти NAS', icon='lan', on_click=lambda: show_network_dialog(request, format_date, self.refresh_volumes)).props`, `ui.button('Обновить тома', icon='refresh', on_click=lambda: self.refresh_volumes(True)).props`, `ui.column`, `ui.column().classes`, `ui.element`, `ui.element('div').classes`, `ui.element('div').classes('pane-link').props`, `ui.icon`, `ui.label`, `ui.label('media.actu').classes`, `ui.label('Загрузка томов M4…').classes`, `ui.row`, `ui.row().classes`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -943,7 +943,7 @@ async def apply_report(self, report)
 
 Присваивания полям `self`: `browse_active`, `browse_state`, `job_id`, `last_marker`, `match_generation`, `report`.
 
-Прямые выражения вызова: `next`, `pane.save_browse_state`, `right.comparison.reset`, `right.folders.clear`, `right.render`, `self.history.set_value`, `self.legacy_dialog.close`, `self.pair.unlink`, `self.panes[0].show_volume`, [self.refresh_matches](workspace_ui.md#symbol-StorageWorkspace.refresh_matches), [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.report_marker](workspace_ui.md#symbol-StorageWorkspace.report_marker), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active).
+Прямые выражения вызова: `getattr`, `next`, `pane.save_browse_state`, `right.comparison.reset`, `right.folders.clear`, `right.render`, `self.history.set_value`, `self.legacy_dialog.close`, `self.pair.unlink`, `self.panes[0].show_volume`, [self.refresh_matches](workspace_ui.md#symbol-StorageWorkspace.refresh_matches), [self.render_progress](workspace_ui.md#symbol-StorageWorkspace.render_progress), [self.report_marker](workspace_ui.md#symbol-StorageWorkspace.report_marker), [self.set_active](workspace_ui.md#symbol-StorageWorkspace.set_active), `setup.clear`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -2045,7 +2045,7 @@ async def start_comparison(self)
 def update_scopes(self)
 ```
 
-Прямые выражения вызова: `', '.join`, `bool`, `labels.append`, `next`, `pane.scope`, `scope_label`, `self.copies.render_controls`, `self.copies.render_sidebar`, [self.persist_workspace](workspace_ui.md#symbol-StorageWorkspace.persist_workspace), `self.start_button.disable`, `self.start_button.set_enabled`, [volume_label](workspace_ui.md#symbol-volume_label).
+Прямые выражения вызова: `', '.join`, `bool`, `getattr`, `labels.append`, `next`, `pane.scope`, `scope_label`, `self.copies.render_controls`, `self.copies.render_sidebar`, [self.persist_workspace](workspace_ui.md#symbol-StorageWorkspace.persist_workspace), `self.start_button.disable`, `self.start_button.set_enabled`, `setup.refresh`, [volume_label](workspace_ui.md#symbol-volume_label).
 
 Выражения возврата (ветви, без исполнения):
 

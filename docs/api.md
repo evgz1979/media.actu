@@ -1418,6 +1418,19 @@ required задаёт обязательность поля, null в anyOf до�
     },
     "source": {
       "$ref": "#/components/schemas/ComparisonScope"
+    },
+    "source_location_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Location Id"
     }
   },
   "required": [

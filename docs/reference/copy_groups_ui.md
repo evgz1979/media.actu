@@ -202,7 +202,7 @@ async def confirm_remove(self, title, *, locations=(), button_label='Удали�
 Предоставляет команды учёта для контекстного меню выбранной папки. Использует self.membership.
 
 ```python
-def context_actions(self, volume_id, entry)
+def context_actions(self, volume_id, entry, *, index=None)
 ```
 
 Прямые выражения вызова: `actions.append`, [self.membership](copy_groups_ui.md#symbol-CopyGroupsUI.membership), `ws.copy_setup.source`.

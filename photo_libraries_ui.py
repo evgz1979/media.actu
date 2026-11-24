@@ -331,6 +331,8 @@ class PhotoLibrariesUI:
         ui.menu_item('Пауза сохранения' if running else 'Сохранить / проверить оригиналы',
                      on_click=lambda: self.originals_action(source_id, copy, running))
         ui.menu_item('Подробности и журнал', on_click=lambda: self.originals_journal(source_id, copy))
+        follow = ui.menu_item('Добавить следующую копию…', on_click=lambda: self.ws.copy_setup.open(copy['volume_id'], copy['path']))
+        follow.set_enabled(copy['availability'] == 'online')
         ui.menu_item('Источник копирования…', on_click=lambda: self.copy_source_dialog(library, copy))
         if copy['number'] != 1:
             ui.menu_item('Сделать 01-copy', on_click=lambda: self.action('POST', f"/api/photos/libraries/{source_id}/copies/{copy['id']}/make-first"))
@@ -538,7 +540,7 @@ class PhotoLibrariesUI:
         if await dialog:
             await self.action('DELETE', f"/api/icloud/copies/{copy['id']}")
 
-    #: Открывает общий диалог для выбранной папки либо всего iCloud Drive.
+    #: Начинает выбор назначения для выбранной папки либо всего iCloud Drive.
     #: Асинхронно ожидает: self.ws.copy_setup.open.
     async def bind_cloud(self):
         active = self.ws.active_index
@@ -742,7 +744,7 @@ class PhotoLibrariesUI:
         if name:
             await self.action('PATCH', f"/api/photos/libraries/{library['id']}", json={'label': name})
 
-    #: Открывает общий диалог выбора назначения и маршрута оригиналов Photos.
+    #: Начинает выбор назначения для оригиналов Photos в правом дереве.
     #: Асинхронно ожидает: self.ws.copy_setup.open.
     async def bind(self, library):
         await self.ws.copy_setup.open(f"photos-{library['id']}")

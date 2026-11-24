@@ -28,7 +28,7 @@
 - [CopySourceRequest](#symbol-CopySourceRequest) — Определяет Pydantic-контракт выбора источника копирования.
 - [DirectorySizesRequest](#symbol-DirectorySizesRequest) — Определяет Pydantic-контракт подсчёта размеров папок.
 - [FolderChoiceRequest](#symbol-FolderChoiceRequest) — Определяет Pydantic-контракт выбора папок macOS.
-- [FolderCopyBindingRequest](#symbol-FolderCopyBindingRequest) — Описывает выбранные в одном диалоге источник и назначение обычной копии.
+- [FolderCopyBindingRequest](#symbol-FolderCopyBindingRequest) — Описывает выбранные панели и необязательное предыдущее звено обычной копии.
 - [FolderRequest](#symbol-FolderRequest) — Определяет Pydantic-контракт открытия папки источника.
 - [FolderTagsRequest](#symbol-FolderTagsRequest) — Определяет Pydantic-контракт меток папки.
 - [ICloudCopyRequest](#symbol-ICloudCopyRequest) — Задаёт облачную область, папку назначения и необязательное предыдущее звено.
@@ -388,7 +388,7 @@
 
 [app.py](../../app.py) · `FolderCopyBindingRequest`
 
-Описывает выбранные в одном диалоге источник и назначение обычной копии. Поля: source, destination.
+Описывает выбранные панели и необязательное предыдущее звено обычной копии. Поля: source, destination, source_location_id.
 
 Базовые классы: `BaseModel`.
 
@@ -396,6 +396,7 @@
 | --- | --- | --- |
 | `source` | `ComparisonScope` | `обязательное поле` |
 | `destination` | `CopyLocationRequest` | `обязательное поле` |
+| `source_location_id` | `str &#124; None` | `Field(default=None, min_length=1, max_length=128)` |
 
 Именованные методы: собственных методов нет.
 
@@ -2700,7 +2701,7 @@ async def storage_folder_copy_binding(request: FolderCopyBindingRequest) -> dict
 
 Выражения возврата (ветви, без исполнения):
 
-- `await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump())`
+- `await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump(), request.source_location_id)`
 
 
 <a id="symbol-storage_folder_markers"></a>

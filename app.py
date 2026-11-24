@@ -467,12 +467,13 @@ class CopyLocationRequest(ComparisonScope):
     kind: Literal['copy', 'cold', 'cloud'] = 'copy'
 
 
-#: Описывает выбранные в одном диалоге источник и назначение обычной копии.
-#: Поля: source, destination.
+#: Описывает выбранные панели и необязательное предыдущее звено обычной копии.
+#: Поля: source, destination, source_location_id.
 class FolderCopyBindingRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     source: ComparisonScope
     destination: CopyLocationRequest
+    source_location_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 #: Определяет Pydantic-контракт типа копии.
@@ -596,7 +597,8 @@ async def storage_main_folder(request: ComparisonScope) -> dict:
 #: Асинхронно ожидает: copy_catalog_action.
 @app.post('/api/storage/folder-copy-bindings', status_code=201)
 async def storage_folder_copy_binding(request: FolderCopyBindingRequest) -> dict:
-    return await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump())
+    return await copy_catalog_action(copies.bind_folders, request.source.model_dump(), request.destination.model_dump(),
+                                     request.source_location_id)
 
 
 #: Обновляет настройки набора и пробуждает отслеживание изменений.

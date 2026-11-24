@@ -242,6 +242,15 @@ class PanelUnlinkTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(pair.active)
         ws.request.assert_not_awaited()
 
+    #: Проверяет временное переключение в выбор назначения.
+    #: Фоновая сверка доступна после возвращения к связанной паре.
+    async def test_opening_copy_setup_keeps_the_comparison_running(self):
+        ws, pair = self.workspace('running')
+        await pair.unlink(stop_work=False)
+        pair.stop.assert_not_awaited()
+        self.assertFalse(pair.active)
+        ws.request.assert_not_awaited()
+
 
 class MainFolderOpeningTests(unittest.IsolatedAsyncioTestCase):
     def workspace(self, copies):

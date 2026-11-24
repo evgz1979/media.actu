@@ -164,6 +164,8 @@ class CopyGroupsUI:
         else:
             if not offline:
                 actions.insert(0, ('Открыть для сверки', lambda: self.open_copy(group, location)))
+                actions.insert(1, ('Добавить следующую копию…',
+                                   lambda: ws.copy_setup.open(location['volume_id'], location['path'])))
             actions.extend((('Изменить тип копии', lambda: self.edit_kind(location)),
                             ('Источник копирования…', lambda: self.choose_source(group, location))))
         if not released and not group.get('connected', True):
@@ -275,8 +277,9 @@ class CopyGroupsUI:
         virtual_pair = bool((getattr(ws.pair, 'group', None) or {}).get('virtual_id'))
         browse_only = virtual_pair or any(getattr(p, 'view_mode', 'tree') == 'preview' or (p.volume or {}).get('kind') in ('photos', 'icloud')
                                           for p in getattr(ws, 'panes', ()))
-        self.controls.set_visibility(not bool(ws.report) and not history_only and not browse_only)
-        if ws.report or history_only or browse_only:
+        choosing_copy = bool(getattr(getattr(ws, 'copy_setup', None), 'draft', None))
+        self.controls.set_visibility(not bool(ws.report) and not history_only and not browse_only and not choosing_copy)
+        if ws.report or history_only or browse_only or choosing_copy:
             return
         left = ws.panes[0]
         group = self.main_group()
@@ -313,15 +316,16 @@ class CopyGroupsUI:
 
     #: Предоставляет команды учёта для контекстного меню выбранной папки.
     #: Использует self.membership.
-    def context_actions(self, volume_id, entry):
+    def context_actions(self, volume_id, entry, *, index=None):
         ws = self.workspace
         if ws.report or entry['kind'] != 'directory':
             return []
         path = entry['path']
         actions = []
-        if ws.copy_setup.source(volume_id, path):
-            actions.append(('Добавить копию…', lambda: ws.copy_setup.open(volume_id, path)))
-        if not self.membership(volume_id, path) and path:
+        source = ws.copy_setup.source(volume_id, path)
+        if source:
+            actions.append(('Добавить копию…', lambda: ws.copy_setup.open(volume_id, path, index=index)))
+        if not self.membership(volume_id, path) and path and (not source or source['kind'] == 'folder'):
             actions.append(('Назначить основной папкой', lambda: self.register_main(volume_id, path)))
         return actions
 

@@ -20,8 +20,8 @@
 - [PhotoLibrariesUI.action](#symbol-PhotoLibrariesUI.action) — Исполняет команду источника с единым обновлением UI и обработкой ошибки.
 - [PhotoLibrariesUI.add](#symbol-PhotoLibrariesUI.add) — Добавляет текущую системную медиатеку под выбранным названием.
 - [PhotoLibrariesUI.authorize](#symbol-PhotoLibrariesUI.authorize) — Запрашивает разрешение на доступ к Photos через Core.
-- [PhotoLibrariesUI.bind](#symbol-PhotoLibrariesUI.bind) — Открывает общий диалог выбора назначения и маршрута оригиналов Photos.
-- [PhotoLibrariesUI.bind_cloud](#symbol-PhotoLibrariesUI.bind_cloud) — Открывает общий диалог для выбранной папки либо всего iCloud Drive.
+- [PhotoLibrariesUI.bind](#symbol-PhotoLibrariesUI.bind) — Начинает выбор назначения для оригиналов Photos в правом дереве.
+- [PhotoLibrariesUI.bind_cloud](#symbol-PhotoLibrariesUI.bind_cloud) — Начинает выбор назначения для выбранной папки либо всего iCloud Drive.
 - [PhotoLibrariesUI.build](#symbol-PhotoLibrariesUI.build) — Создаёт сворачиваемый список источников, сохраняя прежнюю настройку раскрытия.
 - [PhotoLibrariesUI.cloud_copy_menu](#symbol-PhotoLibrariesUI.cloud_copy_menu) — Показывает команды передачи, журнала и отвязки копии iCloud.
 - [PhotoLibrariesUI.cloud_copy_status](#symbol-PhotoLibrariesUI.cloud_copy_status) — Подписывает состояние передачи iCloud Drive для компактной строки.
@@ -171,7 +171,7 @@ async def authorize(self)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.bind`
 
-Открывает общий диалог выбора назначения и маршрута оригиналов Photos. Асинхронно ожидает: self.ws.copy_setup.open.
+Начинает выбор назначения для оригиналов Photos в правом дереве. Асинхронно ожидает: self.ws.copy_setup.open.
 
 ```python
 async def bind(self, library)
@@ -188,7 +188,7 @@ async def bind(self, library)
 
 [photo_libraries_ui.py](../../photo_libraries_ui.py) · `PhotoLibrariesUI.bind_cloud`
 
-Открывает общий диалог для выбранной папки либо всего iCloud Drive. Асинхронно ожидает: self.ws.copy_setup.open.
+Начинает выбор назначения для выбранной папки либо всего iCloud Drive. Асинхронно ожидает: self.ws.copy_setup.open.
 
 ```python
 async def bind_cloud(self)
@@ -656,7 +656,7 @@ def pair_controls(self, virtual_id, copy)
 def photo_copy_menu(self, library, copy)
 ```
 
-Прямые выражения вызова: [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `ui.menu_item`, `ui.separator`.
+Прямые выражения вызова: `follow.set_enabled`, [self.originals_running](photo_libraries_ui.md#symbol-PhotoLibrariesUI.originals_running), `ui.menu_item`, `ui.separator`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 

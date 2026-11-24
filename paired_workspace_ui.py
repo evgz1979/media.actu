@@ -283,6 +283,11 @@ class PairedWorkspace:
             if source is None or not source.get('connected', True):
                 self.ws.notice(ValueError('Источник копирования недоступен или отключён'))
                 return
+            setup = getattr(self.ws, 'copy_setup', None)
+            if setup and getattr(setup, 'draft', None):
+                if setup.saving:
+                    return
+                setup.clear()
             if self.copy_running:
                 await self.stop_copy()
             if self.active and self.report and self.report['state'] in ('running', 'pausing'):
@@ -323,15 +328,15 @@ class PairedWorkspace:
                 if load_folders:
                     self.ws.panes[0].focus_tree()
 
-    #: Размыкает панели и восстанавливает независимый просмотр после остановки работы.
-    #: Обновляет состояние объекта: active, by_path, copy_operation, generation, history_only, pending_start, pending_view, rail_signature, report, rows, saved.
-    async def unlink(self):
+    #: Размыкает панели и восстанавливает независимый просмотр.
+    #: При выборе новой пары оставляет уже запущенное задание на Core.
+    async def unlink(self, *, stop_work=True):
         if not self.active:
             return
         with self.ws.client:
-            if self.copy_running:
+            if stop_work and self.copy_running:
                 await self.stop_copy()
-            if self.report and self.report['state'] in ('running', 'pausing'):
+            if stop_work and self.report and self.report['state'] in ('running', 'pausing'):
                 await self.stop()
             self.generation += 1
             self.pending_start = self.pending_view = None

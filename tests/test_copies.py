@@ -86,6 +86,26 @@ class CopyCatalogTests(unittest.TestCase):
         self.assertEqual(self.copies.bind_folders(source, target)['id'], group['id'])
         self.assertEqual(self.copies.group(group['id'])['next_number'], 2)
 
+    #: Проверяет запись цепочки, повтор запроса и отказ при смене маршрута.
+    #: Неверный источник не создаёт копию и не расходует номер.
+    def test_binding_from_connected_copy_saves_upstream_and_kind(self):
+        main = {'volume_id': 'main-disk', 'path': 'Photos'}
+        first = {'volume_id': 'target-disk', 'path': 'Other', 'kind': 'copy'}
+        second = {'volume_id': 'usb-disk', 'path': 'Cold', 'kind': 'cold'}
+        group = self.copies.bind_folders(main, first)
+        upstream = group['copies'][0]['id']
+        with self.assertRaisesRegex(ValueError, 'действующую папку'):
+            self.copies.bind_folders(main, second, upstream)
+        self.assertEqual(self.copies.group(group['id'])['next_number'], 2)
+        saved = self.copies.bind_folders(first, second, upstream)
+        self.assertEqual(saved['id'], group['id'])
+        self.assertEqual(saved['copies'][1]['label'], '02-copy-cold')
+        self.assertEqual(saved['copies'][1]['source_location_id'], upstream)
+        self.assertEqual(self.copies.bind_folders(first, second, upstream)['copies'], saved['copies'])
+        with self.assertRaisesRegex(ValueError, 'другим источником'):
+            self.copies.bind_folders(main, second)
+        self.assertEqual(self.copies.group(group['id'])['next_number'], 3)
+
     def test_rejects_files_unknown_paths_and_unverified_disks(self):
         for path in ('', 'Photos/Sub/original.txt', 'Unknown', '../outside', '/etc', '\x00'):
             with self.subTest(path=path), self.assertRaises(ValueError):

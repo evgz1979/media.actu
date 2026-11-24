@@ -324,6 +324,14 @@ async def test_slow_folder_response_cannot_restore_results_from_previous_selecti
 
 [tests/test_copies.py](../../tests/test_copies.py)
 
+<a id="symbol-tests.test_copies.CopyCatalogTests.test_binding_from_connected_copy_saves_upstream_and_kind"></a>
+
+### `CopyCatalogTests.test_binding_from_connected_copy_saves_upstream_and_kind`
+
+```python
+def test_binding_from_connected_copy_saves_upstream_and_kind(self)
+```
+
 <a id="symbol-tests.test_copies.CopyCatalogTests.test_binding_registers_source_and_destination_atomically"></a>
 
 ### `CopyCatalogTests.test_binding_registers_source_and_destination_atomically`
@@ -2098,6 +2106,14 @@ def test_root_files_require_explicit_disclosure_even_after_navigation(self)
 
 ```python
 async def test_leaving_a_running_comparison_stops_it_before_restoring_the_panels(self)
+```
+
+<a id="symbol-tests.test_paired_workspace.PanelUnlinkTests.test_opening_copy_setup_keeps_the_comparison_running"></a>
+
+### `PanelUnlinkTests.test_opening_copy_setup_keeps_the_comparison_running`
+
+```python
+async def test_opening_copy_setup_keeps_the_comparison_running(self)
 ```
 
 <a id="symbol-tests.test_paired_workspace.PanelUnlinkTests.test_panel_unlink_restores_browsing_without_removing_copy_records"></a>

@@ -18,8 +18,9 @@ base_url=CORE_URL, до 30 соединений, 10 keep-alive, срок keep-al
 
 `StorageWorkspace` владеет списком томов, активной панелью, отчётами, размерами,
 состоянием редактирования и компонентами `CopyGroupsUI`, `PhotoLibrariesUI`,
-`CopySetupUI`, `PairedWorkspace`. `CopySetupUI` ведёт общий выбор назначения
-и использует тот же навигатор для выбора исходной папки iCloud Drive.
+`CopySetupUI`, `PairedWorkspace`. `CopySetupUI` закрепляет выбранный источник
+слева и получает назначение из правого дерева. Центральная колонка содержит
+маршрут и подтверждение. Отмена возвращает ранее открытую связанную пару.
 Компоненты `sidebar_line`, `sidebar_menu` и `sidebar_branch`
 задают общий вид списков. `BrowserPane` владеет выбором одного тома, корнем, папками,
 раскрытием, режимом tree/preview и `StoragePreview`. У правой панели есть

@@ -60,7 +60,7 @@
 - [PairedWorkspace.stop_copy](#symbol-PairedWorkspace.stop_copy) — Запрашивает остановку активного копирования отсутствующих элементов.
 - [PairedWorkspace.toggle_differences](#symbol-PairedWorkspace.toggle_differences) — Переключает фильтр различий и обновляет набор загружаемых строк.
 - [PairedWorkspace.toggle_root_files](#symbol-PairedWorkspace.toggle_root_files) — Переключает показ файлов непосредственно в текущем корне пары.
-- [PairedWorkspace.unlink](#symbol-PairedWorkspace.unlink) — Размыкает панели и восстанавливает независимый просмотр после остановки работы.
+- [PairedWorkspace.unlink](#symbol-PairedWorkspace.unlink) — Размыкает панели и восстанавливает независимый просмотр.
 - [PairedWorkspace.update_header](#symbol-PairedWorkspace.update_header) — Обновляет путь и границы связанной стороны панели.
 - [PairedWorkspace.visible_rows](#symbol-PairedWorkspace.visible_rows) — Отбирает строки с учётом корня, раскрытия, скрытых файлов и различий.
 
@@ -442,7 +442,7 @@ async def link(self, group, location, *, load_folders=True)
 
 Присваивания полям `self`: `active`, `by_path`, `copy_id`, `copy_operation`, `differences_only`, `generation`, `group`, `history_only`, `loaded_job`, `pending_start`, `pending_view`, `rail_signature`, `report`, `root`, `root_files_open`, `rows`, `saved`, `saved_active`, `scopes`, `selected`, `show_hidden`.
 
-Прямые выражения вызова: `ValueError`, `any`, `asyncio.gather`, `bool`, `copy_upstream`, `group.get`, `location.get`, `p.save_browse_state`, `p.show_volume`, `pane.set_mode`, `self.closed.clear`, [self.render_rail](paired_workspace_ui.md#symbol-PairedWorkspace.render_rail), `self.scopes.values`, [self.stop](paired_workspace_ui.md#symbol-PairedWorkspace.stop), [self.stop_copy](paired_workspace_ui.md#symbol-PairedWorkspace.stop_copy), `self.views.clear`, `self.ws.browse`, `self.ws.notice`, `self.ws.panes[0].focus_tree`, `self.ws.set_active`, `self.ws.update_scopes`, `source.get`, `zip`.
+Прямые выражения вызова: `ValueError`, `any`, `asyncio.gather`, `bool`, `copy_upstream`, `getattr`, `group.get`, `location.get`, `p.save_browse_state`, `p.show_volume`, `pane.set_mode`, `self.closed.clear`, [self.render_rail](paired_workspace_ui.md#symbol-PairedWorkspace.render_rail), `self.scopes.values`, [self.stop](paired_workspace_ui.md#symbol-PairedWorkspace.stop), [self.stop_copy](paired_workspace_ui.md#symbol-PairedWorkspace.stop_copy), `self.views.clear`, `self.ws.browse`, `self.ws.notice`, `self.ws.panes[0].focus_tree`, `self.ws.set_active`, `self.ws.update_scopes`, `setup.clear`, `source.get`, `zip`.
 
 Выражения возврата (ветви, без исполнения):
 
@@ -946,10 +946,10 @@ def toggle_root_files(self)
 
 [paired_workspace_ui.py](../../paired_workspace_ui.py) · `PairedWorkspace.unlink`
 
-Размыкает панели и восстанавливает независимый просмотр после остановки работы. Обновляет состояние объекта: active, by_path, copy_operation, generation, history_only, pending_start, pending_view, rail_signature, report, rows, saved.
+Размыкает панели и восстанавливает независимый просмотр. При выборе новой пары оставляет уже запущенное задание на Core.
 
 ```python
-async def unlink(self)
+async def unlink(self, *, stop_work=True)
 ```
 
 Присваивания полям `self`: `active`, `by_path`, `copy_operation`, `generation`, `group`, `history_only`, `pending_start`, `pending_view`, `rail_signature`, `report`, `rows`, `saved`.

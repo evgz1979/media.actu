@@ -11,14 +11,16 @@
 
 Историческое решение ниже сохранено. Текущее устройство: [архитектура](../architecture.md), [реестр старых частей](../legacy.md).
 
-## Диалог маршрута Photos — 2026-11-23
+## Добавление звена между панелями — 2026-11-24
 
-При добавлении следующей копии диалог выбирает первое прямое звено по номеру.
-Пользователь может указать другую привязанную копию. Подтверждение сохраняет
-назначение и ребро маршрута в одной транзакции. В маршруте `Photos → NVMe → HDD`
-готовые ресурсы на NVMe служат источником для HDD.
+Команда в меню подключённой копии выбирает её источником следующего звена для
+обычной папки, Photos или iCloud Drive. Назначение выбирается в правом дереве.
+Окно между панелями показывает маршрут и сохраняет назначение с источником в
+одной транзакции. В маршруте `Photos → NVMe → HDD` готовые ресурсы на NVMe
+служат источником для HDD.
 
-Код: [`PhotoLibraries.bind_copy`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.bind_copy),
+Код: [`CopyCatalog.bind_folders`](../reference/media_manager--copies.md#symbol-CopyCatalog.bind_folders),
+[`PhotoLibraries.bind_copy`](../reference/media_manager--photo_libraries.md#symbol-PhotoLibraries.bind_copy),
 [`copy_origin_route`](../reference/copy_setup_ui.md#symbol-copy_origin_route).
 
 ## Копии iCloud Drive — 2026-11-23

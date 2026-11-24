@@ -13,7 +13,7 @@
 | [comparison_ui.py](comparison_ui.md) | Совместимость адреса /compare | 0 / 2 |
 | [copy_groups_ui.py](copy_groups_ui.md) | UI наборов копий | 1 / 30 |
 | [copy_panels.py](copy_panels.md) | Маршруты и роли панелей копирования | 0 / 8 |
-| [copy_setup_ui.py](copy_setup_ui.md) | Выбор источника и назначения копии | 2 / 24 |
+| [copy_setup_ui.py](copy_setup_ui.md) | Выбор источника и назначения копии | 1 / 15 |
 | [media_manager/__init__.py](media_manager--__init__.md) | Пакет Core | 0 / 0 |
 | [media_manager/catalog.py](media_manager--catalog.md) | Медиаиндекс и очередь превью | 1 / 34 |
 | [media_manager/comparison.py](media_manager--comparison.md) | Поиск совпадений по именам | 2 / 25 |

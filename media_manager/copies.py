@@ -295,9 +295,9 @@ class CopyCatalog:
                    (uuid4().hex, group_id, volume_id, path, 'main', 0, timestamp))
         return group_id
 
-    #: Создаёт основную папку при необходимости и связывает назначение одной транзакцией.
+    #: Связывает новую копию с основной папкой или действующим звеном одной транзакцией.
     #: Маркеры обеих областей ставятся в очередь после успешной проверки связи.
-    def bind_folders(self, source, destination):
+    def bind_folders(self, source, destination, source_location_id=None):
         source_id, target_id = source['volume_id'], destination['volume_id']
         kind = destination['kind']
         if kind not in COPY_KINDS:
@@ -309,10 +309,18 @@ class CopyCatalog:
                 raise ValueError('Выбери основную папку и папку назначения внутри томов.')
             with self.storage.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
-                group_id = self._ensure_main(db, source_id, source_path)
+                if source_location_id:
+                    upstream = db.execute('''SELECT * FROM copy_locations l WHERE id=? AND volume_id=? AND path=? AND number>0
+                        AND NOT EXISTS (SELECT 1 FROM disconnected_copy_locations d WHERE d.location_id=l.id)''',
+                                          (source_location_id, source_id, source_path)).fetchone()
+                    if not upstream:
+                        raise ValueError('Выбери действующую папку-источник копии.')
+                    group_id = upstream['group_id']
+                else:
+                    group_id = self._ensure_main(db, source_id, source_path)
                 if db.execute('SELECT 1 FROM disconnected_copy_groups WHERE group_id=?', (group_id,)).fetchone():
                     raise ValueError('Сначала подключи набор копий этой папки.')
-                self._add_copy(db, group_id, target_id, target_path, kind)
+                self._add_copy(db, group_id, target_id, target_path, kind, source_location_id=source_location_id)
                 self._queue_folder_markers(db, group_id)
         return self.group(group_id)
 
@@ -446,15 +454,19 @@ class CopyCatalog:
                 self._queue_folder_markers(db,group_id)
         return self.group(group_id)
 
-    #: Регистрирует папку назначения и её номер в текущей транзакции.
-    #: Изменяет SQLite-таблицы: copy_groups, copy_locations.
-    def _add_copy(self, db, group_id, volume_id, path, kind):
+    #: Регистрирует папку назначения, номер и источник в текущей транзакции.
+    #: Изменяет SQLite-таблицы: copy_groups, copy_locations, copy_sources.
+    def _add_copy(self, db, group_id, volume_id, path, kind, *, source_location_id=...):
         if not db.execute('SELECT 1 FROM copy_groups WHERE id=?', (group_id,)).fetchone():
             raise KeyError('Основная папка не найдена')
         existing = db.execute('SELECT * FROM copy_locations WHERE volume_id=? AND path=?', (volume_id, path)).fetchone()
         if existing and existing['group_id'] == group_id and existing['number'] > 0:
             if existing['kind'] != kind:
                 raise ValueError('Эта папка уже связана. Тип можно изменить в меню её ссылки.')
+            if source_location_id is not ...:
+                edge = db.execute('SELECT source_id FROM copy_sources WHERE location_id=?', (existing['id'],)).fetchone()
+                if (edge['source_id'] if edge else None) != source_location_id:
+                    raise ValueError('Эта копия уже связана с другим источником. Измени источник в её меню.')
             return
         locations = db.execute('SELECT * FROM copy_locations WHERE group_id=? AND number>0 ORDER BY number',
                                (group_id,)).fetchall()
@@ -463,9 +475,11 @@ class CopyCatalog:
         if number is None:
             raise ValueError('В нумерации есть пропуски. Сначала согласуй переименование меток копий.')
         self._check_overlap(db, volume_id, path)
-        timestamp = datetime.now(timezone.utc).isoformat()
+        identifier, timestamp = uuid4().hex, datetime.now(timezone.utc).isoformat()
         db.execute('INSERT INTO copy_locations VALUES (?,?,?,?,?,?,?)',
-                   (uuid4().hex, group_id, volume_id, path, kind, number, timestamp))
+                   (identifier, group_id, volume_id, path, kind, number, timestamp))
+        if source_location_id is not ... and source_location_id:
+            db.execute('INSERT INTO copy_sources VALUES (?,?)', (identifier, source_location_id))
         db.execute('UPDATE copy_groups SET next_number=? WHERE id=?', (number + 1, group_id))
 
     #: Меняет тип существующей копии с обновлением служебного описания.
