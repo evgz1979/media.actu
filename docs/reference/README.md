@@ -22,7 +22,7 @@
 | [media_manager/directory_sizes.py](media_manager--directory_sizes.md) | Размеры папок | 1 / 7 |
 | [media_manager/folder_markers.py](media_manager--folder_markers.md) | Служебные описания папок | 1 / 15 |
 | [media_manager/folder_tracking.py](media_manager--folder_tracking.md) | Отслеживание основных папок | 2 / 11 |
-| [media_manager/icloud_copies.py](media_manager--icloud_copies.md) | Копии iCloud Drive | 3 / 46 |
+| [media_manager/icloud_copies.py](media_manager--icloud_copies.md) | Копии iCloud Drive | 3 / 47 |
 | [media_manager/network.py](media_manager--network.md) | Обнаружение NAS | 2 / 16 |
 | [media_manager/paired_comparison.py](media_manager--paired_comparison.md) | Сверка связанных папок | 1 / 23 |
 | [media_manager/photo_libraries.py](media_manager--photo_libraries.md) | Профили медиатек Photos | 1 / 24 |

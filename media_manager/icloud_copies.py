@@ -176,6 +176,7 @@ class ICloudCopies:
             """)
             if 'source_link_id' not in {row['name'] for row in db.execute('PRAGMA table_info(icloud_copies)')}:
                 db.execute('ALTER TABLE icloud_copies ADD COLUMN source_link_id TEXT REFERENCES icloud_copies(id)')
+            self._scope_numbers(db)
             fields = {row['name'] for row in db.execute('PRAGMA table_info(icloud_copy_items)')}
             for name, definition in (('cloud_phase', "TEXT NOT NULL DEFAULT ''"), ('cloud_bytes', 'INTEGER NOT NULL DEFAULT 0'),
                                      ('cloud_version', 'TEXT'), ('cloud_message', "TEXT NOT NULL DEFAULT ''")):
@@ -183,6 +184,24 @@ class ICloudCopies:
                     db.execute(f'ALTER TABLE icloud_copy_items ADD COLUMN {name} {definition}')
             db.execute("CREATE INDEX IF NOT EXISTS icloud_copy_batch ON icloud_copy_items(cloud_phase, copy_id) WHERE cloud_phase != ''")
             db.execute("UPDATE icloud_copies SET current_path='' WHERE active=1")
+
+    #: Вводит независимую нумерацию копий для каждого корня iCloud.
+    #: Прежний порядковый номер задаёт порядок миграции; ID, задания и файлы сохраняются.
+    @staticmethod
+    def _scope_numbers(db):
+        if 'scope_number' not in {row['name'] for row in db.execute('PRAGMA table_info(icloud_copies)')}:
+            db.execute('ALTER TABLE icloud_copies ADD COLUMN scope_number INTEGER')
+        db.execute("""
+            WITH ranked AS MATERIALIZED (
+                SELECT p.id, COALESCE((SELECT MAX(c.scope_number) FROM icloud_copies c
+                                      WHERE c.source_path=p.source_path),0)
+                    + ROW_NUMBER() OVER (PARTITION BY p.source_path ORDER BY p.number) AS scoped
+                FROM icloud_copies p WHERE p.scope_number IS NULL
+            )
+            UPDATE icloud_copies SET scope_number=(SELECT scoped FROM ranked WHERE ranked.id=icloud_copies.id)
+            WHERE scope_number IS NULL
+        """)
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS icloud_copy_scope_number ON icloud_copies(source_path, scope_number)')
 
     #: Возвращает доступный путь облачного источника для просмотра и подсчёта.
     #: Явно отклоняет недопустимое состояние через OSError.
@@ -206,7 +225,7 @@ class ICloudCopies:
             row = db.execute('SELECT * FROM icloud_copies WHERE id=?', (copy_id,)).fetchone()
         if row is None:
             raise KeyError('Копия iCloud Drive не найдена')
-        return dict(row)
+        return dict(row, number=row['scope_number'])
 
     #: Проверяет доступность и подтверждённую идентичность тома назначения.
     #: Явно отклоняет недопустимое состояние через OSError.
@@ -263,10 +282,13 @@ class ICloudCopies:
                     row['volume_id'] == volume_id and (target.is_relative_to(other) or other.is_relative_to(target))
                 ):
                     raise ValueError('Папка пересекается с уже привязанной копией iCloud Drive')
-            number = db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone()[0]
-            db.execute('''INSERT INTO icloud_copies (id,number,source_path,volume_id,path,roots,source_link_id,updated_at)
-                          VALUES (?,?,?,?,?,?,?,?)''',
-                       (copy_id, number, source_path, volume_id, path, json.dumps(roots), source_link_id, now()))
+            sequence = db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone()[0]
+            number = db.execute('SELECT COALESCE(MAX(scope_number),0)+1 FROM icloud_copies WHERE source_path=?',
+                                (source_path,)).fetchone()[0]
+            db.execute('''INSERT INTO icloud_copies
+                          (id,number,scope_number,source_path,volume_id,path,roots,source_link_id,updated_at)
+                          VALUES (?,?,?,?,?,?,?,?,?)''',
+                       (copy_id, sequence, number, source_path, volume_id, path, json.dumps(roots), source_link_id, now()))
         return dict(id=copy_id, number=number)
 
     #: Возвращает краткое состояние копий для боковой панели.
@@ -280,7 +302,7 @@ class ICloudCopies:
                                       FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id
                                       WHERE i.cloud_phase IN ({marks})""", CLOUD_IN_PROGRESS).fetchall()
             rows = db.execute("""
-                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,
+                SELECT c.id,c.scope_number AS number,c.source_path,c.source_link_id,p.scope_number AS source_number,
                     c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,
                     COUNT(*) FILTER (WHERE i.kind='file') AS total,
                     COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,

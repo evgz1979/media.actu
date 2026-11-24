@@ -1265,6 +1265,7 @@ CREATE TABLE folder_marker_jobs (
 | `retry_at` | `REAL` | True | `0` | 0 |
 | `updated_at` | `TEXT` | True | не задано | 0 |
 | `source_link_id` | `TEXT` | False | не задано | 0 |
+| `scope_number` | `INTEGER` | False | не задано | 0 |
 
 Полное DDL с CHECK, UNIQUE и добавленными полями:
 
@@ -1275,7 +1276,7 @@ CREATE TABLE icloud_copies (
                     active INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'idle',
                     current_path TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '',
                     retry_at REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
-                    source_link_id TEXT REFERENCES icloud_copies(id),
+                    source_link_id TEXT REFERENCES icloud_copies(id), scope_number INTEGER,
                     UNIQUE(volume_id, path)
                 );
 ```
@@ -1284,7 +1285,7 @@ CREATE TABLE icloud_copies (
 
 - `source_link_id` → `icloud_copies.id`, ON DELETE `NO ACTION`, ON UPDATE `NO ACTION`.
 
-Индексы: `sqlite_autoindex_icloud_copies_1` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_2` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_3` (unique=True, partial=False).
+Индексы: `icloud_copy_scope_number` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_1` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_2` (unique=True, partial=False), `sqlite_autoindex_icloud_copies_3` (unique=True, partial=False).
 
 <a id="table-icloud-copy-items"></a>
 

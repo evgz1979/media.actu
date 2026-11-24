@@ -34,6 +34,7 @@
 - [ICloudCopies._read_local](#symbol-ICloudCopies._read_local) — Читает подтверждённый локальный файл из предыдущего звена по дескриптору.
 - [ICloudCopies._reserve_download](#symbol-ICloudCopies._reserve_download) — Резервирует место пакета перед первым запросом загрузки заполнителя iCloud.
 - [ICloudCopies._scan](#symbol-ICloudCopies._scan) — Добавляет облачные дочерние пути или создаёт папку из очереди зависимой копии.
+- [ICloudCopies._scope_numbers](#symbol-ICloudCopies._scope_numbers) — Вводит независимую нумерацию копий для каждого корня iCloud.
 - [ICloudCopies._source_parent](#symbol-ICloudCopies._source_parent) — Безопасно открывает подтверждённого родителя исходного файла.
 - [ICloudCopies._target_volume](#symbol-ICloudCopies._target_volume) — Проверяет доступность и подтверждённую идентичность тома назначения.
 - [ICloudCopies._transfer](#symbol-ICloudCopies._transfer) — Планирует запись одного отсутствующего файла с учётом существующего назначения.
@@ -157,7 +158,7 @@ def __init__(self, message, *, delay=5)
 
 Состояние, присваиваемое конструктором: `_current`, `_lock`, `_stop`, `_thread`, `_wake`, `reader`, `root`, `storage`.
 
-Именованные методы: `__init__`, `source_volume`, `browse`, `_copy`, `_target_volume`, `_batch_usage`, `bind`, `list`, `_batch_local_bytes`, `journal`, `start_copy`, `pause_copy`, `unbind`, `start`, `close`, `_update_copy`, `_update_item`, `_check`, `_queue_ready_sources`, `_next`, `_finish_item`, `_work`, `_validate_roots`, `_process`, `_scan`, `_cleanup`, `_source_parent`, `_reserve_download`, `_prepare_download`, `_evict_download`, `_transfer`, `_read_local`, `_write`, `_validate_transfer`, `_publish`, `_write_network`.
+Именованные методы: `__init__`, `_scope_numbers`, `source_volume`, `browse`, `_copy`, `_target_volume`, `_batch_usage`, `bind`, `list`, `_batch_local_bytes`, `journal`, `start_copy`, `pause_copy`, `unbind`, `start`, `close`, `_update_copy`, `_update_item`, `_check`, `_queue_ready_sources`, `_next`, `_finish_item`, `_work`, `_validate_roots`, `_process`, `_scan`, `_cleanup`, `_source_parent`, `_reserve_download`, `_prepare_download`, `_evict_download`, `_transfer`, `_read_local`, `_write`, `_validate_transfer`, `_publish`, `_write_network`.
 
 <a id="symbol-ICloudCopies.__init__"></a>
 
@@ -175,7 +176,7 @@ SQLite: чтение не найдено; запись/DDL `icloud_copies`, `icl
 
 Присваивания полям `self`: `_current`, `_lock`, `_stop`, `_thread`, `_wake`, `reader`, `root`, `storage`.
 
-Прямые выражения вызова: [ICloudReader](media_manager--icloud_copies.md#symbol-ICloudReader), `Path`, `Path.home`, `db.execute`, `db.executescript`, `self.storage.connect`, `threading.Event`, `threading.RLock`.
+Прямые выражения вызова: [ICloudReader](media_manager--icloud_copies.md#symbol-ICloudReader), `Path`, `Path.home`, `db.execute`, `db.executescript`, [self._scope_numbers](media_manager--icloud_copies.md#symbol-ICloudCopies._scope_numbers), `self.storage.connect`, `threading.Event`, `threading.RLock`.
 
 Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
@@ -289,7 +290,7 @@ SQLite: чтение `icloud_copies`; запись/DDL не найдена. См
 
 Выражения возврата (ветви, без исполнения):
 
-- `dict(row)`
+- `dict(row, number=row['scope_number'])`
 
 
 <a id="symbol-ICloudCopies._evict_download"></a>
@@ -519,6 +520,27 @@ SQLite: чтение не найдено; запись/DDL `icloud_copy_items`. 
 
 - `('conflict', 'Путь папки занят другим объектом')`
 - `('done', '')`
+
+
+<a id="symbol-ICloudCopies._scope_numbers"></a>
+
+## `ICloudCopies._scope_numbers`
+
+[media_manager/icloud_copies.py](../../media_manager/icloud_copies.py) · `ICloudCopies._scope_numbers`
+
+Вводит независимую нумерацию копий для каждого корня iCloud. Прежний порядковый номер задаёт порядок миграции; ID, задания и файлы сохраняются.
+
+```python
+def _scope_numbers(db)
+```
+
+Декораторы: `staticmethod`.
+
+SQLite: чтение `icloud_copies`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
+
+Прямые выражения вызова: `db.execute`.
+
+Явного `return` в собственном теле нет: обычное завершение возвращает `None`.
 
 
 <a id="symbol-ICloudCopies._source_parent"></a>
@@ -780,7 +802,7 @@ def bind(self, source_path, volume_id, path, source_link_id=None)
 
 SQLite: чтение `icloud_copies`; запись/DDL `icloud_copies`. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `(Path(destination['mount_path']) / path).resolve`, `MissingCopyCatalog._roots`, `OSError`, `Path`, `PurePosixPath`, `ValueError`, `cloud_path.is_relative_to`, `db.execute`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone`, `dict`, `json.dumps`, `json.loads`, `now`, `object_id`, `open_readonly`, `os.fstat`, `other.is_relative_to`, `relative_path`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), [self._target_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._target_volume), `self.root.is_dir`, `self.root.resolve`, [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `target.is_relative_to`, `target_path.is_relative_to`, `uuid4`.
+Прямые выражения вызова: `(Path(destination['mount_path']) / path).resolve`, `MissingCopyCatalog._roots`, `OSError`, `Path`, `PurePosixPath`, `ValueError`, `cloud_path.is_relative_to`, `db.execute`, `db.execute('SELECT COALESCE(MAX(number),0)+1 FROM icloud_copies').fetchone`, `db.execute('SELECT COALESCE(MAX(scope_number),0)+1 FROM icloud_copies WHERE source_path=?', (source_path,)).fetchone`, `dict`, `json.dumps`, `json.loads`, `now`, `object_id`, `open_readonly`, `os.fstat`, `other.is_relative_to`, `relative_path`, [self._copy](media_manager--icloud_copies.md#symbol-ICloudCopies._copy), [self._target_volume](media_manager--icloud_copies.md#symbol-ICloudCopies._target_volume), `self.root.is_dir`, `self.root.resolve`, [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `target.is_relative_to`, `target_path.is_relative_to`, `uuid4`.
 
 Явные `raise`:
 
@@ -866,7 +888,7 @@ def list(self)
 
 SQLite: чтение `icloud_copies`, `icloud_copy_items`; запись/DDL не найдена. См. [схему данных](../data-model.md).
 
-Прямые выражения вызова: `','.join`, `batch.update`, `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.number,c.source_path,c.source_link_id,p.number AS source_number,\n                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,\n                    COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry' AND i.retry_at>0) AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id\n                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `db.execute(f'SELECT c.source_path,i.path,i.cloud_phase,i.cloud_version\n                                      FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                                      WHERE i.cloud_phase IN ({marks})', CLOUD_IN_PROGRESS).fetchall`, `dict`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), `open_readonly`, [self._batch_local_bytes](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_local_bytes), [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `self.storage.refresh`, `sum`, `volume.get`, `volumes.get`.
+Прямые выражения вызова: `','.join`, `batch.update`, `copies.append`, `db.execute`, `db.execute("\n                SELECT c.id,c.scope_number AS number,c.source_path,c.source_link_id,p.scope_number AS source_number,\n                    c.volume_id,c.path,c.active,c.state,c.current_path,c.message,c.retry_at,\n                    COUNT(*) FILTER (WHERE i.kind='file') AS total,\n                    COUNT(*) FILTER (WHERE i.kind='file' AND i.state IN ('done','existing')) AS done,\n                    COUNT(*) FILTER (WHERE i.state='retry') AS waiting,\n                    COUNT(*) FILTER (WHERE i.state='conflict') AS conflicts,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='evicted') AS evicted,\n                    COALESCE(SUM(i.cloud_bytes) FILTER (WHERE i.cloud_phase='evicted'),0) AS evicted_bytes,\n                    COUNT(*) FILTER (WHERE i.cloud_phase='kept') AS kept_downloads,\n                    MIN(i.retry_at) FILTER (WHERE i.state='retry' AND i.retry_at>0) AS next_attempt\n                FROM icloud_copies c LEFT JOIN icloud_copies p ON p.id=c.source_link_id\n                LEFT JOIN icloud_copy_items i ON c.id=i.copy_id\n                GROUP BY c.id ORDER BY c.number\n            ").fetchall`, `db.execute(f'SELECT c.source_path,i.path,i.cloud_phase,i.cloud_version\n                                      FROM icloud_copy_items i JOIN icloud_copies c ON c.id=i.copy_id\n                                      WHERE i.cloud_phase IN ({marks})', CLOUD_IN_PROGRESS).fetchall`, `dict`, [free_bytes](media_manager--icloud_copies.md#symbol-free_bytes), [icloud_volume](media_manager--icloud_copies.md#symbol-icloud_volume), `open_readonly`, [self._batch_local_bytes](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_local_bytes), [self._batch_usage](media_manager--icloud_copies.md#symbol-ICloudCopies._batch_usage), [self.source_volume](media_manager--icloud_copies.md#symbol-ICloudCopies.source_volume), `self.storage.connect`, `self.storage.refresh`, `sum`, `volume.get`, `volumes.get`.
 
 Перехватываемые типы: `OSError`.
 

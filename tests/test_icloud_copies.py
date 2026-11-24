@@ -220,6 +220,30 @@ class ICloudCopiesTests(unittest.TestCase):
         with self.storage.connect() as db:
             self.assertIsNotNone(db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=?', (copy_id,)).fetchone())
 
+    #: Проверяет перенос старых глобальных номеров в порядки отдельных папок.
+    #: Очередь, пауза и связь цепочки остаются привязаны к тем же ID.
+    def test_scope_number_migration_preserves_chain_and_paused_queue(self):
+        for name in ('A', 'B'):
+            (self.source / name).mkdir()
+        for name in ('Second scope', 'Archive'):
+            (self.disk / name).mkdir()
+        first = self.copies.bind('A', 'disk', 'Backup')
+        other = self.copies.bind('B', 'disk', 'Second scope')
+        archive = self.copies.bind('A', 'disk', 'Archive', source_link_id=first['id'])
+        self.assertEqual([copy['number'] for copy in (first, other, archive)], [1, 1, 2])
+        self.copies.start_copy(other['id'])
+        self.copies.pause_copy(other['id'])
+        with self.storage.connect() as db:
+            db.execute('DROP INDEX icloud_copy_scope_number')
+            db.execute('ALTER TABLE icloud_copies DROP COLUMN scope_number')
+        self.copies = self.service()
+        by_id = {copy['id']: copy for copy in self.copies.list()['copies']}
+        self.assertEqual([by_id[copy['id']]['number'] for copy in (first, other, archive)], [1, 1, 2])
+        self.assertEqual(by_id[archive['id']]['source_link_id'], first['id'])
+        self.assertEqual(by_id[other['id']]['state'], 'paused')
+        with self.storage.connect() as db:
+            self.assertIsNotNone(db.execute('SELECT 1 FROM icloud_copy_items WHERE copy_id=?', (other['id'],)).fetchone())
+
     #: Проверяет глобальный бюджет, возобновление и выгрузку после записи.
     #: Уже локальные и ранее скопированные файлы не запрашиваются у iCloud.
     def test_cloud_batch_waits_for_capacity_and_evicts_only_its_verified_copy(self):

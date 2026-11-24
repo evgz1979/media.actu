@@ -1700,6 +1700,14 @@ def test_retries_partial_transfer_after_restart_and_continues_other_files(self)
 def test_scope_is_read_only_and_preserves_existing_files_and_structure(self)
 ```
 
+<a id="symbol-tests.test_icloud_copies.ICloudCopiesTests.test_scope_number_migration_preserves_chain_and_paused_queue"></a>
+
+### `ICloudCopiesTests.test_scope_number_migration_preserves_chain_and_paused_queue`
+
+```python
+def test_scope_number_migration_preserves_chain_and_paused_queue(self)
+```
+
 <a id="module-tests.test_network"></a>
 
 ## `test_network.py`
